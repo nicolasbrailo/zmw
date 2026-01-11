@@ -528,7 +528,7 @@ class MqttLights extends React.Component {
             <details key={prefix}>
               <summary>{prefix}</summary>
               <ul>
-                {(buttons.length > 0) && (
+                {(prefix !== 'Others') && (
                   <li>
                     <ZmwButton key={`${prefix}_All_On`}
                                name={`${prefix}_All_On`}
