@@ -72,6 +72,7 @@ function mAjax(cfg) {
 function mTextGet(url, success_cb, error_cb) {
   mAjax({
     url,
+    cache: true,
     type: 'GET',
     dataType: 'text',
     success: success_cb,
