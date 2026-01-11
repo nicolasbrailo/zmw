@@ -75,10 +75,9 @@ class CamViewer extends React.Component {
 
     mTextGet(`${this.props.api_base_path}/snap/${cam_host}`,
       () => {
-        console.log("Snapshot captured");
         // Refresh the image by updating timestamp
         setTimeout(() => {
-          console.log("Refresh img");
+          console.log("Snapshot captured");
           this.setState({
             imageTimestamp: Date.now(),
             isLoading: false,

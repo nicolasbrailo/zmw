@@ -17,10 +17,19 @@ test::
 .PHONY: rebuild_ui
 rebuild_ui::
 	@# Ensure common framework is up to date
+	echo "COMMON TGT"
 	$(MAKE) -C ../zzmw_lib/www js
 	@# Build app js for this service
 	../zzmw_lib/www/babel_compile_single.sh ./www/app.js ./www/app.rel.js
+	@# Bundle and cache bust
+	$(MAKE) _rebuild_ui_finalize
+
+# Finalize UI build: bundle zmw.js, hash filename, update HTML
+# Expects ./www/app.rel.js to already exist
+.PHONY: _rebuild_ui_finalize
+_rebuild_ui_finalize:
 	@# Bundle everything in one big js file
+	@echo "Deleting old cache-busted files:" ./www/app.rel.*.js 2>/dev/null || echo "(none)"
 	rm -f ./www/app.rel.*.js
 	cat ../zzmw_lib/www/zmw.js ./www/app.rel.js > ./www/app.rel.combined.js
 	mv ./www/app.rel.combined.js ./www/app.rel.js
@@ -28,7 +37,10 @@ rebuild_ui::
 	@# Update html targets with cache busted version (all in one line to keep var in scope)
 	HASH=$$(md5sum ./www/app.rel.js | cut -d' ' -f1 | head -c8) && \
 		cp ./www/app.rel.js "./www/app.rel.$$HASH.js" && \
-		sed -i "s|app\.rel[^\"]*\.js|app.rel.$$HASH.js|g" ./www/*.html
+		for f in ./www/*.html; do \
+			echo "Updating $$f hash to $$HASH"; \
+			sed -i "s|app\.rel[^\"]*\.js|app.rel.$$HASH.js|g" "$$f"; \
+		done
 
 .PHONY: install_svc
 install_svc::
