@@ -6,6 +6,12 @@
   "bcast_chat_id": 123123123,
   "accepted_chat_ids": [123, 2345],
 
+  "comment": "Received messages may specify a topic; if present, this overrides the bcast_chat_id",
+  "topic_map_chat": {
+    "user defined topic": 321321312,
+    "topic": 654
+  },
+
   "comment": "How many messages are kept in the service's history",
   "msg_history_len": 50,
 

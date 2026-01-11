@@ -128,6 +128,7 @@ class ZmwTelegram(ZmwMqttService):
     def __init__(self, cfg, www, sched):
         super().__init__(cfg, "zmw_telegram", scheduler=sched)
         self._bcast_chat_id = cfg['bcast_chat_id']
+        self._topic_map_chat = cfg['topic_map_chat']
         self._msg = TelBot(cfg, sched)
         self._msg_times = deque(maxlen=self._RATE_LIMIT_MAX_MSGS)
 
@@ -143,6 +144,13 @@ class ZmwTelegram(ZmwMqttService):
             if time.time() - oldest < self._RATE_LIMIT_WINDOW_SECS:
                 alerts.append("Currently rate limiting")
         return alerts
+
+    def _get_chat_id_for_payload(self, payload):
+        """Get the chat ID based on payload topic, or default to broadcast chat."""
+        topic = payload.get('topic')
+        if topic and topic in self._topic_map_chat:
+            return self._topic_map_chat[topic]
+        return self._bcast_chat_id
 
     def _rate_limited_send(self, send_fn):
         """Rate-limit outgoing messages. Allows max 3 messages per minute.
@@ -177,15 +185,17 @@ class ZmwTelegram(ZmwMqttService):
                 if not os.path.isfile(payload['path']):
                     log.error("Received request to send image but path is not a file: '%s'", payload)
                     return
-                log.info("Sending photo to bcast chat, path %s", payload['path'])
+                chat_id = self._get_chat_id_for_payload(payload)
+                log.info("Sending photo to chat %s, path %s", chat_id, payload['path'])
                 self._rate_limited_send(
-                    lambda: self._msg.send_photo(self._bcast_chat_id, payload['path'], payload.get('msg', None)))
+                    lambda: self._msg.send_photo(chat_id, payload['path'], payload.get('msg', None)))
             case "send_text":
                 if not 'msg' in payload:
                     log.error("Received request to send message but payload has no text: '%s'", payload)
                     return
-                log.info("Sending text to bcast chat, message %s", payload['msg'])
-                self._rate_limited_send(lambda: self._msg.send_message(self._bcast_chat_id, payload['msg']))
+                chat_id = self._get_chat_id_for_payload(payload)
+                log.info("Sending text to chat %s, message %s", chat_id, payload['msg'])
+                self._rate_limited_send(lambda: self._msg.send_message(chat_id, payload['msg']))
             case _:
                 log.error("Ignoring unknown message '%s'", subtopic)
 
