@@ -1111,21 +1111,21 @@ class MqttLights extends React.Component {
             <details key={prefix}>
               <summary>{prefix}</summary>
               <ul>
+                <li>
                 {(prefix !== 'Others') && (
-                  <li>
-                    <ZmwButton key={`${prefix}_All_On`}
-                               name={`${prefix}_All_On`}
-                               prefix={prefix}
-                               url={`${this.props.api_base_path}/all_lights_on/prefix/${prefix}`} />
-                    <ZmwButton key={`${prefix}_All_Off`}
-                               name={`${prefix}_All_Off`}
-                               prefix={prefix}
-                               url={`${this.props.api_base_path}/all_lights_off/prefix/${prefix}`} />
-                  {buttons.map((t) => (
-                    <ZmwButton key={t.name} name={t.data.name} url={t.data.url} prefix={prefix} />
-                  ))}
-                  </li>
+                  <><ZmwButton key={`${prefix}_All_On`}
+                             name={`${prefix}_All_On`}
+                             prefix={prefix}
+                             url={`${this.props.api_base_path}/all_lights_on/prefix/${prefix}`} />
+                  <ZmwButton key={`${prefix}_All_Off`}
+                             name={`${prefix}_All_Off`}
+                             prefix={prefix}
+                             url={`${this.props.api_base_path}/all_lights_off/prefix/${prefix}`} /></>
                 )}
+                {buttons.map((t) => (
+                  <ZmwButton key={t.name} name={t.data.name} url={t.data.url} prefix={prefix} />
+                ))}
+                </li>
                 {switches.map((t) => (
                   <ZmwSwitch key={t.name} switch={t.data} prefix={prefix} api_base_path={this.props.api_base_path} />
                 ))}
