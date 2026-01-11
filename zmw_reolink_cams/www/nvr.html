@@ -23,7 +23,12 @@
   </div>
 </body>
 
-<script src='/zmw.js'></script>
-<script src="/nvr.rel.js"></script>
-<script>z2mStartReactApp('#app_root', NVRViewer)</script>
+<script src="/app.rel.9e19ec2c.js"></script>
+<script>
+NVRViewer.buildProps = (api_base_path = '') => ({
+  key: 'nvr_viewer',
+  api_base_path: api_base_path,
+});
+z2mStartReactApp('#app_root', NVRViewer)
+</script>
 </html>

@@ -1,9 +1,5 @@
 include ../common.mk
 
-rebuild_ui::
-	../zzmw_lib/www/babel_compile_single.sh ./www/nvr.js ./www/nvr.rel.js
-	../zzmw_lib/www/babel_compile_single.sh ./www/app.js ./www/app.rel.js
-
 rebuild_deps: pipenv_rebuild_deps_base
 	pipenv install -e "$(shell readlink -f "$(PWD)/../zext_libs/reolink_aio")"
 	pipenv install flask

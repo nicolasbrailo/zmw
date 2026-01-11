@@ -1,7 +1,7 @@
-class CronenbergMonitor extends React.Component {
+class CronenbergMon extends React.Component {
   static buildProps() {
     return {
-      key: 'CronenbergMonitor',
+      key: 'CronenbergMon',
     };
   }
 
@@ -186,4 +186,4 @@ class CronenbergMonitor extends React.Component {
   }
 }
 
-z2mStartReactApp('#app_root', CronenbergMonitor);
+z2mStartReactApp('#app_root', CronenbergMon);
