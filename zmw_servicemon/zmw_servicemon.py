@@ -4,6 +4,7 @@ import pathlib
 import os
 import json
 import subprocess
+import threading
 from collections import deque
 from datetime import datetime, timedelta
 
@@ -36,6 +37,11 @@ class ZmwServicemon(ZmwMqttServiceMonitor):
 
         # Track recently sent error messages for deduplication (message_key, timestamp)
         self._recent_messages = deque(maxlen=100)
+
+        # Batch error messages with a 5-second delay
+        self._pending_errors = []
+        self._error_timer = None
+        self._error_lock = threading.Lock()
 
         # Add configured systemd services to journal monitor
         for service_name in self._systemd_services:
@@ -164,10 +170,34 @@ class ZmwServicemon(ZmwMqttServiceMonitor):
 
         self._recent_messages.append((msg_key, now))
         msg = f"{err.get('service')} {err.get('priority_name')}: {err.get('message')}"
-        self._message_svc("ZmwTelegram", "send_text", {'msg': msg})
+
+        # Batch errors with a 5-second delay, resetting timer on each new error
+        with self._error_lock:
+            self._pending_errors.append(msg)
+            if self._error_timer is not None:
+                self._error_timer.cancel()
+            self._error_timer = threading.Timer(5.0, self._flush_pending_errors)
+            self._error_timer.start()
+
+    def _flush_pending_errors(self):
+        """Send all pending error messages combined with newlines."""
+        with self._error_lock:
+            if not self._pending_errors:
+                return
+            combined_msg = '\n'.join(self._pending_errors)
+            self._pending_errors = []
+            self._error_timer = None
+
+        # Bypass service discovery. Because we monitor other services, we don't keep a map of service=>mqtt_topics.
+        # I should fix this, but for now this hack will do.
+        self.broadcast(f"zmw_telegram/send_text", {'msg': combined_msg, 'topic': 'system error'})
 
     def stop(self):
         """Stop the service and journal monitor"""
+        with self._error_lock:
+            if self._error_timer is not None:
+                self._error_timer.cancel()
+                self._error_timer = None
         self._journal_monitor.stop()
         super().stop()
 
