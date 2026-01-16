@@ -24,16 +24,23 @@ async def _sonos_ws_connect(api_key, ip_addr):
         "Sec-WebSocket-Protocol": "v1.api.smartspeaker.audio",
     }
     log.debug("Opening websocket to %s", uri)
+    session = aiohttp.ClientSession()
     try:
-        session = aiohttp.ClientSession()
         session.ws = await session.ws_connect(uri, headers=headers, verify_ssl=False)
-        return session
     except aiohttp.ClientResponseError as exc:
         log.error("HTTP error %s connecting to Sonos@'%s'", exc.code, uri)
     except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
         log.error("Network error connecting to Sonos@'%s'", uri)
     except aiohttp.ClientError:
         log.error("Unknown error connecting to Sonos speaker %s", uri, exc_info=True)
+    except Exception:
+        log.error("Unknown wild exception connecting to Sonos speaker %s", uri, exc_info=True)
+    else:
+        return session
+    try:
+        await session.close()
+    except Exception:
+        pass
     return None
 
 
