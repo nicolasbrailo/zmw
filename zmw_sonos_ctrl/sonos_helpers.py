@@ -50,6 +50,11 @@ def get_all_sonos_state():
     for spk in list(soco.discover()):
         playing_uri = spk.get_current_track_info().get('uri')
         transport_state = spk.get_current_transport_info().get('current_transport_state')
+        try:
+            media_info = spk.get_current_media_info()
+        except Exception:
+            media_info = {}
+            log.warning("Failed to parse speaker %s media info", spk.player_name, exc_info=True)
         speakers.append({
                 'name': spk.player_name,
                 'uri': playing_uri,
@@ -59,7 +64,7 @@ def get_all_sonos_state():
                 "is_playing_line_in": spk.is_playing_line_in,
                 "is_playing_radio": spk.is_playing_radio,
                 "is_playing_tv": spk.is_playing_tv,
-                'current_media_info': spk.get_current_media_info(),
+                'current_media_info': media_info,
                 'speaker_info': spk.get_speaker_info(),
         })
         for grp in spk.all_groups:

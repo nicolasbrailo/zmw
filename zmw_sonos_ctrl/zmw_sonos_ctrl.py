@@ -108,13 +108,13 @@ class ZmwSonosCtrl(ZmwMqttService):
         try:
             log.info("User requests to hijack Spotify to %s", speakers_cfg)
             spotify_context = self._get_spotify_context(status_cb)
-            if spotify_context is None:
+            spotify_uri = spotify_context.get("media_info", {}).get("context", {}).get("uri") if spotify_context else None
+            if spotify_uri is None:
                 log.info("User requested Spotify-hijack, but I can't find Spotify playing anything")
                 return
             track_num = spotify_context.get("media_info", {}).get("current_track", None)
             # TODO: This gives the track offset from the album, but not from the playlist. For playlists, this will jump at a random spot.
             # zmw_spotify needs to provide a playlist_track_offset and also an album_track_offset
-            spotify_uri = spotify_context.get("media_info", {}).get("context", {}).get("uri") if spotify_context else None
             # TODO: Read magic URI from config
             self._last_active_coord = sonos_hijack_spotify(speakers_cfg, spotify_uri, track_num,
                                                            "sid=9&flags=8232&sn=6", status_cb)
@@ -130,7 +130,7 @@ class ZmwSonosCtrl(ZmwMqttService):
         self.message_svc("ZmwSpotify", "publish_state", {})
         if not self._spotify_ready.wait(timeout=5):
             status_cb("Error! Timeout waiting for Spotify state.")
-            return None
+            return "Spotify state timeout. Service is down or unauthenticated"
         return self._spotify_context
 
     def _ws_line_in_requested(self, ws=None):
@@ -225,6 +225,13 @@ class ZmwSonosCtrl(ZmwMqttService):
         if svc_name == "ZmwSpotify" and subtopic == "state":
             if msg is None:
                 log.error("Bad message form ZmwSpotify")
+                self._spotify_context = {}
+                self._spotify_ready.set()
+                return
+            if "is_authenticated" in msg and not msg["is_authenticated"]:
+                log.warning("ZMWSpotify running, but not authenticated")
+                self._spotify_context = {}
+                self._spotify_ready.set()
                 return
             log.info("Received Spotify state")
             self._spotify_context = msg
