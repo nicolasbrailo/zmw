@@ -1,6 +1,6 @@
 from zzmw_lib.logs import build_logger
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from soco.plugins.sharelink import ShareLinkPlugin
 import soco
 import time
@@ -8,10 +8,18 @@ import requests
 
 log = build_logger("ZmwSonosHelpers")
 
+# Set timeout for all SoCo HTTP requests to speakers (default is None/no timeout)
+soco.config.REQUEST_TIMEOUT = 5
+SOCO_DISCOVER_TIMEOUT = 3
+SONOS_STATE_CACHE_TTL_SECS = 30
+
+_sonos_state_cache = None
+_sonos_state_cache_time = 0
+
 def ls_speakers():
     """Discover all Sonos speakers on the network."""
     speakers = {}
-    discovered = soco.discover(timeout=5)
+    discovered = soco.discover(timeout=SOCO_DISCOVER_TIMEOUT)
     if discovered:
         for speaker in discovered:
             speakers[speaker.player_name] = speaker
@@ -37,50 +45,225 @@ def ls_speaker_filter(names):
 def get_all_sonos_playing_uris():
     """ Return all of the URIs being played by all Sonos devices in the network """
     found = {}
-    for dev in list(soco.discover()):
+    for dev in list(soco.discover(timeout=SOCO_DISCOVER_TIMEOUT)):
         uri = dev.get_current_track_info()['uri']
         name = dev.player_name
         found[name] = uri
     return found
 
-def get_all_sonos_state():
-    speakers = []
-    groups = {}
-    zones = set()
-    for spk in list(soco.discover()):
-        playing_uri = spk.get_current_track_info().get('uri')
-        transport_state = spk.get_current_transport_info().get('current_transport_state')
-        try:
-            media_info = spk.get_current_media_info()
-        except Exception:
-            media_info = {}
-            log.warning("Failed to parse speaker %s media info", spk.player_name, exc_info=True)
-        speakers.append({
-                'name': spk.player_name,
-                'uri': playing_uri,
-                'transport_state': transport_state,
-                "volume": spk.volume,
-                "is_coordinator": spk.is_coordinator,
-                "is_playing_line_in": spk.is_playing_line_in,
-                "is_playing_radio": spk.is_playing_radio,
-                "is_playing_tv": spk.is_playing_tv,
-                'current_media_info': media_info,
-                'speaker_info': spk.get_speaker_info(),
-        })
+def _get_speaker_groups_zones(spk, speaker_name, ip_to_name):
+    """Fetch groups and zones for a speaker.
+
+    Returns (groups_list, zones_list). Runs with its own timeout so it doesn't
+    block speaker data collection. Uses ip_to_name lookup to avoid network calls
+    for player names.
+    """
+    speaker_groups = []
+    speaker_zones = []
+    try:
         for grp in spk.all_groups:
             if grp.coordinator is None:
                 continue
-            coord_name = grp.coordinator.player_name
-            groups[coord_name] = sorted([m.player_name for m in grp.members])
-
+            coord_ip = grp.coordinator.ip_address
+            coord_name = ip_to_name.get(coord_ip)
+            if coord_name is None:
+                log.info("Speaker %s has coordinator %s, but this speaker doesn't exist.", speaker_name, coord_ip)
+                continue
+            members = []
+            for m in grp.members:
+                member_ip = m.ip_address
+                member_name = ip_to_name.get(member_ip)
+                if member_name is None:
+                    log.info("Speaker %s says %s is in its group, but this speaker doesn't exist.", speaker_name, member_ip)
+                    continue
+                members.append(member_name)
+            speaker_groups.append((coord_name, sorted(members)))
         for zone in spk.all_zones:
-            zones.add(zone.player_name)
+            zone_ip = zone.ip_address
+            zone_name = ip_to_name.get(zone_ip)
+            if zone_name is None:
+                log.info("Speaker %s knows zone %s but no speaker is associated with it.", speaker_name, zone_ip)
+                continue
+            speaker_zones.append(zone_name)
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        log.warning("Failed to get groups or zones %s", speaker_name, exc_info=True)
 
-    return {
+    return speaker_groups, speaker_zones
+
+
+def _get_single_speaker_state(spk):
+    """Fetch basic state for a single speaker with timeout/exception handling.
+
+    Returns (spk, speaker_data) or (spk, None) on failure.
+    Operations that query the device (network calls) can timeout, so each is wrapped
+    in exception handling.
+    """
+    speaker_data = {}
+    speaker_data['ip_address'] = spk.ip_address
+
+    # Get player name first - needed for logging and as the key
+    try:
+        speaker_data['name'] = spk.player_name
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        log.warning("Failed to get player name for speaker %s", speaker_data['ip_address'], exc_info=True)
+        return spk, None
+
+    log.info("Discovered '%s'", speaker_data['name'])
+
+    # get_current_track_info() - queries device
+    # Also derive is_playing_line_in/radio/tv from URI to avoid 3 extra network calls
+    try:
+        track_info = spk.get_current_track_info()
+        uri = track_info.get('uri') or ''
+        speaker_data['uri'] = uri
+        speaker_data['is_playing_line_in'] = uri.startswith('x-rincon-stream:')
+        speaker_data['is_playing_radio'] = uri.startswith((
+            'x-sonosapi-stream:', 'x-sonosapi-radio:', 'x-rincon-mp3radio:', 'hls-radio:'
+        ))
+        speaker_data['is_playing_tv'] = uri.startswith('x-sonos-htastream:')
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        speaker_data['uri'] = None
+        speaker_data['is_playing_line_in'] = None
+        speaker_data['is_playing_radio'] = None
+        speaker_data['is_playing_tv'] = None
+        log.warning("Failed to get track info for %s", speaker_data['name'], exc_info=True)
+
+    # get_current_transport_info() - queries device
+    try:
+        speaker_data['transport_state'] = spk.get_current_transport_info().get('current_transport_state')
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        speaker_data['transport_state'] = None
+        log.warning("Failed to get transport info for %s", speaker_data['name'], exc_info=True)
+
+    # get_current_media_info() - queries device
+    try:
+        speaker_data['current_media_info'] = spk.get_current_media_info()
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        speaker_data['current_media_info'] = {}
+        log.warning("Failed to get media info for %s", speaker_data['name'], exc_info=True)
+
+    # volume property - queries device
+    try:
+        speaker_data['volume'] = spk.volume
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        speaker_data['volume'] = None
+        log.warning("Failed to get volume for %s", speaker_data['name'], exc_info=True)
+
+    # is_coordinator property - queries device
+    try:
+        speaker_data['is_coordinator'] = spk.is_coordinator
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        speaker_data['is_coordinator'] = None
+        log.warning("Failed to get coordinator status for %s", speaker_data['name'], exc_info=True)
+
+    # get_speaker_info() - queries device
+    try:
+        speaker_data['speaker_info'] = spk.get_speaker_info()
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        speaker_data['speaker_info'] = {}
+        log.warning("Failed to get speaker info for %s", speaker_data['name'], exc_info=True)
+
+    return spk, speaker_data
+
+
+def get_all_sonos_state(speaker_timeout_secs=10, groups_zones_timeout_secs=5):
+    """Discover all Sonos speakers and return their state.
+
+    Queries all speakers in parallel in two phases:
+    1. Fetch basic speaker state (with speaker_timeout_secs timeout)
+    2. Fetch groups/zones (with groups_zones_timeout_secs timeout)
+
+    If groups/zones fetching fails or times out, speakers are still returned.
+    Results are cached for SONOS_STATE_CACHE_TTL_SECS seconds.
+    """
+    global _sonos_state_cache, _sonos_state_cache_time
+
+    # Return cached state if still valid
+    if _sonos_state_cache is not None and (time.time() - _sonos_state_cache_time) < SONOS_STATE_CACHE_TTL_SECS:
+        log.info("Returning cached Sonos state (age: %.1fs)", time.time() - _sonos_state_cache_time)
+        return _sonos_state_cache
+
+    speakers = []
+    speakers_by_name = {}
+    groups = {}
+    zones = set()
+    log.info("Discovering all Sonos speakers...")
+
+    try:
+        discovered = list(soco.discover(timeout=SOCO_DISCOVER_TIMEOUT) or [])
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException):
+        discovered = None
+        log.warning("Failed to get Sonos network data, can't discover speakers", exc_info=True)
+
+    if not discovered:
+        return {
+            'speakers': [],
+            'groups': {},
+            'zones': [],
+        }
+
+    with ThreadPoolExecutor(max_workers=len(discovered)) as executor:
+        futures = {executor.submit(_get_single_speaker_state, spk): spk for spk in discovered}
+        log.info("Discovering speakers details...")
+        done, not_done = wait(futures, timeout=speaker_timeout_secs)
+        log.info("Discovered %s speakers, %s failed", len(done), len(not_done))
+
+        for future in not_done:
+            future.cancel()
+            spk = futures[future]
+            log.warning("Timed out waiting for speaker state: %s", spk.ip_address)
+
+        for future in done:
+            try:
+                spk, speaker_data = future.result()
+                if speaker_data is None:
+                    continue
+                speakers.append(speaker_data)
+                speakers_by_name[speaker_data['name']] = spk
+            except Exception:
+                log.warning("Exception getting speaker state", exc_info=True)
+
+    if not speakers_by_name:
+        return {
+            'speakers': [],
+            'groups': {},
+            'zones': [],
+        }
+
+    log.info("Discovering Sonos zones and groups...")
+
+    # Phase 2: Fetch groups/zones in parallel (this will query devices that are part of the group, so even if fetching
+    # info for a speaker worked, fetching its coord/group status may fail)
+    ip_to_name = {s['ip_address']: s['name'] for s in speakers}
+    with ThreadPoolExecutor(max_workers=len(speakers_by_name)) as executor:
+        futures = {
+            executor.submit(_get_speaker_groups_zones, spk, name, ip_to_name): name
+            for name, spk in speakers_by_name.items()
+        }
+        done, not_done = wait(futures, timeout=groups_zones_timeout_secs)
+
+        for future in not_done:
+            future.cancel()
+            name = futures[future]
+            log.warning("Timed out fetching groups/zones for %s", name)
+
+        for future in done:
+            try:
+                speaker_groups, speaker_zones = future.result()
+                for coord_name, members in speaker_groups:
+                    groups[coord_name] = members
+                for zone_name in speaker_zones:
+                    zones.add(zone_name)
+            except Exception:
+                log.warning("Exception getting groups/zones", exc_info=True)
+
+    _sonos_state_cache = {
         'speakers': sorted(speakers, key=lambda s: s['name']),
         'groups': dict(sorted(groups.items())),
         'zones': sorted(zones),
     }
+    _sonos_state_cache_time = time.time()
+    return _sonos_state_cache
 
 
 def sonos_debug_state(spk, log_fn):
