@@ -148,7 +148,7 @@ class ZmwCronenbergs(ZmwMqttServiceNoCommands):
         turn_all_lights_off(self._z2m)
         names = ", ".join([l.name for l in lights_on])
         msg = f'Someone forgot the lights on. Will turn off {names}'
-        self.message_svc("ZmwTelegram", "send_text", {'msg': msg})
+        #self.message_svc("ZmwTelegram", "send_text", {'msg': msg})
         log.info(msg)
 
     def _check_low_battery(self):
