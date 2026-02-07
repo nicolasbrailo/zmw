@@ -1,0 +1,16 @@
+{
+  "stt": {
+    "COMMENT_model_size": "Whisper model size. Options: tiny, base, small, medium, large-v2, large-v3. Append '.en' for English-only (e.g. tiny.en, base.en). Larger = more accurate but slower and more RAM.",
+    "model_size": "tiny",
+    "COMMENT_compute_type": "Quantization for inference. Options: int8 (fastest, least RAM), float16 (GPU), float32 (most precise). int8 is recommended for CPU.",
+    "compute_type": "int8",
+    "COMMENT_language": "Suggested language hint for detection (ISO 639-1 code, e.g. en, es, fr, de, it, pt, zh, ja). The model may still detect a different language if the audio doesn't match.",
+    "language": "en",
+    "COMMENT_task": "Options: 'translate' (always output English — translates non-English audio, transcribes English audio) or 'transcribe' (output in the detected language — with smaller models and language=en this may still accidentally translate to English).",
+    "task": "translate",
+    "COMMENT_beam_size": "Beam search width. Higher = more accurate but slower. Typical values: 1 (greedy, fastest), 5 (default, good balance), 10 (slower, diminishing returns).",
+    "beam_size": 5,
+    "COMMENT_local_files_only": "If true, only use cached model files (no downloads). Set to false on first run to download the model, then set back to true.",
+    "local_files_only": true
+  }
+}
