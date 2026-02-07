@@ -15,5 +15,8 @@
   "comment": "How many messages are kept in the service's history",
   "msg_history_len": 50,
 
+  "comment": "Path where voice messages from Telegram are downloaded",
+  "voice_download_path": "/tmp/zmw_telegram_voice",
+
   "JSON": "IS SILLY"
 }

@@ -19,3 +19,11 @@ test_listen_all:
 test_listen_cmds:
 	mosquitto_sub -h 127.0.0.1 -t 'zmw_telegram/on_command/mqtt_ping'
 
+test_listen_voice:
+	mosquitto_sub -v -h 127.0.0.1 -t 'zmw_telegram/on_voice'
+
+OGG ?= /home/batman/run/baticasa/zmw_telegram/voice_msgs/voice_6797373417_1770463102.ogg
+WAV ?= /home/batman/run/baticasa/zmw_telegram/voice_msgs/voice_6797373417_1770463102.wav
+test_voice_received:
+	mosquitto_pub -t 'zmw_telegram/on_voice' -m '{"path": "$(OGG)", "wav_path": "$(WAV)", "from_id": 6797373417, "from_name": "N Fb", "chat_id": 6797373417, "duration": 1, "original_mime_type": "audio/ogg"}'
+

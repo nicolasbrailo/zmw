@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import requests
+import time
 
 
 log = logging.getLogger(__name__)
@@ -134,7 +135,10 @@ def _validate_telegram_cmds(cmds):
     return known_commands, str(json.dumps(fmt_cmds))
 
 
-def _telegram_sanitize_user_message(msg, known_cmds, accepted_chat_ids, try_parse_msg_as_cmd=False):
+def _telegram_sanitize_message(msg, accepted_chat_ids):
+    """ Extract and validate the 'message' field from a Telegram update.
+    Returns the inner message dict, or None if it should be skipped.
+    Raises TelegramUnauthorizedBotAccess if the sender is not in accepted_chat_ids. """
     if 'message' not in msg:
         log.debug('Ignoring non message update %s', msg)
         return None
@@ -150,6 +154,14 @@ def _telegram_sanitize_user_message(msg, known_cmds, accepted_chat_ids, try_pars
         log.info('Unauthorized Telegram bot access detected %s', msg)
         smsg = json.dumps(msg)
         raise TelegramUnauthorizedBotAccess(smsg)
+
+    return msg
+
+
+def _telegram_sanitize_user_message(msg, known_cmds, accepted_chat_ids, try_parse_msg_as_cmd=False):
+    msg = _telegram_sanitize_message(msg, accepted_chat_ids)
+    if msg is None:
+        return None
 
     if 'text' not in msg:
         log.debug('Ignoring message/thread metadata update %s', msg)
@@ -204,6 +216,35 @@ def _telegram_sanitize_user_message(msg, known_cmds, accepted_chat_ids, try_pars
     }
 
 
+def _telegram_sanitize_voice_message(msg, accepted_chat_ids):
+    msg = _telegram_sanitize_message(msg, accepted_chat_ids)
+    if msg is None:
+        return None
+
+    if 'voice' in msg:
+        voice = msg['voice']
+        return {
+            'from': msg['from'],
+            'chat': msg['chat'],
+            'type': 'voice',
+            'file_id': voice['file_id'],
+            'mime_type': voice.get('mime_type', 'audio/ogg'),
+            'duration': voice.get('duration'),
+        }
+    elif 'audio' in msg:
+        audio = msg['audio']
+        return {
+            'from': msg['from'],
+            'chat': msg['chat'],
+            'type': 'audio',
+            'file_id': audio['file_id'],
+            'mime_type': audio.get('mime_type', 'audio/mpeg'),
+            'duration': audio.get('duration'),
+        }
+
+    return None
+
+
 class TelegramBot:
     """ Simple Telegram wrapper to send messages, receive chats, etc """
 
@@ -214,11 +255,13 @@ class TelegramBot:
             terminate_on_unauthorized_access=False,
             try_parse_msg_as_cmd=False,
             on_bot_received_non_cmd_message=None,
-            on_bot_received_command=None):
+            on_bot_received_command=None,
+            on_bot_received_voice_message=None):
         """
         Create a Telegram API wrapper.
         Register a bot @ https://telegram.me/BotFather then use the received token here
         """
+        self._tok = tok
         self._api_base = f'https://api.telegram.org/bot{tok}'
         self._updates_offset = None
         self._known_commands = {}
@@ -226,6 +269,7 @@ class TelegramBot:
         self._try_parse_msg_as_cmd = try_parse_msg_as_cmd
         self._on_bot_received_non_cmd_message = on_bot_received_non_cmd_message
         self._on_bot_received_command = on_bot_received_command
+        self._on_bot_received_voice_message = on_bot_received_voice_message
 
         # If an unauthorized access is detected, a file will be created - and then every time this service is instanciated,
         # an exception will be thrown
@@ -324,40 +368,71 @@ class TelegramBot:
                 f'Failed to send message to chat {chat_id}: {msg}')
         return True
 
+    def _handle_unauthorized_access(self, ex):
+        """ Notify accepted chats about unauthorized access and optionally terminate """
+        if self._terminate_on_unauthorized_access:
+            with open(self._app_tainted_marker_file, 'x', encoding="utf-8") as fp:
+                fp.write(f'Unauthorized access to bot {ex}')
+        for cid in self._accepted_chat_ids:
+            self.send_message(cid, f'Unauthorized access to bot {ex}')
+        # Terminating here means the message will remain unprocessed forever, and the
+        # service will continue dying if restarted (as long as the message remains in the
+        # Telegram servers)
+        if self._terminate_on_unauthorized_access:
+            os.kill(os.getpid(), 9)
+            time.sleep(2)
+            log.error("Failed to kill process after unauthorized access")
+            while True:
+                time.sleep(1)
+
+    def download_file(self, file_id, dest_path):
+        """ Download a file from Telegram servers to dest_path """
+        result = _telegram_get(
+            f'{self._api_base}/getFile',
+            params={'file_id': file_id})
+        file_path = result['file_path']
+        download_url = f'https://api.telegram.org/file/bot{self._tok}/{file_path}'
+        resp = requests.get(download_url)
+        if resp.status_code != 200:
+            raise TelegramHttpError(
+                f'Failed to download file {file_id}: status {resp.status_code}')
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, 'wb') as fp:
+            fp.write(resp.content)
+
     def poll_updates(self):
         """ Poll Telegram for events for this bot. Will call the installed command callback, if possible, or
         on_bot_received_non_cmd_message if not when a message is available/pending. Will ignore all other updates. """
         max_update_id = 0
         updates_prcd = 0
-        for update in _telegram_get(
-            f'{self._api_base}/getUpdates',
-                params=self._updates_offset):
+        for update in _telegram_get(f'{self._api_base}/getUpdates', params=self._updates_offset):
             try:
-                max_update_id = max(
-                    max_update_id, int(
-                        update['update_id']) + 1)
+                max_update_id = max(max_update_id, int(update['update_id']) + 1)
             except BaseException:
-                log.debug(
-                    'Failed to parse Telegram update %s',
-                    update,
-                    exc_info=True)
+                log.debug('Failed to parse Telegram update %s', update, exc_info=True)
                 continue
+
+            # First try to parse a voice message; if it contains voice then skip the general message parsing
+            if self._on_bot_received_voice_message:
+                try:
+                    voice_msg = _telegram_sanitize_voice_message(update, self._accepted_chat_ids)
+                except TelegramUnauthorizedBotAccess as ex:
+                    voice_msg = None
+                    self._handle_unauthorized_access(ex)
+
+                if voice_msg is not None:
+                    try:
+                        self._on_bot_received_voice_message(voice_msg)
+                    except BaseException:
+                        log.error('Error processing voice message', exc_info=True)
+                    updates_prcd += 1
+                    continue
 
             try:
                 msg = _telegram_sanitize_user_message(
                     update, self._known_commands, self._accepted_chat_ids, self._try_parse_msg_as_cmd)
             except TelegramUnauthorizedBotAccess as ex:
-                if self._terminate_on_unauthorized_access:
-                    with open(self._app_tainted_marker_file, 'x', encoding="utf-8") as fp:
-                        fp.write(f'Unauthorized access to bot {ex}')
-                for cid in self._accepted_chat_ids:
-                    self.send_message(cid, f'Unauthorized access to bot {ex}')
-                # Terminating here means the message will remain unprocessed forever, and the
-                # service will continue dying if restarted (as long as the message remains in the
-                # Telegram servers)
-                if self._terminate_on_unauthorized_access:
-                    os.kill(os.getpid(), 9)
-
+                self._handle_unauthorized_access(ex)
                 msg = None
 
             if msg is None:
@@ -495,7 +570,8 @@ class TelegramLongpollBot(ABC):
                 terminate_on_unauthorized_access=self._terminate_on_unauthorized_access,
                 try_parse_msg_as_cmd=self._try_parse_msg_as_cmd,
                 on_bot_received_non_cmd_message=self._on_bot_received_non_cmd_message,
-                on_bot_received_command=self._on_bot_received_command)
+                on_bot_received_command=self._on_bot_received_command,
+                on_bot_received_voice_message=self._on_bot_received_voice_message)
             log.info('Connected to Telegram bot %s', self._t.bot_info['first_name'])
         except TelegramRateLimitError:
             log.warning('Telegram API rate limit, will try to connect later...')
@@ -554,6 +630,26 @@ class TelegramLongpollBot(ABC):
     def on_bot_received_non_cmd_message(self, msg):
         """ Bot received a message. You should probably override this method. """
         print('TelegramLongpollBot has msg, but you should override this method', msg)
+
+    def _on_bot_received_voice_message(self, msg):
+        self._message_history.append({
+            'timestamp': datetime.now().isoformat(),
+            'direction': 'received',
+            'message': msg
+        })
+        self.on_bot_received_voice_message(msg)
+
+    def on_bot_received_voice_message(self, msg):
+        """ Bot received a voice/audio message. Override to handle. """
+        log.warning("TelegramLongpollBot received voice message but no handler is installed")
+
+    def download_file(self, file_id, dest_path):
+        """ Download a file from Telegram servers """
+        self.connect()
+        if self._t is None:
+            log.error('Skipping request to download_file, Telegram not connected')
+            return
+        self._t.download_file(file_id, dest_path)
 
     def send_photo(self, *a, **kw):
         self.connect()

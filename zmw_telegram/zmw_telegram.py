@@ -2,6 +2,7 @@
 import json
 import pathlib
 import os
+import subprocess
 import time
 import threading
 from collections import deque
@@ -15,12 +16,83 @@ import requests.exceptions
 
 log = build_logger("ZmwTelegram")
 
+_MIME_EXT_MAP = {
+    'audio/ogg': '.ogg',
+    'audio/mpeg': '.mp3',
+    'audio/mp4': '.m4a',
+    'audio/x-wav': '.wav',
+    'audio/wav': '.wav',
+    'audio/flac': '.flac',
+    'audio/aac': '.aac',
+}
+
+
+def _voice_dest_path(download_dir, voice_msg):
+    """ Build the local destination path for a voice/audio message """
+    from_id = voice_msg['from']['id']
+    if voice_msg['type'] == 'voice':
+        ext = '.ogg'
+    else:
+        ext = _MIME_EXT_MAP.get(voice_msg['mime_type'], '.bin')
+    ts = int(time.time())
+    return os.path.join(download_dir, f'voice_{from_id}_{ts}{ext}')
+
+
+_MAX_VOICE_DURATION_SECS = 60
+_MAX_WAV_SIZE_BYTES = 5 * 1024 * 1024
+_MAX_VOICE_FILES = 30
+
+
+def _transcode_to_wav(src_path):
+    """ Transcode an audio file to WAV (PCM 16-bit, 16kHz mono) for STT compatibility.
+    Returns the wav path on success, or None on failure or if the result is too large. """
+    wav_path = os.path.splitext(src_path)[0] + '.wav'
+    try:
+        subprocess.run(
+            ['ffmpeg', '-i', src_path, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', wav_path],
+            check=True, capture_output=True, timeout=30)
+    except FileNotFoundError:
+        log.warning("ffmpeg not found, can't transcode to wav")
+        return None
+    except subprocess.TimeoutExpired:
+        log.error("ffmpeg transcode timed out for %s", src_path)
+        return None
+    except subprocess.CalledProcessError as ex:
+        log.error("ffmpeg transcode failed for %s: %s", src_path, ex.stderr, exc_info=True)
+        return None
+
+    wav_size = os.path.getsize(wav_path)
+    if wav_size > _MAX_WAV_SIZE_BYTES:
+        log.warning("Transcoded WAV too large (%d bytes), removing %s", wav_size, wav_path)
+        os.remove(wav_path)
+        return None
+
+    return wav_path
+
+
+def _cleanup_old_voice_files(download_dir):
+    """ Remove oldest files in download_dir, keeping at most _MAX_VOICE_FILES """
+    try:
+        files = [os.path.join(download_dir, f) for f in os.listdir(download_dir)
+                 if os.path.isfile(os.path.join(download_dir, f))]
+    except FileNotFoundError:
+        return
+    if len(files) <= _MAX_VOICE_FILES:
+        return
+    files.sort(key=os.path.getmtime)
+    for f in files[:len(files) - _MAX_VOICE_FILES]:
+        try:
+            os.remove(f)
+            log.debug("Cleaned up old voice file %s", f)
+        except OSError:
+            log.warning("Failed to remove old voice file %s", f, exc_info=True)
+
 class TelBot(TelegramLongpollBot):
     """Telegram bot wrapper that handles messages and commands."""
 
     _CMD_BATCH_DELAY_SECS = 5
 
-    def __init__(self, cfg, scheduler):
+    def __init__(self, cfg, scheduler, on_voice_callback=None):
         cmds = [
             ('ping', 'Usage: /ping', self._ping),
         ]
@@ -40,6 +112,8 @@ class TelBot(TelegramLongpollBot):
         self._cmd_timer = None
         self._cmd_lock = threading.Lock()
         self._stfu_until = 0
+        self._on_voice_callback = on_voice_callback
+        self._voice_download_path = cfg['voice_download_path']
         self.add_commands([('stfu', 'Suppress messages for N minutes (default 10)', self._stfu)])
 
     def _stfu(self, _bot, msg):
@@ -114,6 +188,42 @@ class TelBot(TelegramLongpollBot):
             t = ' '.join(msg['cmd_args'])
             self.send_message(msg['from']['id'], f"Echo: {t}")
 
+    def on_bot_received_voice_message(self, voice_msg):
+        log.info("Telegram bot received voice message: type=%s, file_id=%s",
+                 voice_msg.get('type'), voice_msg.get('file_id'))
+
+        duration = voice_msg.get('duration')
+        if duration is not None and duration > _MAX_VOICE_DURATION_SECS:
+            log.warning("Voice message too long (%ds > %ds), skipping",
+                        duration, _MAX_VOICE_DURATION_SECS)
+            return
+
+        dest_path = _voice_dest_path(self._voice_download_path, voice_msg)
+
+        try:
+            self.download_file(voice_msg['file_id'], dest_path)
+        except Exception:
+            log.error("Failed to download Telegram voice file %s", voice_msg['file_id'], exc_info=True)
+            return
+
+        wav_path = _transcode_to_wav(dest_path)
+        _cleanup_old_voice_files(self._voice_download_path)
+
+        from_id = voice_msg['from']['id']
+        from_name = voice_msg['from'].get('first_name', str(from_id))
+        log.info("Voice message downloaded: %s (wav: %s, from %s)", dest_path, wav_path, from_name)
+
+        if self._on_voice_callback:
+            self._on_voice_callback({
+                'path': dest_path,
+                'wav_path': wav_path,
+                'from_id': from_id,
+                'from_name': from_name,
+                'chat_id': voice_msg['chat']['id'],
+                'duration': duration,
+                'original_mime_type': voice_msg['mime_type'],
+            })
+
     def on_bot_received_non_cmd_message(self, msg):
         """ Called when a message not in the list of commands is received. This is benign, it just means someone
         set a message in Telegram, but it's a known recipient """
@@ -129,7 +239,7 @@ class ZmwTelegram(ZmwMqttService):
         super().__init__(cfg, "zmw_telegram", scheduler=sched)
         self._bcast_chat_id = cfg['bcast_chat_id']
         self._topic_map_chat = cfg['topic_map_chat']
-        self._msg = TelBot(cfg, sched)
+        self._msg = TelBot(cfg, sched, on_voice_callback=self._on_voice_received)
         self._msg_times = deque(maxlen=self._RATE_LIMIT_MAX_MSGS)
 
         # Set up www directory and endpoints
@@ -170,6 +280,8 @@ class ZmwTelegram(ZmwMqttService):
         if subtopic.startswith('on_command/'):
             # We're relaying a Telegram command over mqtt, ignore self-echo
             return
+        if subtopic.startswith('on_voice'):
+            return
 
         match subtopic:
             case "register_command":
@@ -198,6 +310,9 @@ class ZmwTelegram(ZmwMqttService):
                 self._rate_limited_send(lambda: self._msg.send_message(chat_id, payload['msg']))
             case _:
                 log.error("Ignoring unknown message '%s'", subtopic)
+
+    def _on_voice_received(self, voice_data):
+        self.publish_own_svc_message("on_voice", voice_data)
 
     def _relay_cmd(self, _bot, msg):
         """ Relay an mqtt-registered callback from Telegram back to mqtt. The Telegram client already

@@ -65,6 +65,25 @@ All service management scripts are wrappers on top of systemd/systemctl/journalc
 
 # Supported Services
 
+# ZmwAssistant
+
+TODO
+
+## Behaviour
+
+TODO
+
+## MQTT
+
+**Topic:** `zmw_assistant`
+
+**Methods (subscribe):**
+TODO
+
+## WWW Endpoints
+
+TODO
+
 # Cat Snack Dispenser
 
 Ensures cats don't go hungry. Integrates with Aqara ZNCWWSQ01LM aqara.feeder.acn001.
@@ -372,7 +391,7 @@ Manages OAuth authentication, provides playback controls (play/pause, volume, tr
 
 MQTT to Telegram bot bridge for bidirectional messaging.
 
-Runs a Telegram bot that receives commands and relays them over MQTT. Other services can register custom commands and send messages/photos through Telegram.
+Runs a Telegram bot that receives commands or voice messages and relays them over MQTT. Other services can register custom commands and send messages/photos through Telegram.
 
 ## MQTT
 
@@ -385,6 +404,7 @@ Runs a Telegram bot that receives commands and relays them over MQTT. Other serv
 
 **Announces (publish):**
 - `on_command/<cmd>` - Relayed Telegram command
+- `on_voice` - Voice/audio message received (`{path, wav_path, from_id, from_name, chat_id, duration, original_mime_type}`). `path` is the original downloaded file, `wav_path` is the PCM 16kHz mono WAV transcode (null if ffmpeg failed or output too large). Voice messages longer than 60s are dropped.
 
 ## WWW
 
