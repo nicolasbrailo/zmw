@@ -57,6 +57,8 @@ class ZmwSonosCtrl(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Manages Sonos speaker groups and audio source selection. Discovers Sonos speakers on the network, creates speaker groups, and redirects Spotify playback to Sonos. Provides playback controls (volume, track skip) and speaker group management.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "prev_track": {
                     "description": "Skip to the previous track on the active speaker group",

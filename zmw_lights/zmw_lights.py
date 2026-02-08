@@ -87,6 +87,8 @@ class ZmwLights(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Zigbee light and switch discovery and control service. Connects to Zigbee2MQTT, discovers all light and switch devices, groups them by name prefix, and provides on/off and brightness controls.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "get_lights": {
                     "description": "Request state of all discovered lights. Response published on get_lights_reply",

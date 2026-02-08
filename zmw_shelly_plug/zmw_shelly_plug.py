@@ -30,6 +30,8 @@ class ZmwShellyPlug(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Monitors Shelly smart plugs over their local HTTP API and periodically broadcasts power/energy statistics over MQTT. Tracks power consumption, voltage, current, temperature, and energy usage per device.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "ls_devs": {
                     "description": "List monitored device names. Response published on ls_devs_reply",

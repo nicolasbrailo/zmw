@@ -60,6 +60,8 @@ class ZmwDoorman(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Doorbell event handler and notification coordinator. Orchestrates door events from a Reolink camera and contact sensor, playing announcement sounds, sending photos via WhatsApp/Telegram, and managing a door-open lighting scene.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "get_stats": {
                     "description": "Request door statistics (doorbell presses, motion events, door opens). Response published on get_stats_reply",

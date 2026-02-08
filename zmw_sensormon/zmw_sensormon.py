@@ -129,6 +129,8 @@ class ZmwSensormon(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Sensor data monitoring and history service. Monitors Zigbee sensors, Shelly plugs, and outside weather, storing time-series readings in SQLite. Provides current and historical values for temperature, humidity, power, battery, and other metrics.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "get_sensor_values": {
                     "description": "Get current values for a named sensor (Zigbee, Shelly, or virtual). Response on get_sensor_values_reply",

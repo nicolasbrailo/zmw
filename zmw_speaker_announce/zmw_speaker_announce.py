@@ -95,6 +95,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Sonos speaker announcement service supporting TTS, pre-recorded asset playback, and live microphone recording. Broadcasts audio to all discovered Sonos speakers on the network.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "ls": {
                     "description": "List available Sonos speakers. Response published on ls_reply",

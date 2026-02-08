@@ -109,6 +109,8 @@ class ZmwCronenbergs(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Scheduled home automation cron jobs. Includes auto lights-off checks, vacation mode (simulates occupancy with random lights), scheduled TTS speaker announcements, and weekly low-battery device alerts via Telegram.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "get_stats": {
                     "description": "Request service stats (light check history, vacation mode status, battery info). Response published on get_stats_reply",

@@ -74,6 +74,8 @@ class ZmwCatSnackDispenser(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Manages an Aqara cat food dispenser via Zigbee2MQTT. Handles feeding schedules, monitors dispense events, triggers emergency dispenses on missed feedings, and sends Telegram notifications on success/failure.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "feed_now": {
                     "description": "Dispense food immediately. Response published on feed_now_reply",

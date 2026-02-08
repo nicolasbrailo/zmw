@@ -58,6 +58,8 @@ class ZmwContactmon(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Monitors Zigbee contact sensors (doors, windows) and triggers actions on state changes, timeouts, or curfew violations. Actions include Telegram/WhatsApp notifications and speaker announcements. Supports chime suppression.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "skip_chimes": {
                     "description": "Temporarily disable chime/sound notifications",

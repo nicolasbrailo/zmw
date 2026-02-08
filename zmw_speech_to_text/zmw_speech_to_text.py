@@ -45,6 +45,8 @@ class ZmwSpeechToText(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Offline speech-to-text service using faster-whisper. Transcribes audio from Telegram voice messages, HTTP uploads, or MQTT file-path requests and publishes results to MQTT. Can translate non-English audio to English.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "transcribe": {
                     "description": "Transcribe an audio file at the given path",

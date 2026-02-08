@@ -319,6 +319,8 @@ class ZmwSpotify(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Spotify playback control service. Manages OAuth authentication and provides playback controls (play/pause, stop, volume, track navigation) over MQTT. Exposes current playback state including track metadata and album art.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "publish_state": {
                     "description": "Request current player state. Response published on 'state'",

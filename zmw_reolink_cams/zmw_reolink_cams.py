@@ -144,6 +144,8 @@ class ZmwReolinkCams(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Multi-camera Reolink service with motion detection, doorbell events, recording, and NVR-like web interface. Connects to Reolink cameras via webhook/ONVIF, broadcasts events over MQTT, and provides snapshot/recording controls.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "snap": {
                     "description": "Take a snapshot from a camera. Response published on on_snap_ready",

@@ -257,6 +257,8 @@ class ZmwTelegram(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "MQTT-to-Telegram bridge for bidirectional messaging. Runs a Telegram bot that relays commands and voice messages over MQTT, and allows other services to send text or photos through Telegram. Supports rate limiting and voice message transcoding.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "register_command": {
                     "description": "Register a Telegram bot command that will be relayed over MQTT when invoked",

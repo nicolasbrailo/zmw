@@ -78,6 +78,8 @@ class ZmwHeating(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "Heating system controller that manages a boiler via a Zigbee on/off relay. Supports schedule-based control with 15-minute slots, temperature-based rules using Zigbee sensors, boost/off overrides, and Telegram integration for remote control.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "svc_state": {
                     "description": "Request current service state (schedule, boiler, sensors). Response on svc_state_reply",

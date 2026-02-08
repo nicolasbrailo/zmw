@@ -42,6 +42,8 @@ class ZmwWhatsapp(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
+            "description": "MQTT-to-WhatsApp bridge for sending photos and messages via the WhatsApp Business Cloud API. Supports sending photos to configured phone numbers with rate limiting.",
+            "meta": self.get_service_meta(),
             "commands": {
                 "send_photo": {
                     "description": "Send a photo to all WhatsApp notify targets via a template message",
