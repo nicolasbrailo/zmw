@@ -61,13 +61,12 @@ class ZmwHeating(ZmwMqttServiceNoCommands):
                              cb_on_z2m_network_discovery=self._on_z2m_network_discovery,
                              cb_is_device_interesting=lambda t: t.name in wanted_things)
         # Register for updates on weather
-        self._weather = create_virtual_thing(
+        self._z2m.register_virtual_thing(create_virtual_thing(
             name="Weather",
             description="Outside weather from Open-Meteo",
             thing_type="sensor",
             manufacturer="Open-Meteo"
-        )
-        self._z2m.register_virtual_thing(self._weather)
+        ))
 
 
     def get_service_alerts(self):
@@ -153,6 +152,9 @@ class ZmwHeating(ZmwMqttServiceNoCommands):
         if not all(r.set_z2m(self._z2m) for r in self._rules):
             log.critical(
                 "Some rules failed to startup, heating system may not work as expected")
+
+        for r in self._rules:
+            r.set_boiler_state_cb(lambda: self._curr_val == self._on_val)
 
         log.info("MQTT Heating manager started. Heating state %s link %s PowerOn %s",
                   self._boiler.get('state'),

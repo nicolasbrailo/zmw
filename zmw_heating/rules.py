@@ -70,6 +70,10 @@ class MqttHeatingRule(ABC):
     def get_monitored_sensors(self):
         """Return dict of monitored sensors and their values."""
 
+    def set_boiler_state_cb(self, _get_state_cb):
+        """Set callback to query actual boiler state. Returns True if on."""
+        pass  # default no-op for rules that don't need it
+
 class DefaultOff(MqttHeatingRule):
     REASON = "No reason to turn on"
     def __init__(self, _cfg):
@@ -322,7 +326,8 @@ class ScheduledMinTargetTemp(MqttHeatingRule):
 
 def create_rules_from_config(rules_cfg):
     """Instantiate rules from config list."""
-    known_rules = [DefaultOff, CheckTempsWithinRange, ScheduledMinTargetTemp]
+    from rules_predictive_target_temp import PredictiveTargetTemperature
+    known_rules = [DefaultOff, CheckTempsWithinRange, ScheduledMinTargetTemp, PredictiveTargetTemperature]
 
     def _get_rule_class(name):
         for cls in known_rules:
