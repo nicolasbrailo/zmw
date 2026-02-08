@@ -1,11 +1,40 @@
-# ZMWCronenbergs
+# ZmwCronenbergs
 
-Runs calendar-based automation tasks:
+Scheduled home automation service. Runs calendar-based cron jobs for lights, notifications, and device health monitoring.
 
-* Checks for lights left on in the morning, turns them off, and sends a Telegram notification if any were one. Use if you want to automatically turn off lights during the week day after people have left the house.
-* Vacations mode: will randomly turn lights on and off in the late afternoon, the evining and then at night will shut every light off - to simulate as if people were wondering around the house.
-* Speaker-announce: at scheduled times, will play an announcement through the speakers, every day. Useful to remind house-inhabitants of periodic tasks.
-* Battery alerts: every week, it will check which devices have low battery, and send a Telegram reminder.
+## Features
+
+- **Auto lights off**: At a configured day/time, checks if any lights were left on, turns them off, and logs the event. Useful for weekday mornings after everyone leaves the house.
+- **Vacation mode**: Simulates occupancy by turning random lights on in the late afternoon, dimming them in the evening, and shutting everything off at night.
+- **Speaker announcements**: Plays scheduled TTS announcements through speakers at configured times (e.g. daily reminders).
+- **Battery alerts**: Weekly check (Sundays at 10:00) for devices with battery below 30%, sends a Telegram notification listing them.
+
+## Configuration
+
+| Key | Description |
+|-----|-------------|
+| `auto_lights_off.enable` | Enable the automatic lights-off check |
+| `auto_lights_off.day_of_week` | Cron day-of-week string (e.g. `"mon-fri"`) |
+| `auto_lights_off.time` | Time to check, as `"HH:MM"` |
+| `vacations_mode.enable` | Enable vacation mode light simulation |
+| `vacations_mode.late_afternoon` | Time to turn random lights on, as `"HH:MM"` |
+| `vacations_mode.evening` | Time to dim lights, as `"HH:MM"` |
+| `vacations_mode.night` | Time to turn all lights off, as `"HH:MM"` |
+| `speaker_announce` | List of `{time, msg, lang, vol}` objects for scheduled TTS |
+
+## WWW
+
+- `/` - React monitoring UI (served from `www/` directory)
+- `/stats` - JSON object with light check history, vacation mode status, speaker announce config, and battery device data
+- `/mock_auto_lights_off` - Debug: inserts mock light-check entries into history
+- `/test_low_battery_notifs` - Debug: triggers a battery check immediately
+- `/test_vacations_mode_late_afternoon` - Debug: triggers the vacation late-afternoon phase
+- `/test_vacations_mode_evening` - Debug: triggers the vacation evening phase
+- `/test_vacations_mode_night` - Debug: triggers the vacation night phase
+
+## Service Dependencies
+
+- **ZmwTelegram** - Used to send battery alert notifications and vacation mode status messages
+- **ZmwSpeakerAnnounce** - Used to play scheduled TTS announcements
 
 ![](README_screenshot.png)
-

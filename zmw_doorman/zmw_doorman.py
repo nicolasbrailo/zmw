@@ -7,7 +7,7 @@ import threading
 from flask import send_file, jsonify
 
 from zzmw_lib.service_runner import service_runner
-from zzmw_lib.zmw_mqtt_service import ZmwMqttServiceNoCommands
+from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 
 from door_open_scene import DoorOpenScene
@@ -15,12 +15,13 @@ from door_stats import DoorStats
 
 log = build_logger("ZmwDoorman")
 
-class ZmwDoorman(ZmwMqttServiceNoCommands):
+class ZmwDoorman(ZmwMqttService):
     """Doorbell service that handles button press events and motion detection."""
 
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg, sched, svc_deps=['ZmwSpeakerAnnounce', 'ZmwWhatsapp', 'ZmwTelegram',
-                                        'ZmwReolinkCams', 'ZmwContactmon'])
+        super().__init__(cfg, "zmw_doorman", scheduler=sched,
+                         svc_deps=['ZmwSpeakerAnnounce', 'ZmwWhatsapp', 'ZmwTelegram',
+                                   'ZmwReolinkCams', 'ZmwContactmon'])
         self._cfg = cfg
         # Ensure required config keys exist
         _ = self._cfg["doorbell_announce_volume"]
@@ -57,6 +58,70 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
         www.serve_url('/skip_chimes', self._skip_chimes, methods=['PUT'])
         self._public_url_base = www.register_www_dir(www_path)
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "get_stats": {
+                    "description": "Request door statistics (doorbell presses, motion events, door opens). Response published on get_stats_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Request the MQTT interface description. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "on_doorbell_pressed": {
+                    "description": "Published when the doorbell button is pressed",
+                    "payload": {"snap_path": "Path to camera snapshot (may be null)"}
+                },
+                "on_motion_detected": {
+                    "description": "Published when motion is detected at the door camera",
+                    "payload": {"snap_path": "Path to camera snapshot (may be null)"}
+                },
+                "on_motion_cleared": {
+                    "description": "Published when the door motion event ends (vacancy reported or timeout)",
+                    "payload": {}
+                },
+                "on_door_opened": {
+                    "description": "Published when the door contact sensor reports the door opened",
+                    "payload": {}
+                },
+                "on_door_closed": {
+                    "description": "Published when the door contact sensor reports the door closed",
+                    "payload": {}
+                },
+                "get_stats_reply": {
+                    "description": "Response to get_stats command with current door statistics",
+                    "payload": {"doorbell_press_count_today": "int", "motion_detection_count_today": "int",
+                                "last_snap": "filename or null", "last_snap_time": "epoch or null",
+                                "history": "list of event records", "motion_in_progress": "bool",
+                                "door_open_in_progress": "bool"}
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description with this service's MQTT interface",
+                    "payload": {"commands": "...", "announcements": "..."}
+                },
+            }
+        }
+
+    def on_service_received_message(self, subtopic, payload):
+        # Ignore self-echo on reply topics and own announcements
+        if subtopic.endswith('_reply'):
+            return
+        if subtopic.startswith('on_'):
+            return
+
+        match subtopic:
+            case "get_stats":
+                self.publish_own_svc_message("get_stats_reply",
+                    self._door_stats.get_stats())
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                log.error("Ignoring unknown MQTT command '%s'", subtopic)
+
     def _get_cams_svc_url(self):
         url = self.get_known_services().get("ZmwReolinkCams", {}).get("www")
         return jsonify({"url": url})
@@ -87,10 +152,9 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
                               'descr': 'Take and send a doorbell cam picture'})
 
     def on_dep_published_message(self, svc_name, subtopic, msg):
-        log.debug("%s.%s: %s", svc_name, subtopic, msg)
         match svc_name:
             case 'ZmwContactmon':
-                if subtopic.startswith("state"):
+                if subtopic.startswith("publish_state_reply"):
                     self._contactmon_state = msg
                     self._contactmon_state_baton.set()
                 else:
@@ -103,6 +167,9 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
                 if subtopic.startswith("on_command/"):
                     self.on_telegram_cmd(subtopic[len("on_command/"):], msg)
             case 'ZmwReolinkCams':
+                if subtopic.startswith("ls_cams"):
+                    # Announcing cams, we don't care as we only monitor a single cam
+                    return
                 if msg.get("cam_host") != self._cfg["doorbell_cam_host"]:
                     # Service announced event for camera we don't monitor, ignore
                     return
@@ -127,8 +194,10 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
             if msg["entering_non_normal"] == True:
                 self._door_open_scene.maybe_start()
                 self._door_stats.record_door_open()
+                self.publish_own_svc_message("on_door_opened", {})
             else:
                 self._door_stats.record_door_close()
+                self.publish_own_svc_message("on_door_closed", {})
 
     def on_telegram_cmd(self, cmd, _msg):
         """Handle Telegram commands."""
@@ -179,6 +248,9 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
         self._update_snap_directory(snap_path)
         self._door_stats.record_doorbell_press(snap_path)
 
+        # Announce over own MQTT topic
+        self.publish_own_svc_message("on_doorbell_pressed", {"snap_path": snap_path})
+
         if snap_path is None:
             log.warning("Doorbell button pressed but no snap available")
         else:
@@ -195,6 +267,10 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
         self._door_open_scene.pet_timer()
         self._door_stats.record_motion_start(snap_path)
         self._update_snap_directory(snap_path)
+
+        # Announce over own MQTT topic (before rate limiting, so subscribers always see it)
+        self.publish_own_svc_message("on_motion_detected", {"snap_path": snap_path})
+
         if snap_path:
             self._door_stats.record_snap(snap_path)
 
@@ -214,11 +290,13 @@ class ZmwDoorman(ZmwMqttServiceNoCommands):
         """Handle door motion cleared event."""
         log.info("Door reports motion event cleared")
         self._door_stats.record_motion_end()
+        self.publish_own_svc_message("on_motion_cleared", {})
 
     def on_door_motion_timeout(self):
         """Handle door motion timeout event."""
         log.warning("Motion event timedout, no vacancy reported")
         self._door_stats.record_motion_end()
+        self.publish_own_svc_message("on_motion_cleared", {})
 
     def _update_snap_directory(self, snap_path):
         """Update the snap directory from a full snap path."""

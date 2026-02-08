@@ -1,5 +1,5 @@
 """Sensor monitoring and history service."""
-from zzmw_lib.zmw_mqtt_nullsvc import ZmwMqttNullSvc
+from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 
@@ -98,10 +98,10 @@ class ShellyPlugMonitor:
         self._known_shellies[sensor_name].update(payload)
 
 
-class ZmwSensormon(ZmwMqttNullSvc):
+class ZmwSensormon(ZmwMqttService):
     """MQTT service for monitoring sensor data and maintaining history."""
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg)
+        super().__init__(cfg, "zmw_sensormon", scheduler=sched)
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         self._public_url_base = www.register_www_dir(www_path)
 
@@ -123,6 +123,97 @@ class ZmwSensormon(ZmwMqttNullSvc):
 
         www.serve_url('/sensors/get/<name>', self._get_sensor_values)
         www.serve_url('/sensors/get_all/<metric>', self._get_all_sensor_values)
+
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "get_sensor_values": {
+                    "description": "Get current values for a named sensor (Zigbee, Shelly, or virtual). Response on get_sensor_values_reply",
+                    "params": {"name": "Sensor name (e.g. 'Living_Room', 'Weather')"}
+                },
+                "get_all_sensor_values": {
+                    "description": "Get the current value of a specific metric across all sensors that measure it. Response on get_all_sensor_values_reply",
+                    "params": {"metric": "Metric name (e.g. 'temperature', 'humidity', 'power_a')"}
+                },
+                "get_known_sensors": {
+                    "description": "List all known sensor names. Response on get_known_sensors_reply",
+                    "params": {}
+                },
+                "get_known_metrics": {
+                    "description": "List all metrics being measured across all sensors. Response on get_known_metrics_reply",
+                    "params": {}
+                },
+                "get_sensors_measuring": {
+                    "description": "List sensors that measure a specific metric. Response on get_sensors_measuring_reply",
+                    "params": {"metric": "Metric name to query"}
+                },
+                "get_mqtt_description": {
+                    "description": "Returns this MQTT API description. Response on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "get_sensor_values_reply": {
+                    "description": "Response to get_sensor_values. Dict of metric name to current value",
+                    "payload": {"<metric>": "<value>"}
+                },
+                "get_all_sensor_values_reply": {
+                    "description": "Response to get_all_sensor_values. Dict of sensor name to metric value",
+                    "payload": {"<sensor_name>": "<value>"}
+                },
+                "get_known_sensors_reply": {
+                    "description": "Response to get_known_sensors. List of sensor name strings",
+                    "payload": ["<sensor_name>"]
+                },
+                "get_known_metrics_reply": {
+                    "description": "Response to get_known_metrics. List of metric name strings",
+                    "payload": ["<metric_name>"]
+                },
+                "get_sensors_measuring_reply": {
+                    "description": "Response to get_sensors_measuring. List of sensor name strings",
+                    "payload": ["<sensor_name>"]
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description. The MQTT API description dict",
+                    "payload": {}
+                },
+            }
+        }
+
+    def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
+
+        match subtopic:
+            case "get_sensor_values":
+                if 'name' not in payload:
+                    log.error("get_sensor_values: missing 'name' in payload: '%s'", payload)
+                    return
+                self.publish_own_svc_message("get_sensor_values_reply",
+                    self._get_sensor_values(payload['name']))
+            case "get_all_sensor_values":
+                if 'metric' not in payload:
+                    log.error("get_all_sensor_values: missing 'metric' in payload: '%s'", payload)
+                    return
+                self.publish_own_svc_message("get_all_sensor_values_reply",
+                    self._get_all_sensor_values(payload['metric']))
+            case "get_known_sensors":
+                self.publish_own_svc_message("get_known_sensors_reply",
+                    self._sensors.get_known_sensors())
+            case "get_known_metrics":
+                self.publish_own_svc_message("get_known_metrics_reply",
+                    self._sensors.get_known_metrics())
+            case "get_sensors_measuring":
+                if 'metric' not in payload:
+                    log.error("get_sensors_measuring: missing 'metric' in payload: '%s'", payload)
+                    return
+                self.publish_own_svc_message("get_sensors_measuring_reply",
+                    self._sensors.get_known_sensors_measuring(payload['metric']))
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                log.warning("Ignoring unknown message '%s'", subtopic)
 
     def _get_sensor_values(self, name):
         """Unified endpoint to get current sensor values from any backend."""

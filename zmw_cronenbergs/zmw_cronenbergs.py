@@ -7,7 +7,7 @@ from datetime import datetime
 from collections import deque
 
 from zzmw_lib.service_runner import service_runner
-from zzmw_lib.zmw_mqtt_service import ZmwMqttServiceNoCommands
+from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 
 from zz2m.z2mproxy import Z2MProxy
@@ -19,7 +19,7 @@ from apscheduler.triggers.cron import CronTrigger
 log = build_logger("ZmwCronenbergs")
 
 
-class ZmwCronenbergs(ZmwMqttServiceNoCommands):
+class ZmwCronenbergs(ZmwMqttService):
     """
     Scheduled tasks service. Runs calendar-based automation like:
     - Turning off lights at specific times
@@ -27,7 +27,7 @@ class ZmwCronenbergs(ZmwMqttServiceNoCommands):
     """
 
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg, sched, svc_deps=['ZmwTelegram', 'ZmwSpeakerAnnounce'])
+        super().__init__(cfg, "zmw_cronenbergs", sched, svc_deps=['ZmwTelegram', 'ZmwSpeakerAnnounce'])
         self._z2m = Z2MProxy(cfg, self, sched)
         self._z2mw = Z2Mwebservice(www, self._z2m)
 
@@ -106,6 +106,49 @@ class ZmwCronenbergs(ZmwMqttServiceNoCommands):
         if self._vacations_mode:
             return ["Vacations mode is enabled! Expect random light effects."]
         return []
+
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "get_stats": {
+                    "description": "Request service stats (light check history, vacation mode status, battery info). Response published on get_stats_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "get_stats_reply": {
+                    "description": "Response to get_stats with full service statistics",
+                    "payload": {
+                        "light_check_history": "List of recent light check events",
+                        "vacations_mode": "Whether vacation mode is enabled",
+                        "speaker_announce": "Configured speaker announcements",
+                        "battery_things": "List of devices with battery levels",
+                    }
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description with this service's MQTT API",
+                    "payload": {"commands": {}, "announcements": {}}
+                },
+            }
+        }
+
+    def on_dep_published_message(self, _svc_name, _subtopic, _payload):
+        # We don't need any replies from deps, ignore them
+        pass
+
+    def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
+
+        match subtopic:
+            case "get_stats":
+                stats = json.loads(self._get_stats())
+                self.publish_own_svc_message("get_stats_reply", stats)
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                log.warning("Ignoring unknown message '%s'", subtopic)
 
     def _mock_auto_lights_off(self):
         self._light_check_history.append({

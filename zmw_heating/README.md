@@ -1,37 +1,57 @@
 # ZmwHeating
 
-Heating system manager controlling a boiler via Zigbee relay.
+Heating system manager that controls a boiler via a Zigbee on/off relay. Does not support OpenTherm or other advanced boiler protocols -- only simple on/off switching.
 
 ![](README_screenshot.png)
 
-This service controls an on/off relay powering a boiler, based on a configurable schedule. It doesn't support any kind of OpenTherm or other advanced boilers, just on/off. This service
+## Features
 
-* Allows to set a schedule by 15-minute increments: the schedule can be always-on, always-off or rule based. Always on/off will always turn the boiler on/off at the specified time. Rule-based means the service decides the state of the system based on a set of rules.
-* Enables quick user overrides: the UI has a "boost" button that will turn on the heating for an hour or two, overriding current rules.
-* Quick off override: when the boiler is on but is not needed, override-off will turn the boiler off until the next time a new rule would apply (either a new schedule, a new user override, or a change in rule type).
-* Telegram overrides: the service integrates with the ZmwTelegram service, if the service is running. You can send `/tengofrio` via Telegram to have a warm toasty home when you arrive home.
-* Telegram notifications: no need to wait 10 minutes to know if the radiators will get warm, ZmwHeating will send you a Telegram message when the boiler turns on (or off). No need to guess on what the boiler state is.
-* Rule based heating: this service will read Zigbee2Mqtt sensors. You can build rules based on these:
-    * AlwaysOn/AlwaysOff is a rule that will always turn the boiler on/off. This is a fallback default rule.
-    * CheckTempsWithinRange will turn a boiler on if a temperature is outside of a target range, with some hysteresis.
-    * ScheduledMinTargetTemp works like CheckTempsWithinRange but during a specified time window.
-* Schedule saving: the service will remember today's schedule, and a template configuration. Boiler state will survive any service crash.
+- **Schedule-based control**: 15-minute slot granularity. Each slot can be Always on, Always off, or Rule-based (decided by configured rules).
+- **User overrides**: Boost button turns on heating for 1-12 hours. Off-now turns off until the next scheduled off slot.
+- **Telegram integration**: Send `/tengofrio` via Telegram for a 1-hour heating boost. Receives notifications when the boiler turns on or off.
+- **Rule-based heating**: Reads Zigbee2MQTT temperature sensors and applies rules:
+  - `DefaultOff` / `DefaultOn` -- unconditional fallback rules.
+  - `CheckTempsWithinRange` -- turns boiler on/off when any monitored sensor crosses min/max thresholds.
+  - `ScheduledMinTargetTemp` -- targets a temperature range during a time window (with day-of-week filtering).
+  - `PredictiveTargetTemperature` -- predictive variant of target temperature control.
+- **Schedule persistence**: Active schedule and template survive service restarts via a persist file.
 
-## Explainability First
+## Explainability
 
 ![](README_screenshot2.png)
 
-The service is built with explainability-first goals: it should always be clear why the system is in the state it is. The service will "explain" which rules apply to turn the boiler on or off, via Telegram and via its web UI. Over Telegram, for example, it will deliver a message such as `Heating is now on (was off). Reason: Sensor TempSensor reports 18.94C, target is 20.0C between 08:00:00 and 09:00:00`.
+Every state change carries a human-readable reason. The web UI and Telegram notifications explain exactly why the boiler is on or off (e.g. "Sensor TempSensor reports 18.94C, target is 20.0C between 08:00 and 09:00").
+
+## Configuration
+
+| Key | Description |
+|-----|-------------|
+| `zigbee_boiler_name` | Zigbee2MQTT device name of the on/off relay controlling the boiler |
+| `rules` | List of rule objects. Each has a `name` field matching a rule class, plus rule-specific params |
+| `schedule_persist_file` | Path to file where schedule state is saved and restored |
+
+### Rule configuration examples
+
+**CheckTempsWithinRange:**
+```json
+{"name": "CheckTempsWithinRange", "min_temp": 10, "max_temp": 30, "sensors": ["SensorName"], "metric": "temperature"}
+```
+
+**ScheduledMinTargetTemp:**
+```json
+{"name": "ScheduledMinTargetTemp", "sensor": "SensorName", "metric": "temperature", "start": "08:00", "end": "09:00", "days": "all", "target_min_temp": 19, "target_max_temp": 21}
+```
 
 ## WWW Endpoints
 
-- `/svc_state` - Current schedule, boiler state, sensor readings
-- `/get_cfg_rules` - Configured heating rules
-- `/active_schedule` - Current day's schedule
-- `/boost=<hours>` - Activate heating boost
-- `/off_now` - Turn heating off immediately
-- `/slot_toggle=<name>` - Toggle a schedule slot
-- `/template_slot_set=<vals>` - Set template slot
-- `/template_apply` - Apply template to today
-- `/template_reset=<state>` - Reset template schedule
-- `/template_schedule` - Get template schedule
+- `/` -- Web UI for schedule management and status monitoring
+- `/svc_state` -- JSON: current schedule, boiler state, sensor readings
+- `/get_cfg_rules` -- JSON: configured heating rules
+- `/active_schedule` -- JSON: today's active schedule
+- `/boost=<hours>` -- Activate heating boost for N hours
+- `/off_now` -- Turn heating off immediately
+- `/slot_toggle=<name>` -- Toggle a schedule slot by HH:MM name
+- `/template_slot_set=<hour,minute,allow_on>` -- Set a template slot
+- `/template_apply` -- Apply template schedule to today
+- `/template_reset=<state>` -- Reset all template slots to a state (Always/Never/Rule)
+- `/template_schedule` -- JSON: active and template schedules

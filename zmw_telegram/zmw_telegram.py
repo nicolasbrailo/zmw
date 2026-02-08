@@ -255,6 +255,42 @@ class ZmwTelegram(ZmwMqttService):
                 alerts.append("Currently rate limiting")
         return alerts
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "register_command": {
+                    "description": "Register a Telegram bot command that will be relayed over MQTT when invoked",
+                    "params": {"cmd": "Command name (without /)", "descr": "Help text for the command"}
+                },
+                "send_photo": {
+                    "description": "Send a photo to a Telegram chat",
+                    "params": {"path": "Local file path to the image", "msg": "(optional) Caption", "topic": "(optional) Route to a specific chat via topic_map_chat"}
+                },
+                "send_text": {
+                    "description": "Send a text message to a Telegram chat",
+                    "params": {"msg": "Message text", "topic": "(optional) Route to a specific chat via topic_map_chat"}
+                },
+                "get_history": {
+                    "description": "Request message history. Response published on get_history_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "on_command/<cmd>": {
+                    "description": "Published when a registered Telegram command is received",
+                    "payload": {"cmd": "The command name", "cmd_args": "List of arguments", "from": "Sender info", "chat": "Chat info"}
+                },
+                "on_voice": {
+                    "description": "Published when a voice/audio message is received (max 60s)",
+                    "payload": {"path": "Original audio file path", "wav_path": "Transcoded WAV path (null if failed)", "from_id": "Sender ID", "from_name": "Sender name", "chat_id": "Chat ID", "duration": "Duration in seconds", "original_mime_type": "MIME type of original audio"}
+                },
+                "get_history_reply": {
+                    "description": "Response to get_history. List of message objects",
+                    "payload": [{"timestamp": "ISO timestamp", "direction": "sent|received", "message": "Message content"}]
+                },
+            }
+        }
+
     def _get_chat_id_for_payload(self, payload):
         """Get the chat ID based on payload topic, or default to broadcast chat."""
         topic = payload.get('topic')
@@ -282,6 +318,8 @@ class ZmwTelegram(ZmwMqttService):
             return
         if subtopic.startswith('on_voice'):
             return
+        if subtopic.endswith('_reply'):
+            return
 
         match subtopic:
             case "register_command":
@@ -308,6 +346,12 @@ class ZmwTelegram(ZmwMqttService):
                 chat_id = self._get_chat_id_for_payload(payload)
                 log.info("Sending text to chat %s, message %s", chat_id, payload['msg'])
                 self._rate_limited_send(lambda: self._msg.send_message(chat_id, payload['msg']))
+            case "get_history":
+                self.publish_own_svc_message("get_history_reply",
+                    list(self._msg.get_history()))
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
             case _:
                 log.error("Ignoring unknown message '%s'", subtopic)
 

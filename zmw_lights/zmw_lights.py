@@ -1,8 +1,9 @@
 """ Expose a set of lights form zigbee2mqtt over a rest endpoint """
+import json
 import os
 import pathlib
 
-from zzmw_lib.zmw_mqtt_nullsvc import ZmwMqttNullSvc
+from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 
@@ -11,10 +12,10 @@ from zz2m.www import Z2Mwebservice
 
 log = build_logger("ZmwLights")
 
-class ZmwLights(ZmwMqttNullSvc):
+class ZmwLights(ZmwMqttService):
     """ ZmwService for REST lights """
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg)
+        super().__init__(cfg, "zmw_lights", scheduler=sched)
         self._lights = []
         self._switches = []
 
@@ -83,5 +84,79 @@ class ZmwLights(ZmwMqttNullSvc):
             l.turn_off()
         self._z2m.broadcast_things(ls)
         return {}
+
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "get_lights": {
+                    "description": "Request state of all discovered lights. Response published on get_lights_reply",
+                    "params": {}
+                },
+                "get_switches": {
+                    "description": "Request state of all discovered switches. Response published on get_switches_reply",
+                    "params": {}
+                },
+                "all_lights_on": {
+                    "description": "Turn on all lights matching a name prefix at 80% brightness. Response published on all_lights_on_reply",
+                    "params": {"prefix": "Name prefix to filter lights (e.g. 'TVRoom')"}
+                },
+                "all_lights_off": {
+                    "description": "Turn off all lights matching a name prefix. Response published on all_lights_off_reply",
+                    "params": {"prefix": "Name prefix to filter lights (e.g. 'TVRoom')"}
+                },
+                "get_mqtt_description": {
+                    "description": "Request the MQTT API description for this service. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "get_lights_reply": {
+                    "description": "Response to get_lights. JSON array of light state objects",
+                    "payload": [{"name": "Light name", "state": "ON/OFF", "brightness": "0-255", "...": "other device-specific fields"}]
+                },
+                "get_switches_reply": {
+                    "description": "Response to get_switches. JSON array of switch state objects",
+                    "payload": [{"name": "Switch name", "state": "ON/OFF"}]
+                },
+                "all_lights_on_reply": {
+                    "description": "Confirmation that all_lights_on completed",
+                    "payload": {"status": "ok"}
+                },
+                "all_lights_off_reply": {
+                    "description": "Confirmation that all_lights_off completed",
+                    "payload": {"status": "ok"}
+                },
+                "get_mqtt_description_reply": {
+                    "description": "The MQTT API description for this service",
+                    "payload": {"commands": {}, "announcements": {}}
+                },
+            }
+        }
+
+    def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
+
+        match subtopic:
+            case "get_lights":
+                self.publish_own_svc_message("get_lights_reply",
+                    [l.get_json_state() for l in self._lights])
+            case "get_switches":
+                self.publish_own_svc_message("get_switches_reply",
+                    [s.get_json_state() for s in self._switches])
+            case "all_lights_on":
+                prefix = payload.get('prefix', '')
+                self._all_lights_on(prefix)
+                self.publish_own_svc_message("all_lights_on_reply", {"status": "ok"})
+            case "all_lights_off":
+                prefix = payload.get('prefix', '')
+                self._all_lights_off(prefix)
+                self.publish_own_svc_message("all_lights_off_reply", {"status": "ok"})
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                # Ignore echo
+                pass
 
 service_runner(ZmwLights)

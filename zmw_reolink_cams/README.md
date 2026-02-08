@@ -1,47 +1,48 @@
-# ZmwReolinkDoorbell
+# ZmwReolinkCams
 
-Reolink doorbell camera service with motion detection, recording, and event broadcasting over MQTT.
+Multi-camera Reolink service with motion detection, doorbell events, recording, and an NVR-like web interface. Connects to one or more Reolink cameras via webhook/ONVIF, broadcasts events over MQTT, and provides snapshot/recording controls.
 
-![](README_screenshot.png)
+## Configuration
 
-This service connects to a Reolink doorbell camera via webhook/ONVIF, and exposes a set of functionality over MQTT and WWW:
-
-## MQTT messages
-**Methods (subscribe):**
-- `mqtt_doorbell_cam/snap` - Takes a snapshot, announces response when ready
-- `mqtt_doorbell_cam/rec` - Start doorbell cam recording (`{secs: N}`)
-
-**Announces (publish):**
-- `on_snap_ready` - Snapshot captured, will reply with the path of the captured file
-- `on_doorbell_button_pressed` - Doorbell button pressed
-- `on_motion_detected` - Camera reports motion
-- `on_motion_cleared` - Motion cleared
-- `on_motion_timeout` - Motion event timed out without camera reporting clear
-- `on_new_recording` - A new recording completed and it's available. Will broadcast local path over MQTT.
-- `on_recording_failed` - Recording failed
-- `on_reencoding_ready` - Re-encoding completed
-- `on_reencoding_failed` - Re-encoding failed
+| Key | Description |
+|-----|-------------|
+| `cameras` | Array of camera configs, each with at least `cam_host` (hostname/IP) |
+| `cameras[].is_doorbell` | (optional) Set `true` if camera is a doorbell model |
+| `rec_path` | Directory for storing recordings, organized by camera |
+| `snap_path_on_movement` | (optional) Directory for motion-triggered snapshots |
 
 ## WWW Endpoints
 
-- `/doorbell` - Camera webhook endpoint
-- `/snap` - Get current snapshot (JPEG)
-- `/lastsnap` - Get last saved snapshot (JPEG)
-- `/record?secs=N` - Start recording (5-120 seconds)
+### Camera Controls
+- `/ls_cams` - JSON list of currently online camera hostnames
+- `/snap/<cam_host>` - Capture and return a new snapshot (JPEG)
+- `/lastsnap/<cam_host>` - Return the last saved snapshot (JPEG)
+- `/record/<cam_host>?secs=N` - Start recording for N seconds (5-120)
 
-## NVR
+### Camera Webhooks
+- `/cam/<cam_host>` - Webhook endpoint for camera events (GET/POST, used internally by camera firmware)
 
-This service also has an NVR-like functionality. Unlike an NVR, the service doesn't record all the time: it will just start recording once the camera reports motion or doorbell-press. This means you will always miss the first few seconds of motion (but will save a lot on energy and storage).
+### NVR Web Interface
+- `/nvr` - NVR web UI for browsing recordings and snapshots
+- `/nvr/api/cameras` - JSON list of cameras with recordings on disk
+- `/nvr/api/<cam>/recordings?days=N` - JSON list of recordings for a camera (optionally filtered by age)
+- `/nvr/api/<cam>/snapshots` - JSON list of snapshots for a camera
+- `/nvr/<cam>/get_recording/<file>` - Serve a recording file
+- `/nvr/<cam>/get_snapshot/<file>` - Serve a snapshot file
 
-![](README_screenshot2.png)
+## NVR Behavior
+
+Unlike a traditional NVR, this service does not record continuously. Recording starts only when the camera reports motion or a doorbell press. This means the first few seconds of an event may be missed, but saves significant energy and storage. Recordings are re-encoded in the background for web-friendly playback.
+
+## Doorbell Alerts
+
+When a doorbell camera button is pressed, the service tracks it for 60 seconds. During this window, `get_service_alerts()` reports an active doorbell alert. Cameras that fail to connect are also reported as alerts.
 
 ## Integrations
 
-This service will integrate with ZmwDoorman to:
+This service integrates with ZmwDoorman to:
+- Send Telegram notifications on doorbell press
+- Play audio chimes over LAN speakers on doorbell press
+- Send WhatsApp messages on motion detection
 
-* Send Telegram notifications when the doorbell is pressed
-* Play audio chimes over LAN speakers when the doorbell is pressed
-* Send Whatsapp messages when motion is detected
-
-And others (see the readme for ZmwDoorman for details).
-
+See the ZmwDoorman README for details.

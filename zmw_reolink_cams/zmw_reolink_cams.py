@@ -142,6 +142,74 @@ class ZmwReolinkCams(ZmwMqttService):
                 alerts.append(f"Doorbell {cam_host} is not connected")
         return alerts
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "snap": {
+                    "description": "Take a snapshot from a camera. Response published on on_snap_ready",
+                    "params": {"cam_host": "Camera host identifier"}
+                },
+                "rec": {
+                    "description": "Start recording on a camera",
+                    "params": {"cam_host": "Camera host identifier", "secs": "Recording duration in seconds"}
+                },
+                "ls_cams": {
+                    "description": "List online cameras. Response published on ls_cams_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Get MQTT API description. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "on_snap_ready": {
+                    "description": "Snapshot captured and ready",
+                    "payload": {"event": "on_snap_ready", "cam_host": "Camera host identifier", "snap_path": "Local path to snapshot file"}
+                },
+                "on_doorbell_button_pressed": {
+                    "description": "Doorbell button was pressed",
+                    "payload": {"event": "on_doorbell_button_pressed", "cam_host": "Camera host", "snap_path": "Path to snapshot", "full_cam_msg": "Raw camera event data"}
+                },
+                "on_motion_detected": {
+                    "description": "Camera detected motion",
+                    "payload": {"event": "on_motion_detected", "cam_host": "Camera host", "path_to_img": "Path to motion snapshot", "motion_level": "Motion intensity level", "full_cam_msg": "Raw camera event data"}
+                },
+                "on_motion_cleared": {
+                    "description": "Motion cleared by camera",
+                    "payload": {"event": "on_motion_cleared", "cam_host": "Camera host", "full_cam_msg": "Raw camera event data"}
+                },
+                "on_motion_timeout": {
+                    "description": "Motion event timed out without camera reporting clear",
+                    "payload": {"event": "on_motion_timeout", "cam_host": "Camera host", "timeout": "Timeout value"}
+                },
+                "on_new_recording": {
+                    "description": "A new recording completed and is available",
+                    "payload": {"event": "on_new_recording", "cam_host": "Camera host", "path": "Local path to recording file"}
+                },
+                "on_recording_failed": {
+                    "description": "Recording failed",
+                    "payload": {"event": "on_recording_failed", "cam_host": "Camera host", "path": "Path of failed recording"}
+                },
+                "on_reencoding_ready": {
+                    "description": "Re-encoding of a recording completed",
+                    "payload": {"event": "on_reencoding_ready", "cam_host": "Camera host", "orig_path": "Original recording path", "reencode_path": "Re-encoded file path"}
+                },
+                "on_reencoding_failed": {
+                    "description": "Re-encoding of a recording failed",
+                    "payload": {"event": "on_reencoding_failed", "cam_host": "Camera host", "path": "Path of failed re-encode"}
+                },
+                "ls_cams_reply": {
+                    "description": "Response to ls_cams. List of online camera host identifiers",
+                    "payload": ["cam_host_1", "cam_host_2"]
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description. Full MQTT API description",
+                    "payload": {"commands": {}, "announcements": {}}
+                },
+            }
+        }
+
     def _get_online_cams(self):
         cams = []
         for cam_host, cam in self.cams.items():
@@ -191,22 +259,38 @@ class ZmwReolinkCams(ZmwMqttService):
 
     def on_service_received_message(self, subtopic, payload):
         """Handle MQTT messages for snapshot and recording commands."""
-        cam_host = payload.get('cam_host')
-        cam = self.cams.get(cam_host)
-        if cam is None:
-            log.warning("Received message for unknown camera: %s", cam_host)
+        # Ignore self-echo from our own announcements and reply topics
+        if subtopic.endswith('_reply'):
             return
+        if subtopic.startswith('on_'):
+            return
+
+        cam_host = payload.get('cam_host') if payload else None
 
         match subtopic:
             case "snap":
+                cam = self.cams.get(cam_host)
+                if cam is None:
+                    log.warning("Received snap for unknown camera: %s", cam_host)
+                    return
                 self.publish_own_svc_message("on_snap_ready", {
                     'event': 'on_snap_ready',
                     'cam_host': cam.get_cam_host(),
                     'snap_path': cam.get_snapshot(),
                 })
             case "rec":
+                cam = self.cams.get(cam_host)
+                if cam is None:
+                    log.warning("Received rec for unknown camera: %s", cam_host)
+                    return
                 cam.start_recording(payload.get('secs', None) if payload else None)
+            case "ls_cams":
+                self.publish_own_svc_message("ls_cams_reply",
+                    self._get_online_cams())
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
             case _:
-                pass
+                log.warning("Ignoring unknown message '%s'", subtopic)
 
 service_runner(ZmwReolinkCams)

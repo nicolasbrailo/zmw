@@ -72,6 +72,48 @@ class ZmwCatSnackDispenser(ZmwMqttService):
         log.info("Schedule saved. Service will restart automatically once changes are detected by the system...")
         return {'status': 'saved'}
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "feed_now": {
+                    "description": "Dispense food immediately. Response published on feed_now_reply",
+                    "params": {"source": "(optional) Who/what triggered this request", "serving_size": "(optional) Number of portions to dispense"}
+                },
+                "get_history": {
+                    "description": "Request dispensing history. Response published on get_history_reply",
+                    "params": {}
+                },
+                "get_schedule": {
+                    "description": "Request the current feeding schedule. Response published on get_schedule_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "feed_now_reply": {
+                    "description": "Result of a feed_now command",
+                    "payload": {"status": "'ok' or 'error'", "error": "(only on failure) Error description"}
+                },
+                "get_history_reply": {
+                    "description": "Response to get_history. List of dispensing event objects",
+                    "payload": [{"dispense_event_id": "int or null", "time_requested": "ISO timestamp",
+                                 "source": "What triggered this (Schedule, Telegram, WWW, etc.)", "portions_dispensed": "int or null",
+                                 "weight_dispensed": "int or null", "unit_acknowledged": "bool", "error": "string or null"}]
+                },
+                "get_schedule_reply": {
+                    "description": "Response to get_schedule. List of schedule entry objects",
+                    "payload": [{"days": "Day specifier (everyday, workdays, weekend, mon, etc.)", "hour": "0-23", "minute": "0-59", "serving_size": "int"}]
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description. Full MQTT API description dict",
+                    "payload": {}
+                },
+            }
+        }
+
     def get_service_alerts(self):
         if self._cat_feeder is None:
             return [f"No cat-feeder thing named {self._z2m_cat_feeder_name} found!"]
@@ -83,9 +125,30 @@ class ZmwCatSnackDispenser(ZmwMqttService):
         self.message_svc("ZmwTelegram",
                          "register_command", {'cmd': 'dispensecatsnacks', 'descr': 'Feed the cat'})
 
-    def on_service_received_message(self, _subtopic, _payload):
-        # Ignore: we'll receive an echo of our own messages here
-        pass
+    def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
+
+        match subtopic:
+            case "feed_now":
+                source = payload.get('source', 'MQTT') if isinstance(payload, dict) else 'MQTT'
+                serving_size = payload.get('serving_size') if isinstance(payload, dict) else None
+                try:
+                    self.feed_now(source=source, serving_size=serving_size)
+                    self.publish_own_svc_message("feed_now_reply", {"status": "ok"})
+                except Exception as ex:
+                    self.publish_own_svc_message("feed_now_reply", {"status": "error", "error": str(ex)})
+            case "get_history":
+                self.publish_own_svc_message("get_history_reply",
+                    self._dispense_tracking.get_history())
+            case "get_schedule":
+                self.publish_own_svc_message("get_schedule_reply",
+                    self._dispense_tracking.get_schedule())
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                log.warning("Ignoring unknown message '%s'", subtopic)
 
     def on_dep_published_message(self, svc_name, subtopic, payload):  # pylint: disable=unused-argument
         if svc_name == 'ZmwTelegram' and subtopic.startswith("on_command/dispensecatsnacks"):

@@ -28,6 +28,55 @@ class ZmwShellyPlug(ZmwMqttService):
         www.serve_url('/all_stats', lambda: {d.get_name(): d.get_stats_bg() for d in self._devices})
         self._bcast()
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "ls_devs": {
+                    "description": "List monitored device names. Response published on ls_devs_reply",
+                    "params": {}
+                },
+                "all_stats": {
+                    "description": "Get stats for all monitored devices. Response published on all_stats_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Return the MQTT API description for this service. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "<device_name>/stats": {
+                    "description": "Periodically published stats for each online Shelly plug (every bcast_period_secs)",
+                    "payload": {
+                        "device_name": "Name of the Shelly device",
+                        "powered_on": "Whether the switch output is on",
+                        "active_power_watts": "Current power draw in watts",
+                        "voltage_volts": "Current voltage",
+                        "current_amps": "Current amperage",
+                        "temperature_c": "Device temperature in Celsius",
+                        "lifetime_energy_use_watt_hour": "Total energy usage in Wh",
+                        "last_minute_energy_use_watt_hour": "Energy used in the last minute in Wh",
+                        "device_current_time": "Device local time",
+                        "device_uptime": "Device uptime in seconds",
+                        "device_ip": "Device WiFi IP address",
+                        "online": "Whether the device is reachable"
+                    }
+                },
+                "ls_devs_reply": {
+                    "description": "Response to ls_devs. List of device name strings",
+                    "payload": ["device_name_1", "device_name_2"]
+                },
+                "all_stats_reply": {
+                    "description": "Response to all_stats. Map of device name to stats object",
+                    "payload": {"<device_name>": {"device_name": "...", "active_power_watts": "...", "...":" ..."}}
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description. The MQTT API description for this service",
+                    "payload": {"commands": {}, "announcements": {}}
+                },
+            }
+        }
+
     def _bcast(self):
         self._timer = threading.Timer(self._bcast_period_secs, self._bcast)
         self._timer.start()
@@ -43,8 +92,24 @@ class ZmwShellyPlug(ZmwMqttService):
             self._timer = None
         super().stop()
 
-    def on_service_received_message(self, _subtopic, _payload):
-        """Handle incoming service messages (ignored)."""
+    def on_service_received_message(self, subtopic, _payload):
+        """Handle incoming service messages."""
+        if subtopic.endswith('_reply'):
+            return
+
+        match subtopic:
+            case "ls_devs":
+                self.publish_own_svc_message("ls_devs_reply",
+                    [d.get_name() for d in self._devices])
+            case "all_stats":
+                self.publish_own_svc_message("all_stats_reply",
+                    {d.get_name(): d.get_stats_bg() for d in self._devices})
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                # Ignore all echo messages
+                pass
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
         """Handle messages from dependencies (unexpected)."""

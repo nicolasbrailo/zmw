@@ -56,19 +56,70 @@ class ZmwContactmon(ZmwMqttService):
             alerts.append(f"{sensor}: {status}")
         return alerts
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "skip_chimes": {
+                    "description": "Temporarily disable chime/sound notifications",
+                    "params": {"timeout": "(optional) Duration in seconds to skip chimes. Uses configured default if omitted."}
+                },
+                "enable_chimes": {
+                    "description": "Re-enable chime notifications immediately, cancelling any pending skip timeout",
+                    "params": {}
+                },
+                "publish_state": {
+                    "description": "Request current service state. Response published on publish_state_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "publish_state_reply": {
+                    "description": "Response to publish_state command with full service state. Also published after skip_chimes, enable_chimes, or publish_state. Contains full service state",
+                    "payload": {
+                        "sensors": "Dict of sensor_name -> {in_normal_state, contact, ...}",
+                        "history": "List of recent contact state changes",
+                        "skipping_chimes": "Boolean, true if chimes are currently suppressed",
+                        "skipping_chimes_timeout_secs": "Seconds until chimes re-enable, or null"
+                    }
+                },
+                "<sensor_name>/contact": {
+                    "description": "Published when a contact sensor changes state",
+                    "payload": {
+                        "sensor": "Name of the sensor",
+                        "contact": "Current contact state",
+                        "prev_contact": "Previous contact state",
+                        "entering_non_normal": "Previous contact state (indicates if entering non-normal)"
+                    }
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description with this API description",
+                    "payload": "(this object)"
+                },
+            }
+        }
+
     def on_service_received_message(self, subtopic, msg):
         """ MQTT callback """
+        if subtopic.endswith('_reply'):
+            return
         match subtopic:
             case "skip_chimes":
                 self._exec.skip_chimes_with_timeout(msg.get('timeout'))
-                self.publish_own_svc_message(f"state", self._svc_state())
+                self.publish_own_svc_message("publish_state_reply", self._svc_state())
             case "enable_chimes":
                 self._exec.enable_chimes()
-                self.publish_own_svc_message(f"state", self._svc_state())
+                self.publish_own_svc_message("publish_state_reply", self._svc_state())
             case "publish_state":
-                self.publish_own_svc_message(f"state", self._svc_state())
+                self.publish_own_svc_message("publish_state_reply", self._svc_state())
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
             case _:
-                pass # Ignore echos
+                pass  # Ignore unknown subtopics and sensor echos
 
     def on_dep_published_message(self, svc_name, subtopic, msg):
         pass

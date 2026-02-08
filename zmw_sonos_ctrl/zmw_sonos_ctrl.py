@@ -55,6 +55,81 @@ class ZmwSonosCtrl(ZmwMqttService):
         self._sock.route('/line_in_requested')(self._ws_line_in_requested)
         # TODO: Add a WS endpoint to stream updates from Spotify, so it lists the playing media in the UI
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "prev_track": {
+                    "description": "Skip to the previous track on the active speaker group",
+                    "params": {}
+                },
+                "next_track": {
+                    "description": "Skip to the next track on the active speaker group",
+                    "params": {}
+                },
+                "volume_up": {
+                    "description": "Increase volume on the active speaker group",
+                    "params": {"vol": "(optional) Volume step percentage, default 5"}
+                },
+                "volume_down": {
+                    "description": "Decrease volume on the active speaker group",
+                    "params": {"vol": "(optional) Volume step percentage, default 5"}
+                },
+                "spotify_hijack": {
+                    "description": "Hijack Spotify playback to a set of Sonos speakers",
+                    "params": {"<speaker_name>": {"vol": "Volume level (0-100)"}}
+                },
+                "spotify_hijack_or_toggle_play": {
+                    "description": "If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack",
+                    "params": {"<speaker_name>": {"vol": "Volume level (0-100)"}}
+                },
+                "stop_all": {
+                    "description": "Stop all playback and reset Sonos speaker states",
+                    "params": {}
+                },
+                "world_state": {
+                    "description": "Request full Sonos network state. Response published on world_state_reply",
+                    "params": {}
+                },
+                "ls_speakers": {
+                    "description": "Request list of discovered speaker names. Response published on ls_speakers_reply",
+                    "params": {}
+                },
+                "get_sonos_play_uris": {
+                    "description": "Request URIs currently playing on all speakers. Response published on get_sonos_play_uris_reply",
+                    "params": {}
+                },
+                "get_spotify_context": {
+                    "description": "Request current Spotify context/state. Response published on get_spotify_context_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "world_state_reply": {
+                    "description": "Response to world_state command",
+                    "payload": {"speakers": "List of speaker state dicts", "groups": "Map of coordinator name to member names", "zones": "List of zone names"}
+                },
+                "ls_speakers_reply": {
+                    "description": "Response to ls_speakers command",
+                    "payload": ["List of speaker name strings"]
+                },
+                "get_sonos_play_uris_reply": {
+                    "description": "Response to get_sonos_play_uris command",
+                    "payload": {"<speaker_name>": "URI string currently playing"}
+                },
+                "get_spotify_context_reply": {
+                    "description": "Response to get_spotify_context command",
+                    "payload": {"media_info": "Spotify media info dict including context URI and current track"}
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description command",
+                    "payload": {"commands": "...", "announcements": "..."}
+                },
+            }
+        }
 
     def _ws_spotify_hijack(self, ws):
         try:
@@ -195,6 +270,8 @@ class ZmwSonosCtrl(ZmwMqttService):
         return {}
 
     def on_service_received_message(self, subtopic, msg):
+        if subtopic.endswith('_reply'):
+            return
         # MQTT messages for this service are processed in a background thread, so that we can free up the mqtt thread
         # and reply to other mqtt messages/send other mqtt messages from this service
         threading.Thread(
@@ -219,6 +296,24 @@ class ZmwSonosCtrl(ZmwMqttService):
             case "spotify_hijack_or_toggle_play":
                 log.info("MQTT request: Spotify hijack or toggle play")
                 self._spotify_hijack_or_toggle_play(msg)
+            case "stop_all":
+                log.info("MQTT request: stop all")
+                self._stop_all()
+            case "world_state":
+                self.publish_own_svc_message("world_state_reply",
+                    get_all_sonos_state())
+            case "ls_speakers":
+                self.publish_own_svc_message("ls_speakers_reply",
+                    list(ls_speakers().keys()))
+            case "get_sonos_play_uris":
+                self.publish_own_svc_message("get_sonos_play_uris_reply",
+                    get_all_sonos_playing_uris())
+            case "get_spotify_context":
+                self.publish_own_svc_message("get_spotify_context_reply",
+                    self._get_spotify_context())
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
 
     def on_dep_published_message(self, svc_name, subtopic, msg):
         """Handle messages from dependent services."""

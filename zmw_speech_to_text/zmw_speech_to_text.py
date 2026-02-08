@@ -43,6 +43,34 @@ class ZmwSpeechToText(ZmwMqttService):
                       "must be downloaded first (set local_files_only to false, restart, "
                       "then set it back to true). Service will stay running but STT is disabled.")
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "transcribe": {
+                    "description": "Transcribe an audio file at the given path",
+                    "params": {"wav_path": "(preferred) Path to a WAV file", "path": "(fallback) Path to any audio file"}
+                },
+                "get_history": {
+                    "description": "Request transcription history. Response published on get_history_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "transcription": {
+                    "description": "Published when a transcription completes (from any source: HTTP, MQTT, or Telegram voice)",
+                    "payload": {"source": "Origin: 'http', 'mqtt', or 'telegram'", "file": "Path to audio file (null for HTTP uploads)", "text": "Transcribed text", "confidence": {"language": "Detected language code", "language_prob": "Language detection probability", "avg_log_prob": "Average log probability of segments", "no_speech_prob": "Probability of no speech in segments"}}
+                },
+                "get_history_reply": {
+                    "description": "Response to get_history. Array of recent transcription results (max 20)",
+                    "payload": [{"source": "Origin", "file": "Audio path", "text": "Transcribed text", "confidence": "Confidence metrics"}]
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description. Describes all MQTT commands and announcements for this service",
+                    "payload": {"commands": {}, "announcements": {}}
+                },
+            }
+        }
+
     def _http_transcribe(self):
         if not self._stt:
             return json.dumps({'error': 'STT model not loaded'}), 503
@@ -84,12 +112,22 @@ class ZmwSpeechToText(ZmwMqttService):
         self.publish_own_svc_message("transcription", result)
 
     def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
         match subtopic:
             case "transcribe":
                 self._on_mqtt_transcribe(payload)
-            case _:
-                # Ignore self echo
+            case "get_history":
+                self.publish_own_svc_message("get_history_reply",
+                    list(self._history))
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case "transcription":
+                # Ignore self-echo of announcements
                 pass
+            case _:
+                log.warning("Ignoring unknown message '%s'", subtopic)
 
     def _on_mqtt_transcribe(self, msg):
         if not self._stt:

@@ -93,6 +93,77 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         }
         self._announcement_history.append(entry)
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "ls": {
+                    "description": "List available Sonos speakers. Response published on ls_reply",
+                    "params": {}
+                },
+                "tts": {
+                    "description": "Convert text to speech and play on all Sonos speakers",
+                    "params": {
+                        "msg": "Text to announce",
+                        "lang": "(optional) Language code for TTS. Uses configured default if omitted",
+                        "vol": "(optional) Volume 0-100. Uses configured default if omitted"
+                    }
+                },
+                "save_asset": {
+                    "description": "Copy a local audio file into the TTS asset cache so it can be served to speakers. Response published on save_asset_reply",
+                    "params": {
+                        "local_path": "Absolute path to the audio file on disk"
+                    }
+                },
+                "play_asset": {
+                    "description": "Play an audio asset on all Sonos speakers. Exactly one source must be specified",
+                    "params": {
+                        "name": "(option 1) Filename of an asset already in the TTS cache",
+                        "local_path": "(option 2) Absolute path to a local file (will be copied to cache first)",
+                        "public_www": "(option 3) Public URL of an audio file",
+                        "vol": "(optional) Volume 0-100. Uses configured default if omitted"
+                    }
+                },
+                "announcement_history": {
+                    "description": "Request recent announcement history. Response published on announcement_history_reply",
+                    "params": {}
+                },
+                "get_mqtt_description": {
+                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "ls_reply": {
+                    "description": "Response to ls. Sorted list of Sonos speaker names",
+                    "payload": ["speaker_name_1", "speaker_name_2"]
+                },
+                "tts_reply": {
+                    "description": "Published after a TTS announcement completes. Contains the generated asset paths",
+                    "payload": {
+                        "local_path": "Filename of the generated TTS audio in the cache",
+                        "uri": "Public URL where the TTS audio is served"
+                    }
+                },
+                "save_asset_reply": {
+                    "description": "Response to save_asset. Contains status and asset URI on success",
+                    "payload": {
+                        "status": "'ok' or 'error'",
+                        "asset": "(on success) Filename of the saved asset",
+                        "uri": "(on success) Public URL of the saved asset",
+                        "cause": "(on error) Error description"
+                    }
+                },
+                "announcement_history_reply": {
+                    "description": "Response to announcement_history. List of recent announcements",
+                    "payload": [{"timestamp": "ISO timestamp", "phrase": "Announced text or marker", "lang": "Language code", "volume": "Volume used", "uri": "Audio URI played"}]
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description with this API description",
+                    "payload": "(this object)"
+                },
+            }
+        }
+
     def _www_announce_tts(self):
         """Web endpoint for TTS announcements."""
         lang = request.args.get('lang', self._cfg['tts_default_lang'])
@@ -127,21 +198,23 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         return {}
 
     def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
         match subtopic:
-            case "ls_reply":
-                pass # Ignore self-reply
             case "ls":
-                self.publish_own_svc_message("ls_reply", list(get_sonos_by_name()))
-            case "tts_reply":
-                pass # Ignore self-reply
+                self.publish_own_svc_message("ls_reply", sorted(list(get_sonos_by_name())))
             case "tts":
                 return self._tts_and_play(payload)
-            case "save_asset_reply":
-                pass # Ignore self-reply
             case "save_asset":
                 self._save_asset_to_www(payload.get('local_path', None))
             case "play_asset":
                 self._play_asset(payload)
+            case "announcement_history":
+                self.publish_own_svc_message("announcement_history_reply",
+                    list(self._announcement_history))
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
             case _:
                 log.error("Unknown message %s payload %s", subtopic, payload)
 

@@ -1,31 +1,47 @@
 # ZmwContactMon
 
-Contact sensor monitoring with timeout and curfew alerts.
-Monitors Zigbee contact sensors (doors, windows). On state change, triggers configured actions (notifications over SMS, announcements on local speaker).
+Contact sensor monitoring with timeout and curfew alerts. Monitors Zigbee contact sensors (doors, windows) and triggers configured actions when sensors change state, time out, or violate curfew.
 
-![](README_screenshot.png)
+## Configuration
 
-This service will monitor transitions in contact sensors between open (non-normal) and closed (normal). With this service, you can
+| Key | Description |
+|-----|-------------|
+| `actions` | Dict of sensor_name -> event -> action mappings (see Actions below) |
+| `curfew_hour` | (optional) Time in `HH:MM` format for daily curfew check |
+| `chime_skip_default_secs` | Default duration (seconds) for skip-chimes requests |
+| `chime_skip_max_secs` | Maximum allowed skip-chimes duration (seconds) |
 
-* Monitor state of contact sensors in a Zigbee network.
-* Trigger actions when a sensor changes from open to close, or from close to open.
-* Trigger actions when a sensor has been left open for too long (eg if someone forgot a door open).
-* Trigger actions when a sensor is open after a curfew time (eg if someone forgets a window open at night).
-* Skip alerts: if you have a door-open alert, and you come home late, there's a button to disable chimes that may wake people up.
+### Actions
 
-## Actions
+Each sensor in `actions` maps event types to action handlers:
 
-The following actions are supported for each transition (normal/closed, non-normal/open, timeout, curfew):
+**Events:** `open`, `close`, `timeout`, `curfew`
+**Metadata:** `normal_state` (bool, required), `timeout_secs` (int, required if `timeout` event is defined)
 
-* Telegram: delivers a message to a Telegram service (which will relay it to a set of contacts).
-* Whatsapp: delivers a picture to a Whatsapp service, similar to Telegram.
-* tts_announce: will ask a LAN speaker announcement service to broadcast a message over loudspeakers. Google translate will be used as a TTS service. Different languages supported.
-* sound asset annoucne: ask a LAN speaker announcement service to broadcast a chime/sound effect, using a local file or a URL accessible to the speakers.
+**Action types:**
 
+| Action | Description | Required params |
+|--------|-------------|-----------------|
+| `telegram` | Send a message via ZmwTelegram | `msg` |
+| `whatsapp` | Send a message via ZmwWhatsapp | `msg` |
+| `tts_announce` | Broadcast a TTS message via ZmwSpeakerAnnounce | `msg`, `lang` |
+| `sound_asset_announce` | Play a sound file via ZmwSpeakerAnnounce | `local_path` or `public_www` |
 
-## WWW Endpoints
+## WWW
 
-- `/svc_state` - Current sensor states, history, chime status
-- `/skip_chimes` - Temporarily disable chime notifications
-- `/skip_chimes_with_timeout/<secs>` - Disable chimes with timeout
-- `/enable_chimes` - Re-enable chime notifications
+- `/` - React monitoring UI (served from `www/` directory)
+- `/svc_state` - JSON: current sensor states, contact history, chime skip status
+- `/skip_chimes` - Skip chime notifications for the default duration
+- `/skip_chimes_with_timeout/<secs>` - Skip chime notifications for specified seconds
+- `/enable_chimes` - Re-enable chime notifications immediately
+- `/test_curfew` - Manually trigger a curfew check (debug)
+
+## Curfew
+
+When `curfew_hour` is configured, a daily check runs at that time. Any sensor in a non-normal state triggers its `curfew` action (if defined).
+
+## Dependencies
+
+- `ZmwSpeakerAnnounce` - for TTS and sound asset announcements
+- `ZmwWhatsapp` - for WhatsApp notifications
+- `ZmwTelegram` - for Telegram notifications

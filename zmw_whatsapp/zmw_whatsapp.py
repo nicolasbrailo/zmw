@@ -40,6 +40,30 @@ class ZmwWhatsapp(ZmwMqttService):
                 alerts.append("Currently rate limiting")
         return alerts
 
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "send_photo": {
+                    "description": "Send a photo to all WhatsApp notify targets via a template message",
+                    "params": {"path": "Local file path to the image", "msg": "(optional) Caption text"}
+                },
+                "send_text": {
+                    "description": "Send a text message to all WhatsApp notify targets (not yet implemented)",
+                    "params": {"msg": "Message text"}
+                },
+                "get_history": {
+                    "description": "Request message history. Response published on get_history_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "get_history_reply": {
+                    "description": "Response to get_history. List of message event objects",
+                    "payload": [{"timestamp": "ISO timestamp", "direction": "sent", "type": "photo|text", "...": "Additional details depending on type"}]
+                },
+            }
+        }
+
     def _track_message(self, direction, msg_type, **details):
         """Track message events for history"""
         event = {
@@ -66,6 +90,9 @@ class ZmwWhatsapp(ZmwMqttService):
 
     def on_service_received_message(self, subtopic, payload):
         """ MQTT callback """
+        if subtopic.endswith('_reply'):
+            return
+
         match subtopic:
             case "send_photo":
                 if 'path' not in payload:
@@ -86,6 +113,12 @@ class ZmwWhatsapp(ZmwMqttService):
                     log.warning("User requested Whatsapp text, but this isn't implemented: '%s'", payload)
                     self._track_message('sent', 'text', text=payload['msg'], status='not_implemented')
                 self._rate_limited_send(do_send_text)
+            case "get_history":
+                self.publish_own_svc_message("get_history_reply",
+                    list(self._message_history))
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
             case _:
                 log.error("Ignoring unknown message '%s'", subtopic)
 

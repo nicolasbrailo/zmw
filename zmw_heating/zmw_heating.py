@@ -1,4 +1,5 @@
 """ Heating manager. Controls a simple on/off relay that powers a boiler. """
+import json
 import os
 import signal
 import time
@@ -6,7 +7,7 @@ import pathlib
 from collections import deque
 from datetime import datetime, timedelta
 
-from zzmw_lib.zmw_mqtt_service import ZmwMqttServiceNoCommands
+from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.logs import build_logger
 from zz2m.z2mproxy import Z2MProxy
@@ -18,13 +19,14 @@ from schedule import ScheduleSlot
 
 log = build_logger("ZmwHeating")
 
-class ZmwHeating(ZmwMqttServiceNoCommands):
+class ZmwHeating(ZmwMqttService):
     """ Service to control an on/off relay that operates a boiler """
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg, sched, svc_deps=['ZmwTelegram'])
+        super().__init__(cfg, "zmw_heating", scheduler=sched, svc_deps=['ZmwTelegram'])
 
         self._z2m_boiler_name = cfg['zigbee_boiler_name']
         self._rules = create_rules_from_config(cfg['rules'])
+        self._cfg_rules = cfg['rules']
 
         self._boiler = None
         self._pending_state = None
@@ -73,6 +75,91 @@ class ZmwHeating(ZmwMqttServiceNoCommands):
         if self._boiler is None:
             return [f"Boiler '{self._z2m_boiler_name}' not found in the network yet"]
         return []
+
+    def get_mqtt_description(self):
+        return {
+            "commands": {
+                "svc_state": {
+                    "description": "Request current service state (schedule, boiler, sensors). Response on svc_state_reply",
+                    "params": {}
+                },
+                "get_cfg_rules": {
+                    "description": "Request configured heating rules. Response on get_cfg_rules_reply",
+                    "params": {}
+                },
+                "active_schedule": {
+                    "description": "Request today's active schedule. Response on active_schedule_reply",
+                    "params": {}
+                },
+                "boost": {
+                    "description": "Activate heating boost for N hours",
+                    "params": {"hours": "Number of hours to boost (1-12)"}
+                },
+                "off_now": {
+                    "description": "Turn heating off immediately until next scheduled off slot",
+                    "params": {}
+                },
+                "slot_toggle": {
+                    "description": "Toggle a schedule slot on/off by time name",
+                    "params": {"slot_nm": "Slot time in HH:MM format", "reason": "[Optional] Reason to turn on/off"}
+                },
+                "get_mqtt_description": {
+                    "description": "Request MQTT API description. Response on get_mqtt_description_reply",
+                    "params": {}
+                },
+            },
+            "announcements": {
+                "svc_state_reply": {
+                    "description": "Response to svc_state: current schedule, boiler state, and sensor readings",
+                    "payload": {"active_schedule": "List of schedule slots", "allow_on": "Current slot allow_on policy",
+                                "mqtt_thing_reports_on": "Boiler relay state value",
+                                "boiler_state_history": "Recent state changes",
+                                "monitoring_sensors": "Sensor name to current value map"}
+                },
+                "get_cfg_rules_reply": {
+                    "description": "Response to get_cfg_rules: the raw rules configuration",
+                    "payload": "List of rule config objects"
+                },
+                "active_schedule_reply": {
+                    "description": "Response to active_schedule: today's schedule starting from current slot",
+                    "payload": [{"hour": "int", "minute": "int", "allow_on": "Always|Never|Rule", "request_on": "bool", "reason": "str"}]
+                },
+                "get_mqtt_description_reply": {
+                    "description": "Response to get_mqtt_description: this service's MQTT API",
+                    "payload": "This object structure"
+                },
+            }
+        }
+
+    def on_service_received_message(self, subtopic, payload):
+        if subtopic.endswith('_reply'):
+            return
+
+        match subtopic:
+            case "svc_state":
+                self.publish_own_svc_message("svc_state_reply",
+                    self.svc_state())
+            case "get_cfg_rules":
+                self.publish_own_svc_message("get_cfg_rules_reply",
+                    self._cfg_rules)
+            case "active_schedule":
+                self.publish_own_svc_message("active_schedule_reply",
+                    self.schedule.active().as_jsonifyable_dict())
+            case "boost":
+                hours = payload.get('hours', 1) if isinstance(payload, dict) else 1
+                self.schedule.active().boost(hours)
+            case "off_now":
+                self.schedule.active().off_now()
+            case "slot_toggle":
+                if not isinstance(payload, dict) or 'slot_nm' not in payload:
+                    log.error("slot_toggle requires 'slot_nm' param, got: %s", payload)
+                    return
+                self.schedule.active().toggle_slot_by_name(payload['slot_nm'], reason=payload.get("reason", "Set by MQTT"))
+            case "get_mqtt_description":
+                self.publish_own_svc_message("get_mqtt_description_reply",
+                    self.get_mqtt_description())
+            case _:
+                log.warning("Ignoring unknown message '%s'", subtopic)
 
     def svc_state(self):
         """Return current service state as dict."""

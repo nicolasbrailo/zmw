@@ -1,27 +1,33 @@
-# ZmwLighs
+# ZmwLights
 
-Zigbee light discovery and control service.
+Zigbee light and switch discovery and control service. Connects to Zigbee2MQTT, discovers all light and switch devices on the network, and exposes them via a web UI and REST API.
 
-![](README_screenshot.png)
+## Features
 
-Connects to Zigbee2MQTT, discovers all light devices on the network, and exposes them via a web API. Applies light helper patches for extended functionality. The app favours convention over configuration, and will
+- Automatically groups lights by name prefix. A set of lights like "TVRoomLight1", "TVRoomLight2", "TVRoomLight3" will be shown as "Light1", "Light2", "Light3" under group "TVRoom".
+- Compact, mobile-friendly view of all discovered lights with quick brightness and on/off controls.
+- Extended configuration panel for lights that support RGB, colour temperature, and light effects.
+- Backend patches to normalize behaviour across different light models (e.g. adding RGB methods where only CIE XY is supported).
+- Frontend caching via a device hash endpoint, allowing the UI to load full metadata only when the network changes.
+- Switch support: switches are discovered and queryable alongside lights.
+- User-defined actions: the React component accepts a map of `{label => url}` to render quick-action buttons within groups (e.g. scenes).
 
-* Automatically group set of lights; if a set of lights starts with a prefix, they will be presented as a group. A set of lights like "TVRoomLight1", "TVRoomLight2", "TVRoomLight2", for example, will be shown as "Light1", "Light2", "Light3", under group "TVRoom".
-* Show a compact, mobile friendly, view of all the lights discovered, and quickly adjust brightness and on/off status.
-* An extended configuration panel is shown for lights that support extra settings. Currently supported: RGB, colour temperature, light effects.
-* Backend service contains random patches to work around/normalize behaviour of a few different lights, eg adding support for RGB methods where only CIE XY is supported. Don't try to pick black colour for your lights.
-* Backend provides a hash for the known lights. This lets the frontend query copious amount of metadata per light, and cache it, without risk of showing a stale network to the user.
-* Switches support: because switches behave very closely to lights, this service will also offer an endpoint to query switches.
-* User-defined actions: users may specify a set of actions when creating the react component. By providing a map of {label => url}, the lights service will render this in its matching group. This can be used to set up scenes, or any other quick action.
+## Configuration
+
+This service does not require a `config.json`. All configuration is provided via the Zigbee2MQTT connection settings inherited from the base MQTT config (typically `mqtt_ip` and `mqtt_port`).
 
 ## WWW Endpoints
 
-- `/get_lights` - Returns JSON array of all discovered lights with their state.
-- `/z2m/*` - Z2M web service endpoints (device listing, control).
-- `/z2m/get_known_things_hash` - Returns a hash of the known devices, so the UI can check if the network has changed without loading all of the metadata.
-- `/z2m/ls' - returns a small list of all known lights names.
-- `/z2m/get_world` - returns state of all the lights registered in this service.
-- `/z2m/meta/<thing_name>` - retrieves a list of device capabilities. This method will return a lot of data!
-- `/z2m/set/<thing_name>` - set properties of a devicer. For example, call with `{brightness: 50}`
-- `/z2m/get/<thing_name>` - retrieves properties of a device
+- `/` - React UI for light and switch control (served from `www/` directory)
+- `GET /get_lights` - JSON array of all discovered lights with their current state
+- `GET /get_switches` - JSON array of all discovered switches with their current state
+- `PUT /all_lights_on/prefix/<prefix>` - Turn on all lights whose name starts with `<prefix>` at 80% brightness
+- `PUT /all_lights_off/prefix/<prefix>` - Turn off all lights whose name starts with `<prefix>`
+- `GET /z2m/get_known_things_hash` - Hash of known devices (for cache invalidation)
+- `GET /z2m/ls` - List of all known device names
+- `GET /z2m/get_world` - Full state of all registered devices
+- `GET /z2m/meta/<thing_name>` - Device capabilities metadata (large response)
+- `PUT /z2m/set/<thing_name>` - Set device properties (e.g. `{"brightness": 50}`)
+- `GET /z2m/get/<thing_name>` - Get current device properties
 
+![](README_screenshot.png)
