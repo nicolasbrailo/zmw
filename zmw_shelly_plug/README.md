@@ -2,6 +2,8 @@
 
 Monitors a list of Shelly smart plugs over their local HTTP API and periodically broadcasts power/energy statistics over MQTT. Useful for tracking power consumption when integrated with other services like ZmwSensors.
 
+![](README_screenshot.png)
+
 ## Configuration
 
 | Key | Description |

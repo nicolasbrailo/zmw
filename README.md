@@ -69,6 +69,8 @@ All service management scripts are wrappers on top of systemd/systemctl/journalc
 
 Manages an Aqara ZNCWWSQ01LM (aqara.feeder.acn001) cat food dispenser via Zigbee2MQTT. Handles feeding schedules, monitors dispense events, and sends Telegram notifications on success, failure, or missed feedings.
 
+![](zmw_cat_snack_dispenser/README_screenshot.png)
+
 ## How It Works
 
 The service uploads a feeding schedule to the Zigbee-connected dispenser unit, then monitors that the unit actually dispenses food at the scheduled times. If the unit misses a scheduled feeding (within a configurable tolerance), the service triggers an emergency remote dispense and sends an alert.
@@ -764,6 +766,8 @@ The MQTT API description for this service
 
 Multi-camera Reolink service with motion detection, doorbell events, recording, and an NVR-like web interface. Connects to one or more Reolink cameras via webhook/ONVIF, broadcasts events over MQTT, and provides snapshot/recording controls.
 
+![](zmw_reolink_cams/README_screenshot.png)
+
 ## Configuration
 
 | Key | Description |
@@ -793,6 +797,8 @@ Multi-camera Reolink service with motion detection, doorbell events, recording, 
 - `/nvr/<cam>/get_snapshot/<file>` - Serve a snapshot file
 
 ## NVR Behavior
+
+![](zmw_reolink_cams/README_screenshot2.png)
 
 Unlike a traditional NVR, this service does not record continuously. Recording starts only when the camera reports motion or a doorbell press. This means the first few seconds of an event may be missed, but saves significant energy and storage. Recordings are re-encoded in the background for web-friendly playback.
 
@@ -1119,6 +1125,8 @@ This service will let you know the health of your ZMW services at a glance. It w
 # ZmwShellyPlug
 
 Monitors a list of Shelly smart plugs over their local HTTP API and periodically broadcasts power/energy statistics over MQTT. Useful for tracking power consumption when integrated with other services like ZmwSensors.
+
+![](zmw_shelly_plug/README_screenshot.png)
 
 ## Configuration
 

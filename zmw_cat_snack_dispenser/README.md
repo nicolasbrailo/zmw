@@ -2,6 +2,8 @@
 
 Manages an Aqara ZNCWWSQ01LM (aqara.feeder.acn001) cat food dispenser via Zigbee2MQTT. Handles feeding schedules, monitors dispense events, and sends Telegram notifications on success, failure, or missed feedings.
 
+![](README_screenshot.png)
+
 ## How It Works
 
 The service uploads a feeding schedule to the Zigbee-connected dispenser unit, then monitors that the unit actually dispenses food at the scheduled times. If the unit misses a scheduled feeding (within a configurable tolerance), the service triggers an emergency remote dispense and sends an alert.

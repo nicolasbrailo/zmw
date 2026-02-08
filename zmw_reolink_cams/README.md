@@ -2,6 +2,8 @@
 
 Multi-camera Reolink service with motion detection, doorbell events, recording, and an NVR-like web interface. Connects to one or more Reolink cameras via webhook/ONVIF, broadcasts events over MQTT, and provides snapshot/recording controls.
 
+![](README_screenshot.png)
+
 ## Configuration
 
 | Key | Description |
@@ -31,6 +33,8 @@ Multi-camera Reolink service with motion detection, doorbell events, recording, 
 - `/nvr/<cam>/get_snapshot/<file>` - Serve a snapshot file
 
 ## NVR Behavior
+
+![](README_screenshot2.png)
 
 Unlike a traditional NVR, this service does not record continuously. Recording starts only when the camera reports motion or a doorbell press. This means the first few seconds of an event may be missed, but saves significant energy and storage. Recordings are re-encoded in the background for web-friendly playback.
 
