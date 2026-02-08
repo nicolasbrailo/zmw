@@ -5,7 +5,7 @@ name = "pypi"
 
 [packages]
 zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
-flask = "*"
+llama-cpp-python = "*"
 
 [dev-packages]
 pylint = "*"
