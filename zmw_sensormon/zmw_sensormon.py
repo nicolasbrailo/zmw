@@ -75,6 +75,9 @@ class ShellyPlugMonitor:
 
     def on_message(self, topic, payload):
         """Handle incoming Shelly MQTT messages and update sensor history."""
+        if "get_mqtt_description" in topic:
+            # Ignore MQTT self-description from Shelly service
+            return
         parts = topic.split('/')
         if len(parts) != 2:
             log.warning("Unexpected shelly topic format '%s': %s", topic, payload)
