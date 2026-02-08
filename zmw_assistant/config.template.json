@@ -1,0 +1,11 @@
+{
+  "llm": {
+    "enabled": true,
+    "COMMENT_backend": "Options: 'ollama' (preferred, requires Ollama daemon) or 'llama_cpp' (in-process, no external deps)",
+    "backend": "ollama",
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "llama3.2:3b",
+    "COMMENT_llama_cpp": "Path to GGUF model file for in-process fallback",
+    "llama_cpp_model_path": null
+  }
+}
