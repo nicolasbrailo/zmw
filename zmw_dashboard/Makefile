@@ -12,6 +12,7 @@ rebuild_ui::
 	cat \
 		../zmw_doorman/www/app.js \
 		../zmw_heating/www/app.js \
+		../zmw_cat_snack_dispenser/www/app.js \
 		../zmw_lights/www/app.js \
 		../zmw_sensormon/www/app.js \
 		../zmw_sonos_ctrl/www/app.js \

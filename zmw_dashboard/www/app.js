@@ -165,6 +165,17 @@ function SensorsListSection(props) {
   );
 }
 
+function CatSection(props) {
+  return (
+    <section id="catsnacks-section">
+      <a className="section-badge" href={ProxiedServices.get('ZmwCatSnackDispenser')}><img src="/ZmwCatSnackDispenser/favicon.ico"/></a>
+      {React.createElement(
+        CatFeeder,
+        CatFeeder.buildProps('/ZmwCatSnackDispenser'))}
+    </section>
+  );
+}
+
 function TTSAnnounceSection(props) {
   return (
     <section id="ttsannounce-section">
@@ -309,6 +320,7 @@ function Dashboard(props) {
 
       <section id="zmw_other_services">
         { renderSvcBtn('Shout', 'ZmwSpeakerAnnounce') }
+        { renderSvcBtn('Cat', 'ZmwCatSnackDispenser') }
         { renderSvcBtn('Door', 'ZmwDoorman') }
         { renderSvcBtn('Heat', 'ZmwHeating') }
         { renderSvcBtn('Sonos', 'ZmwSonosCtrl') }
@@ -317,6 +329,7 @@ function Dashboard(props) {
 
       <div ref={contentRef}>
         {expandedSection === 'Shout' && <TTSAnnounceSection />}
+        {expandedSection === 'Cat' && <CatSection />}
         {expandedSection === 'Door' && <DoormanSection />}
         {expandedSection === 'Heat' && <MqttHeatingSection />}
         {expandedSection === 'Sonos' && <SonosCtrlSection />}

@@ -13,9 +13,10 @@ const EXPECTED_ACTIONS = [
 ];
 
 class CatFeeder extends React.Component {
-  static buildProps() {
+  static buildProps(api_base_path = '') {
     return {
       key: 'CatFeeder',
+      api_base_path: api_base_path,
     };
   }
 
@@ -46,7 +47,7 @@ class CatFeeder extends React.Component {
 
   async fetchHistory() {
     return new Promise((resolve) => {
-      mJsonGet('/feed_history', (history) => {
+      mJsonGet(`${this.props.api_base_path}/feed_history`, (history) => {
         this.setState({ feedHistory: history || [] });
         resolve();
       });
@@ -55,7 +56,7 @@ class CatFeeder extends React.Component {
 
   async fetchSchedule() {
     return new Promise((resolve) => {
-      mJsonGet('/feed_schedule', (schedule) => {
+      mJsonGet(`${this.props.api_base_path}/feed_schedule`, (schedule) => {
         const scheduleData = schedule || [];
         this.setState({
           feedSchedule: scheduleData,
@@ -100,7 +101,7 @@ class CatFeeder extends React.Component {
   }
 
   handleFeedNow() {
-    mJsonGet('/feed_now?source=www', () => {
+    mJsonGet(`${this.props.api_base_path}/feed_now?source=www`, () => {
       this.fetchHistory();
     });
   }
@@ -111,7 +112,7 @@ class CatFeeder extends React.Component {
 
   async fetchDeviceList() {
     return new Promise((resolve) => {
-      mJsonGet('/z2m/ls', async (devices) => {
+      mJsonGet(`${this.props.api_base_path}/z2m/ls`, async (devices) => {
         const errors = [];
 
         if (!Array.isArray(devices) || devices.length === 0) {
@@ -135,7 +136,7 @@ class CatFeeder extends React.Component {
 
   async fetchMetadata(thingName) {
     return new Promise((resolve) => {
-      mJsonGet(`/z2m/meta/${thingName}`, (metadata) => {
+      mJsonGet(`${this.props.api_base_path}/z2m/meta/${thingName}`, (metadata) => {
         const errors = [...this.state.errors];
         const actionValues = {};
 
@@ -205,7 +206,7 @@ class CatFeeder extends React.Component {
     // Don't send empty payload
     if (Object.keys(payload).length === 0) return;
 
-    mJsonPut(`/z2m/set/${thingName}`, payload);
+    mJsonPut(`${this.props.api_base_path}/z2m/set/${thingName}`, payload);
 
     if (this.settingsRef.current) {
       this.settingsRef.current.open = false;
