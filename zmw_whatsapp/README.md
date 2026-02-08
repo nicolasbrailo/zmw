@@ -25,3 +25,40 @@ Outgoing messages are rate-limited to 3 messages per 60 seconds. If the limit is
 - Text messages (`send_text`) are not yet implemented; the command is accepted but logs a warning and records the attempt.
 - Photos are sent via WhatsApp template messages (`sample_purchase_feedback` by default), because the API does not allow sending standalone images to users who haven't recently interacted with the bot.
 - Considerable setup is required on the Facebook developer dashboard (developer account, business app, WhatsApp integration, phone number enrollment, permanent token). See `whatsapp.py` for detailed setup instructions.
+
+## MQTT
+
+**Topic:** `zmw_whatsapp`
+
+### Commands
+
+#### `send_photo`
+
+Send a photo to all WhatsApp notify targets via a template message
+
+| Param | Description |
+|-------|-------------|
+| `path` | Local file path to the image |
+| `msg` | (optional) Caption text |
+
+#### `send_text`
+
+Send a text message to all WhatsApp notify targets (not yet implemented)
+
+| Param | Description |
+|-------|-------------|
+| `msg` | Message text |
+
+#### `get_history`
+
+Request message history. Response published on get_history_reply
+
+_No parameters._
+
+### Announcements
+
+#### `get_history_reply`
+
+Response to get_history. List of message event objects
+
+Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent', 'type': 'photo|text', '...': 'Additional details depending on type'}]`

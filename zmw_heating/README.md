@@ -55,3 +55,88 @@ Every state change carries a human-readable reason. The web UI and Telegram noti
 - `/template_apply` -- Apply template schedule to today
 - `/template_reset=<state>` -- Reset all template slots to a state (Always/Never/Rule)
 - `/template_schedule` -- JSON: active and template schedules
+
+## MQTT
+
+**Topic:** `zmw_heating`
+
+### Commands
+
+#### `svc_state`
+
+Request current service state (schedule, boiler, sensors). Response on svc_state_reply
+
+_No parameters._
+
+#### `get_cfg_rules`
+
+Request configured heating rules. Response on get_cfg_rules_reply
+
+_No parameters._
+
+#### `active_schedule`
+
+Request today's active schedule. Response on active_schedule_reply
+
+_No parameters._
+
+#### `boost`
+
+Activate heating boost for N hours
+
+| Param | Description |
+|-------|-------------|
+| `hours` | Number of hours to boost (1-12) |
+
+#### `off_now`
+
+Turn heating off immediately until next scheduled off slot
+
+_No parameters._
+
+#### `slot_toggle`
+
+Toggle a schedule slot on/off by time name
+
+| Param | Description |
+|-------|-------------|
+| `slot_nm` | Slot time in HH:MM format |
+| `reason` | [Optional] Reason to turn on/off |
+
+#### `get_mqtt_description`
+
+Request MQTT API description. Response on get_mqtt_description_reply
+
+_No parameters._
+
+### Announcements
+
+#### `svc_state_reply`
+
+Response to svc_state: current schedule, boiler state, and sensor readings
+
+| Param | Description |
+|-------|-------------|
+| `active_schedule` | List of schedule slots |
+| `allow_on` | Current slot allow_on policy |
+| `mqtt_thing_reports_on` | Boiler relay state value |
+| `boiler_state_history` | Recent state changes |
+| `monitoring_sensors` | Sensor name to current value map |
+
+#### `get_cfg_rules_reply`
+
+Response to get_cfg_rules: the raw rules configuration
+
+List of rule config objects
+
+#### `active_schedule_reply`
+
+Response to active_schedule: today's schedule starting from current slot
+
+Payload: `[{'hour': 'int', 'minute': 'int', 'allow_on': 'Always|Never|Rule', 'request_on': 'bool', 'reason': 'str'}]`
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description: this service's MQTT API
+
+This object structure

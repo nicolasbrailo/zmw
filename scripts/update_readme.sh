@@ -5,6 +5,11 @@ set -euo pipefail
 THIS_SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_DIR=$(dirname "$THIS_SCRIPT_DIR")
 
+# Update each service's README.md with MQTT section from get_mqtt_description()
+echo "Updating service READMEs with MQTT sections..."
+python3 "$THIS_SCRIPT_DIR/update_readme_mqtt.py"
+echo ""
+
 READMES=$(ls "$PROJECT_DIR"/zmw_*/README.md)
 
 if [[ ! -f "$PROJECT_DIR/README.md" ]]; then

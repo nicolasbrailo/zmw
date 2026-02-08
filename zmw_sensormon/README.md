@@ -54,3 +54,91 @@ When a sensor reports both `temperature` and `humidity`, a `feels_like_temp` vir
 ## Data Retention
 
 Old samples are automatically purged daily at 02:22 based on the configured `retention_days`.
+
+## MQTT
+
+**Topic:** `zmw_sensormon`
+
+### Commands
+
+#### `get_sensor_values`
+
+Get current values for a named sensor (Zigbee, Shelly, or virtual). Response on get_sensor_values_reply
+
+| Param | Description |
+|-------|-------------|
+| `name` | Sensor name (e.g. 'Living_Room', 'Weather') |
+
+#### `get_all_sensor_values`
+
+Get the current value of a specific metric across all sensors that measure it. Response on get_all_sensor_values_reply
+
+| Param | Description |
+|-------|-------------|
+| `metric` | Metric name (e.g. 'temperature', 'humidity', 'power_a') |
+
+#### `get_known_sensors`
+
+List all known sensor names. Response on get_known_sensors_reply
+
+_No parameters._
+
+#### `get_known_metrics`
+
+List all metrics being measured across all sensors. Response on get_known_metrics_reply
+
+_No parameters._
+
+#### `get_sensors_measuring`
+
+List sensors that measure a specific metric. Response on get_sensors_measuring_reply
+
+| Param | Description |
+|-------|-------------|
+| `metric` | Metric name to query |
+
+#### `get_mqtt_description`
+
+Returns this MQTT API description. Response on get_mqtt_description_reply
+
+_No parameters._
+
+### Announcements
+
+#### `get_sensor_values_reply`
+
+Response to get_sensor_values. Dict of metric name to current value
+
+| Param | Description |
+|-------|-------------|
+| `<metric>` | <value> |
+
+#### `get_all_sensor_values_reply`
+
+Response to get_all_sensor_values. Dict of sensor name to metric value
+
+| Param | Description |
+|-------|-------------|
+| `<sensor_name>` | <value> |
+
+#### `get_known_sensors_reply`
+
+Response to get_known_sensors. List of sensor name strings
+
+Payload: `['<sensor_name>']`
+
+#### `get_known_metrics_reply`
+
+Response to get_known_metrics. List of metric name strings
+
+Payload: `['<metric_name>']`
+
+#### `get_sensors_measuring_reply`
+
+Response to get_sensors_measuring. List of sensor name strings
+
+Payload: `['<sensor_name>']`
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description. The MQTT API description dict

@@ -38,3 +38,37 @@ Scheduled home automation service. Runs calendar-based cron jobs for lights, not
 - **ZmwSpeakerAnnounce** - Used to play scheduled TTS announcements
 
 ![](README_screenshot.png)
+
+## MQTT
+
+**Topic:** `zmw_cronenbergs`
+
+### Commands
+
+#### `get_stats`
+
+Request service stats (light check history, vacation mode status, battery info). Response published on get_stats_reply
+
+_No parameters._
+
+### Announcements
+
+#### `get_stats_reply`
+
+Response to get_stats with full service statistics
+
+| Param | Description |
+|-------|-------------|
+| `light_check_history` | List of recent light check events |
+| `vacations_mode` | Whether vacation mode is enabled |
+| `speaker_announce` | Configured speaker announcements |
+| `battery_things` | List of devices with battery levels |
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description with this service's MQTT API
+
+| Param | Description |
+|-------|-------------|
+| `commands` | {} |
+| `announcements` | {} |

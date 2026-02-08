@@ -31,3 +31,82 @@ This service does not require a `config.json`. All configuration is provided via
 - `GET /z2m/get/<thing_name>` - Get current device properties
 
 ![](README_screenshot.png)
+
+## MQTT
+
+**Topic:** `zmw_lights`
+
+### Commands
+
+#### `get_lights`
+
+Request state of all discovered lights. Response published on get_lights_reply
+
+_No parameters._
+
+#### `get_switches`
+
+Request state of all discovered switches. Response published on get_switches_reply
+
+_No parameters._
+
+#### `all_lights_on`
+
+Turn on all lights matching a name prefix at 80% brightness. Response published on all_lights_on_reply
+
+| Param | Description |
+|-------|-------------|
+| `prefix` | Name prefix to filter lights (e.g. 'TVRoom') |
+
+#### `all_lights_off`
+
+Turn off all lights matching a name prefix. Response published on all_lights_off_reply
+
+| Param | Description |
+|-------|-------------|
+| `prefix` | Name prefix to filter lights (e.g. 'TVRoom') |
+
+#### `get_mqtt_description`
+
+Request the MQTT API description for this service. Response published on get_mqtt_description_reply
+
+_No parameters._
+
+### Announcements
+
+#### `get_lights_reply`
+
+Response to get_lights. JSON array of light state objects
+
+Payload: `[{'name': 'Light name', 'state': 'ON/OFF', 'brightness': '0-255', '...': 'other device-specific fields'}]`
+
+#### `get_switches_reply`
+
+Response to get_switches. JSON array of switch state objects
+
+Payload: `[{'name': 'Switch name', 'state': 'ON/OFF'}]`
+
+#### `all_lights_on_reply`
+
+Confirmation that all_lights_on completed
+
+| Param | Description |
+|-------|-------------|
+| `status` | ok |
+
+#### `all_lights_off_reply`
+
+Confirmation that all_lights_off completed
+
+| Param | Description |
+|-------|-------------|
+| `status` | ok |
+
+#### `get_mqtt_description_reply`
+
+The MQTT API description for this service
+
+| Param | Description |
+|-------|-------------|
+| `commands` | {} |
+| `announcements` | {} |

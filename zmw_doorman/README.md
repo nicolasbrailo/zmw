@@ -44,3 +44,74 @@ When the door contact sensor reports the door opening and it is dark outside (ba
 ## Telegram Integration
 
 Registers a `/door_snap` command with ZmwTelegram. When invoked, requests a snapshot from the doorbell camera and sends it back over Telegram. Snap requests that take longer than 5 seconds are discarded.
+
+## MQTT
+
+**Topic:** `zmw_doorman`
+
+### Commands
+
+#### `get_stats`
+
+Request door statistics (doorbell presses, motion events, door opens). Response published on get_stats_reply
+
+_No parameters._
+
+#### `get_mqtt_description`
+
+Request the MQTT interface description. Response published on get_mqtt_description_reply
+
+_No parameters._
+
+### Announcements
+
+#### `on_doorbell_pressed`
+
+Published when the doorbell button is pressed
+
+| Param | Description |
+|-------|-------------|
+| `snap_path` | Path to camera snapshot (may be null) |
+
+#### `on_motion_detected`
+
+Published when motion is detected at the door camera
+
+| Param | Description |
+|-------|-------------|
+| `snap_path` | Path to camera snapshot (may be null) |
+
+#### `on_motion_cleared`
+
+Published when the door motion event ends (vacancy reported or timeout)
+
+#### `on_door_opened`
+
+Published when the door contact sensor reports the door opened
+
+#### `on_door_closed`
+
+Published when the door contact sensor reports the door closed
+
+#### `get_stats_reply`
+
+Response to get_stats command with current door statistics
+
+| Param | Description |
+|-------|-------------|
+| `doorbell_press_count_today` | int |
+| `motion_detection_count_today` | int |
+| `last_snap` | filename or null |
+| `last_snap_time` | epoch or null |
+| `history` | list of event records |
+| `motion_in_progress` | bool |
+| `door_open_in_progress` | bool |
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description with this service's MQTT interface
+
+| Param | Description |
+|-------|-------------|
+| `commands` | ... |
+| `announcements` | ... |

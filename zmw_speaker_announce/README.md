@@ -32,3 +32,96 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 ## HTTPS
 
 An HTTPS server is started alongside the normal HTTP server. HTTP routes `/zmw.css` and `/zmw.js` are mirrored to HTTPS. The microphone recording UI requires HTTPS because browsers require a secure context for `getUserMedia`. Sonos speakers fetch audio over HTTP (they cannot validate self-signed certificates).
+
+## MQTT
+
+**Topic:** `zmw_speaker_announce`
+
+### Commands
+
+#### `ls`
+
+List available Sonos speakers. Response published on ls_reply
+
+_No parameters._
+
+#### `tts`
+
+Convert text to speech and play on all Sonos speakers
+
+| Param | Description |
+|-------|-------------|
+| `msg` | Text to announce |
+| `lang` | (optional) Language code for TTS. Uses configured default if omitted |
+| `vol` | (optional) Volume 0-100. Uses configured default if omitted |
+
+#### `save_asset`
+
+Copy a local audio file into the TTS asset cache so it can be served to speakers. Response published on save_asset_reply
+
+| Param | Description |
+|-------|-------------|
+| `local_path` | Absolute path to the audio file on disk |
+
+#### `play_asset`
+
+Play an audio asset on all Sonos speakers. Exactly one source must be specified
+
+| Param | Description |
+|-------|-------------|
+| `name` | (option 1) Filename of an asset already in the TTS cache |
+| `local_path` | (option 2) Absolute path to a local file (will be copied to cache first) |
+| `public_www` | (option 3) Public URL of an audio file |
+| `vol` | (optional) Volume 0-100. Uses configured default if omitted |
+
+#### `announcement_history`
+
+Request recent announcement history. Response published on announcement_history_reply
+
+_No parameters._
+
+#### `get_mqtt_description`
+
+Request MQTT API description. Response published on get_mqtt_description_reply
+
+_No parameters._
+
+### Announcements
+
+#### `ls_reply`
+
+Response to ls. Sorted list of Sonos speaker names
+
+Payload: `['speaker_name_1', 'speaker_name_2']`
+
+#### `tts_reply`
+
+Published after a TTS announcement completes. Contains the generated asset paths
+
+| Param | Description |
+|-------|-------------|
+| `local_path` | Filename of the generated TTS audio in the cache |
+| `uri` | Public URL where the TTS audio is served |
+
+#### `save_asset_reply`
+
+Response to save_asset. Contains status and asset URI on success
+
+| Param | Description |
+|-------|-------------|
+| `status` | 'ok' or 'error' |
+| `asset` | (on success) Filename of the saved asset |
+| `uri` | (on success) Public URL of the saved asset |
+| `cause` | (on error) Error description |
+
+#### `announcement_history_reply`
+
+Response to announcement_history. List of recent announcements
+
+Payload: `[{'timestamp': 'ISO timestamp', 'phrase': 'Announced text or marker', 'lang': 'Language code', 'volume': 'Volume used', 'uri': 'Audio URI played'}]`
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description with this API description
+
+(this object)

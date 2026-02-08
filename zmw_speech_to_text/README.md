@@ -26,3 +26,52 @@ Offline speech-to-text service using faster-whisper. Transcribes audio from Tele
 ## Model Loading
 
 The STT model is loaded in a background thread at startup. If loading fails (e.g., `local_files_only` is `true` but the model has not been downloaded), the service stays running but all transcription requests are rejected with a warning. To download the model for the first time, set `local_files_only` to `false`, restart the service, then optionally set it back to `true`.
+
+## MQTT
+
+**Topic:** `zmw_speech_to_text`
+
+### Commands
+
+#### `transcribe`
+
+Transcribe an audio file at the given path
+
+| Param | Description |
+|-------|-------------|
+| `wav_path` | (preferred) Path to a WAV file |
+| `path` | (fallback) Path to any audio file |
+
+#### `get_history`
+
+Request transcription history. Response published on get_history_reply
+
+_No parameters._
+
+### Announcements
+
+#### `transcription`
+
+Published when a transcription completes (from any source: HTTP, MQTT, or Telegram voice)
+
+| Param | Description |
+|-------|-------------|
+| `source` | Origin: 'http', 'mqtt', or 'telegram' |
+| `file` | Path to audio file (null for HTTP uploads) |
+| `text` | Transcribed text |
+| `confidence` | {'language': 'Detected language code', 'language_prob': 'Language detection probability', 'avg_log_prob': 'Average log probability of segments', 'no_speech_prob': 'Probability of no speech in segments'} |
+
+#### `get_history_reply`
+
+Response to get_history. Array of recent transcription results (max 20)
+
+Payload: `[{'source': 'Origin', 'file': 'Audio path', 'text': 'Transcribed text', 'confidence': 'Confidence metrics'}]`
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description. Describes all MQTT commands and announcements for this service
+
+| Param | Description |
+|-------|-------------|
+| `commands` | {} |
+| `announcements` | {} |

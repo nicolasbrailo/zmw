@@ -52,3 +52,63 @@ The service continuously ensures the physical unit is configured correctly:
 - The unit's internal schedule matches the configured `feeding_schedule`
 
 If a mismatch is detected, the service corrects it automatically. A 1-second backoff prevents message loops when the unit echoes back partial config states.
+
+## MQTT
+
+**Topic:** `zmw_cat_feeder`
+
+### Commands
+
+#### `feed_now`
+
+Dispense food immediately. Response published on feed_now_reply
+
+| Param | Description |
+|-------|-------------|
+| `source` | (optional) Who/what triggered this request |
+| `serving_size` | (optional) Number of portions to dispense |
+
+#### `get_history`
+
+Request dispensing history. Response published on get_history_reply
+
+_No parameters._
+
+#### `get_schedule`
+
+Request the current feeding schedule. Response published on get_schedule_reply
+
+_No parameters._
+
+#### `get_mqtt_description`
+
+Request MQTT API description. Response published on get_mqtt_description_reply
+
+_No parameters._
+
+### Announcements
+
+#### `feed_now_reply`
+
+Result of a feed_now command
+
+| Param | Description |
+|-------|-------------|
+| `status` | 'ok' or 'error' |
+| `error` | (only on failure) Error description |
+
+#### `get_history_reply`
+
+Response to get_history. List of dispensing event objects
+
+Payload: `[{'dispense_event_id': 'int or null', 'time_requested': 'ISO timestamp', 'source': 'What triggered this (Schedule, Telegram, WWW, etc.)', 'portions_dispensed': 'int or null', 'weight_dispensed': 'int or null', 'unit_acknowledged': 'bool', 'error': 'string or null'}]`
+
+#### `get_schedule_reply`
+
+Response to get_schedule. List of schedule entry objects
+
+Payload: `[{'days': 'Day specifier (everyday, workdays, weekend, mon, etc.)', 'hour': '0-23', 'minute': '0-59', 'serving_size': 'int'}]`
+
+#### `get_mqtt_description_reply`
+
+Response to get_mqtt_description. Full MQTT API description dict
