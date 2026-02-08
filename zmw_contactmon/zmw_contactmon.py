@@ -116,8 +116,7 @@ class ZmwContactmon(ZmwMqttService):
             case "publish_state":
                 self.publish_own_svc_message("publish_state_reply", self._svc_state())
             case "get_mqtt_description":
-                self.publish_own_svc_message("get_mqtt_description_reply",
-                    self.get_mqtt_description())
+                self.publish_own_svc_message("get_mqtt_description_reply", self.get_mqtt_description())
             case _:
                 pass  # Ignore unknown subtopics and sensor echos
 
