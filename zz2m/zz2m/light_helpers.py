@@ -366,6 +366,20 @@ def identify_buttons(z2m):
             log.debug("Thing %s identified as button", thing.name)
             thing.thing_type = 'button'
 
+_SENSOR_IGNORE_ACTIONS = {'identify', 'linkquality', 'update', 'update_frequency'}
+
+def identify_sensors(z2m):
+    """ Identify sensor devices and set their thing_type to 'sensor'.
+    A sensor is a device where all meaningful actions are read-only.
+    Diagnostic actions like 'identify' are ignored for classification.
+    Must run after identify_buttons to avoid misidentifying buttons. """
+    for thing in z2m.get_things_if(
+            lambda t: t.thing_type is None and len(t.actions) > 0):
+        meaningful = [a for a in thing.actions.values() if a.name not in _SENSOR_IGNORE_ACTIONS]
+        if meaningful and all(not a.can_set for a in meaningful):
+            log.debug("Thing %s identified as sensor", thing.name)
+            thing.thing_type = 'sensor'
+
 def any_light_on(z2m, light_names):
     """ Returns true if any of the lights in light_names is turned on. Will
     throw an error if any of the things in light_names is not a light. Will throw if not a light, or thing doesn't exist """
