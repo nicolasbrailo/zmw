@@ -32,12 +32,6 @@ All Spotify API calls are wrapped with automatic retry: if a 401 (token expired)
 
 ### Commands
 
-#### `publish_state`
-
-Request current player state. Response published on 'state'
-
-_No parameters._
-
 #### `stop`
 
 Stop playback
@@ -52,71 +46,60 @@ _No parameters._
 
 #### `next_track`
 
-Jump to next track
+Goto next
 
 _No parameters._
 
 #### `prev_track`
 
-Jump to previous track
+Goto prev
 
 _No parameters._
 
 #### `relative_jump_to_track`
 
-Skip forward or backward N tracks
+Skip/back N tracks
 
 | Param | Description |
 |-------|-------------|
-| `value` | Number of tracks to skip (positive=forward, negative=backward) |
+| `value` | Num of tracks to skip (positive=next, negative=back) |
 
 #### `set_volume`
 
-Set playback volume
+Volume
 
 | Param | Description |
 |-------|-------------|
-| `value` | Volume level 0-100 |
+| `value` | Level 0-100 |
 
 #### `get_status`
 
-Request full player state as JSON. Response published on get_status_reply
+Get state. Response on get_status_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+MQTT API description. Response on get_mqtt_description_reply
 
 _No parameters._
 
 ### Announcements
 
-#### `state`
-
-Current player state (response to publish_state)
-
-| Param | Description |
-|-------|-------------|
-| `is_authenticated` | bool |
-| `is_playing` | bool |
-| `volume` | int or null |
-| `media_info` | dict with title, artist, album_name, album_link, icon, duration, current_time, track_count, current_track, context (or null) |
-
 #### `get_status_reply`
 
-Full player state as JSON (response to get_status)
+Player state as JSON
 
 | Param | Description |
 |-------|-------------|
 | `is_authenticated` | bool |
 | `is_playing` | bool |
 | `volume` | int or null |
-| `media_info` | dict with title, artist, album_name, etc. (or null) |
-| `reauth_url` | string (only when not authenticated) |
+| `media_info?` | dict with title, artist, album_name, etc. |
+| `reauth_url` | url (when not authenticated) |
 
 #### `get_mqtt_description_reply`
 
-MQTT API description (response to get_mqtt_description)
+MQTT API description
 
 The get_mqtt_description() dict itself

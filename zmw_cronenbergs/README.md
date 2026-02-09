@@ -47,7 +47,7 @@ Scheduled home automation service. Runs calendar-based cron jobs for lights, not
 
 #### `get_stats`
 
-Request service stats (light check history, vacation mode status, battery info). Response published on get_stats_reply
+light check history, vacation mode, battery info. Response on get_stats_reply
 
 _No parameters._
 
@@ -55,18 +55,18 @@ _No parameters._
 
 #### `get_stats_reply`
 
-Response to get_stats with full service statistics
+Service stats
 
 | Param | Description |
 |-------|-------------|
-| `light_check_history` | List of recent light check events |
-| `vacations_mode` | Whether vacation mode is enabled |
-| `speaker_announce` | Configured speaker announcements |
-| `battery_things` | List of devices with battery levels |
+| `light_check_history` | light check events |
+| `vacations_mode` | bool, vacation mode enabled |
+| `speaker_announce` | List of scheduled speaker announcements |
+| `battery_things` | List of devices and their battery levels |
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this service's MQTT API
+Service description
 
 | Param | Description |
 |-------|-------------|

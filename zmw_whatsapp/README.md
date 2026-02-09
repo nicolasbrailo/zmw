@@ -34,24 +34,16 @@ Outgoing messages are rate-limited to 3 messages per 60 seconds. If the limit is
 
 #### `send_photo`
 
-Send a photo to all WhatsApp notify targets via a template message
+Send photo
 
 | Param | Description |
 |-------|-------------|
-| `path` | Local file path to the image |
-| `msg` | (optional) Caption text |
-
-#### `send_text`
-
-Send a text message to all WhatsApp notify targets (not yet implemented)
-
-| Param | Description |
-|-------|-------------|
-| `msg` | Message text |
+| `path` | Local path to image |
+| `msg?` | Caption |
 
 #### `get_history`
 
-Request message history. Response published on get_history_reply
+Message history. Response on get_history_reply
 
 _No parameters._
 
@@ -59,6 +51,6 @@ _No parameters._
 
 #### `get_history_reply`
 
-Response to get_history. List of message event objects
+Message list
 
-Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent', 'type': 'photo|text', '...': 'Additional details depending on type'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent', 'type': 'photo|text', '...': 'Extra info'}]`

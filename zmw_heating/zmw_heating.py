@@ -78,57 +78,58 @@ class ZmwHeating(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Heating system controller that manages a boiler via a Zigbee on/off relay. Supports schedule-based control with 15-minute slots, temperature-based rules using Zigbee sensors, boost/off overrides, and Telegram integration for remote control.",
+            "description": "Manages heating via a boiler with a Zigbee on/off relay. Has boost/off overrides, temperature-based rules, schedule control and Telegram integration",
             "meta": self.get_service_meta(),
             "commands": {
                 "svc_state": {
-                    "description": "Request current service state (schedule, boiler, sensors). Response on svc_state_reply",
+                    "description": "Service state (schedule, boiler, sensors). Response on svc_state_reply",
                     "params": {}
                 },
                 "get_cfg_rules": {
-                    "description": "Request configured heating rules. Response on get_cfg_rules_reply",
+                    "description": "Get heating rules. Response on get_cfg_rules_reply",
                     "params": {}
                 },
                 "active_schedule": {
-                    "description": "Request today's active schedule. Response on active_schedule_reply",
+                    "description": "Request today's schedule. Response on active_schedule_reply",
                     "params": {}
                 },
                 "boost": {
-                    "description": "Activate heating boost for N hours",
+                    "description": "Activate heating for N hours",
                     "params": {"hours": "Number of hours to boost (1-12)"}
                 },
                 "off_now": {
-                    "description": "Turn heating off immediately until next scheduled off slot",
+                    "description": "Turn heating off immediately",
                     "params": {}
                 },
                 "slot_toggle": {
                     "description": "Toggle a schedule slot on/off by time name",
-                    "params": {"slot_nm": "Slot time in HH:MM format", "reason": "[Optional] Reason to turn on/off"}
+                    "params": {"slot_nm": "Slot time in HH:MM format", "reason?": "Reason to turn on/off"}
                 },
                 "get_mqtt_description": {
-                    "description": "Request MQTT API description. Response on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "svc_state_reply": {
-                    "description": "Response to svc_state: current schedule, boiler state, and sensor readings",
-                    "payload": {"active_schedule": "List of schedule slots", "allow_on": "Current slot allow_on policy",
+                    "description": "Current schedule, boiler state, sensor readings",
+                    "payload": {"active_schedule": "List of schedule slots",
+                                "allow_on": "Current slot allow_on policy",
                                 "mqtt_thing_reports_on": "Boiler relay state value",
                                 "boiler_state_history": "Recent state changes",
                                 "monitoring_sensors": "Sensor name to current value map"}
                 },
                 "get_cfg_rules_reply": {
-                    "description": "Response to get_cfg_rules: the raw rules configuration",
+                    "description": "Configured temp-based rules",
                     "payload": "List of rule config objects"
                 },
                 "active_schedule_reply": {
-                    "description": "Response to active_schedule: today's schedule starting from current slot",
+                    "description": "Today's schedule starting from current slot",
                     "payload": [{"hour": "int", "minute": "int", "allow_on": "Always|Never|Rule", "request_on": "bool", "reason": "str"}]
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description: this service's MQTT API",
-                    "payload": "This object structure"
+                    "description": "Service description",
+                    "payload": "This object"
                 },
             }
         }

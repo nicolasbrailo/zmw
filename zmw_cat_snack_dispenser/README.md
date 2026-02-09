@@ -63,28 +63,28 @@ If a mismatch is detected, the service corrects it automatically. A 1-second bac
 
 #### `feed_now`
 
-Dispense food immediately. Response published on feed_now_reply
+Dispense food. Response on feed_now_reply
 
 | Param | Description |
 |-------|-------------|
-| `source` | (optional) Who/what triggered this request |
-| `serving_size` | (optional) Number of portions to dispense |
+| `source?` | What triggered request |
+| `serving_size?` | Number of portions |
 
 #### `get_history`
 
-Request dispensing history. Response published on get_history_reply
+Serving history. Response on get_history_reply
 
 _No parameters._
 
 #### `get_schedule`
 
-Request the current feeding schedule. Response published on get_schedule_reply
+Current feeding schedule. Response on get_schedule_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -92,25 +92,25 @@ _No parameters._
 
 #### `feed_now_reply`
 
-Result of a feed_now command
+Result of feed_now
 
 | Param | Description |
 |-------|-------------|
-| `status` | 'ok' or 'error' |
-| `error` | (only on failure) Error description |
+| `status` | ok|error |
+| `error` | (on failure) description |
 
 #### `get_history_reply`
 
-Response to get_history. List of dispensing event objects
+Dispensing list
 
-Payload: `[{'dispense_event_id': 'int or null', 'time_requested': 'ISO timestamp', 'source': 'What triggered this (Schedule, Telegram, WWW, etc.)', 'portions_dispensed': 'int or null', 'weight_dispensed': 'int or null', 'unit_acknowledged': 'bool', 'error': 'string or null'}]`
+Payload: `[{'dispense_event_id?': 'int', 'time_requested': 'ISO timestamp', 'source': 'schedule|telegram|WWW|...', 'portions_dispensed?': 'int', 'weight_dispensed?': 'int', 'unit_acknowledged': 'bool', 'error?': 'string'}]`
 
 #### `get_schedule_reply`
 
-Response to get_schedule. List of schedule entry objects
+Feeding schedule
 
-Payload: `[{'days': 'Day specifier (everyday, workdays, weekend, mon, etc.)', 'hour': '0-23', 'minute': '0-59', 'serving_size': 'int'}]`
+Payload: `[{'days': 'everyday|workdays|weekend|mon|mon,tue|...', 'hour': '0-23', 'minute': '0-59', 'serving_size': 'int'}]`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. Full MQTT API description dict
+Service description

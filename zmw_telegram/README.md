@@ -51,30 +51,30 @@ Register a Telegram bot command that will be relayed over MQTT when invoked
 | Param | Description |
 |-------|-------------|
 | `cmd` | Command name (without /) |
-| `descr` | Help text for the command |
+| `descr` | Description |
 
 #### `send_photo`
 
-Send a photo to a Telegram chat
+Send photo
 
 | Param | Description |
 |-------|-------------|
 | `path` | Local file path to the image |
-| `msg` | (optional) Caption |
-| `topic` | (optional) Route to a specific chat via topic_map_chat |
+| `msg?` | Caption |
+| `topic?` | Service maps to topic_map_chat |
 
 #### `send_text`
 
-Send a text message to a Telegram chat
+Send text
 
 | Param | Description |
 |-------|-------------|
-| `msg` | Message text |
-| `topic` | (optional) Route to a specific chat via topic_map_chat |
+| `msg` | Text |
+| `topic?` | Service maps to topic_map_chat |
 
 #### `get_history`
 
-Request message history. Response published on get_history_reply
+Get messages history. Response on get_history_reply
 
 _No parameters._
 
@@ -82,18 +82,18 @@ _No parameters._
 
 #### `on_command/<cmd>`
 
-Published when a registered Telegram command is received
+User invoked <cmd> over Telegram
 
 | Param | Description |
 |-------|-------------|
-| `cmd` | The command name |
-| `cmd_args` | List of arguments |
-| `from` | Sender info |
+| `cmd` | Command name |
+| `cmd_args` | User args |
+| `from` | Sender |
 | `chat` | Chat info |
 
 #### `on_voice`
 
-Published when a voice/audio message is received (max 60s)
+Published when voice/audio received (max 60s)
 
 | Param | Description |
 |-------|-------------|
@@ -102,11 +102,11 @@ Published when a voice/audio message is received (max 60s)
 | `from_id` | Sender ID |
 | `from_name` | Sender name |
 | `chat_id` | Chat ID |
-| `duration` | Duration in seconds |
-| `original_mime_type` | MIME type of original audio |
+| `duration` | Duration (seconds) |
+| `original_mime_type` | original audio MIME |
 
 #### `get_history_reply`
 
-Response to get_history. List of message objects
+Messages list
 
-Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent|received', 'message': 'Message content'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent|received', 'message': 'Content'}]`

@@ -109,26 +109,27 @@ class ZmwCronenbergs(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Scheduled home automation cron jobs. Includes auto lights-off checks, vacation mode (simulates occupancy with random lights), scheduled TTS speaker announcements, and weekly low-battery device alerts via Telegram.",
+            "description": "Scheduled home automation cron jobs. Has scheduled lights-off, vacation mode (simulates occupancy), "\
+                           "scheduled TTS speaker announcements, weekly low-battery Telegram alerts.",
             "meta": self.get_service_meta(),
             "commands": {
                 "get_stats": {
-                    "description": "Request service stats (light check history, vacation mode status, battery info). Response published on get_stats_reply",
+                    "description": "light check history, vacation mode, battery info. Response on get_stats_reply",
                     "params": {}
                 },
             },
             "announcements": {
                 "get_stats_reply": {
-                    "description": "Response to get_stats with full service statistics",
+                    "description": "Service stats",
                     "payload": {
-                        "light_check_history": "List of recent light check events",
-                        "vacations_mode": "Whether vacation mode is enabled",
-                        "speaker_announce": "Configured speaker announcements",
-                        "battery_things": "List of devices with battery levels",
+                        "light_check_history": "light check events",
+                        "vacations_mode": "bool, vacation mode enabled",
+                        "speaker_announce": "List of scheduled speaker announcements",
+                        "battery_things": "List of devices and their battery levels",
                     }
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description with this service's MQTT API",
+                    "description": "Service description",
                     "payload": {"commands": {}, "announcements": {}}
                 },
             }

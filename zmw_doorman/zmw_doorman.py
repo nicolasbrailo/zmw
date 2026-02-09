@@ -60,48 +60,49 @@ class ZmwDoorman(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Doorbell event handler and notification coordinator. Orchestrates door events from a Reolink camera and contact sensor, playing announcement sounds, sending photos via WhatsApp/Telegram, and managing a door-open lighting scene.",
+            "description": "Door+doorbell manager. Orchestrates door events from a Reolink camera and contact sensor. "\
+                           "Plays announcement, sends photos via WhatsApp/Telegram, manages door-open lights scene",
             "meta": self.get_service_meta(),
             "commands": {
                 "get_stats": {
-                    "description": "Request door statistics (doorbell presses, motion events, door opens). Response published on get_stats_reply",
+                    "description": "List of events: doorbell presses, motion, door open. Response on get_stats_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Request the MQTT interface description. Response published on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "on_doorbell_pressed": {
-                    "description": "Published when the doorbell button is pressed",
-                    "payload": {"snap_path": "Path to camera snapshot (may be null)"}
+                    "description": "Doorbell button pressed",
+                    "payload": {"snap_path?": "Path to camera snapshot"}
                 },
                 "on_motion_detected": {
-                    "description": "Published when motion is detected at the door camera",
-                    "payload": {"snap_path": "Path to camera snapshot (may be null)"}
+                    "description": "Motion detected by door camera",
+                    "payload": {"snap_path?": "Path to camera snapshot"}
                 },
                 "on_motion_cleared": {
-                    "description": "Published when the door motion event ends (vacancy reported or timeout)",
+                    "description": "No motion at door (vacancy reported or timeout)",
                     "payload": {}
                 },
                 "on_door_opened": {
-                    "description": "Published when the door contact sensor reports the door opened",
+                    "description": "Door contact sensor reports open",
                     "payload": {}
                 },
                 "on_door_closed": {
-                    "description": "Published when the door contact sensor reports the door closed",
+                    "description": "Door contact sensor reports closed",
                     "payload": {}
                 },
                 "get_stats_reply": {
-                    "description": "Response to get_stats command with current door statistics",
+                    "description": "Door stats",
                     "payload": {"doorbell_press_count_today": "int", "motion_detection_count_today": "int",
                                 "last_snap": "filename or null", "last_snap_time": "epoch or null",
                                 "history": "list of event records", "motion_in_progress": "bool",
                                 "door_open_in_progress": "bool"}
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description with this service's MQTT interface",
+                    "description": "Service interface",
                     "payload": {"commands": "...", "announcements": "..."}
                 },
             }

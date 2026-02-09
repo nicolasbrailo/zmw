@@ -130,28 +130,28 @@ If a mismatch is detected, the service corrects it automatically. A 1-second bac
 
 #### `feed_now`
 
-Dispense food immediately. Response published on feed_now_reply
+Dispense food. Response on feed_now_reply
 
 | Param | Description |
 |-------|-------------|
-| `source` | (optional) Who/what triggered this request |
-| `serving_size` | (optional) Number of portions to dispense |
+| `source?` | What triggered request |
+| `serving_size?` | Number of portions |
 
 #### `get_history`
 
-Request dispensing history. Response published on get_history_reply
+Serving history. Response on get_history_reply
 
 _No parameters._
 
 #### `get_schedule`
 
-Request the current feeding schedule. Response published on get_schedule_reply
+Current feeding schedule. Response on get_schedule_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -159,28 +159,28 @@ _No parameters._
 
 #### `feed_now_reply`
 
-Result of a feed_now command
+Result of feed_now
 
 | Param | Description |
 |-------|-------------|
-| `status` | 'ok' or 'error' |
-| `error` | (only on failure) Error description |
+| `status` | ok|error |
+| `error` | (on failure) description |
 
 #### `get_history_reply`
 
-Response to get_history. List of dispensing event objects
+Dispensing list
 
-Payload: `[{'dispense_event_id': 'int or null', 'time_requested': 'ISO timestamp', 'source': 'What triggered this (Schedule, Telegram, WWW, etc.)', 'portions_dispensed': 'int or null', 'weight_dispensed': 'int or null', 'unit_acknowledged': 'bool', 'error': 'string or null'}]`
+Payload: `[{'dispense_event_id?': 'int', 'time_requested': 'ISO timestamp', 'source': 'schedule|telegram|WWW|...', 'portions_dispensed?': 'int', 'weight_dispensed?': 'int', 'unit_acknowledged': 'bool', 'error?': 'string'}]`
 
 #### `get_schedule_reply`
 
-Response to get_schedule. List of schedule entry objects
+Feeding schedule
 
-Payload: `[{'days': 'Day specifier (everyday, workdays, weekend, mon, etc.)', 'hour': '0-23', 'minute': '0-59', 'serving_size': 'int'}]`
+Payload: `[{'days': 'everyday|workdays|weekend|mon|mon,tue|...', 'hour': '0-23', 'minute': '0-59', 'serving_size': 'int'}]`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. Full MQTT API description dict
+Service description
 
 # ZmwContactMon
 
@@ -242,23 +242,23 @@ Temporarily disable chime/sound notifications
 
 | Param | Description |
 |-------|-------------|
-| `timeout` | (optional) Duration in seconds to skip chimes. Uses configured default if omitted. |
+| `timeout?` | Seconds to skip chimes |
 
 #### `enable_chimes`
 
-Re-enable chime notifications immediately, cancelling any pending skip timeout
+Re-enable chimes immediately
 
 _No parameters._
 
 #### `publish_state`
 
-Request current service state. Response published on publish_state_reply
+Get sensors state. Response on publish_state_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -266,14 +266,14 @@ _No parameters._
 
 #### `publish_state_reply`
 
-Response to publish_state command with full service state. Also published after skip_chimes, enable_chimes, or publish_state. Contains full service state
+Service state. Published after skip_chimes, enable_chimes, or publish_state
 
 | Param | Description |
 |-------|-------------|
 | `sensors` | Dict of sensor_name -> {in_normal_state, contact, ...} |
-| `history` | List of recent contact state changes |
-| `skipping_chimes` | Boolean, true if chimes are currently suppressed |
-| `skipping_chimes_timeout_secs` | Seconds until chimes re-enable, or null |
+| `history` | Recent contact state changes |
+| `skipping_chimes` | true if chimes currently suppressed |
+| `skipping_chimes_timeout_secs?` | Seconds until chimes re-enable |
 
 #### `<sensor_name>/contact`
 
@@ -281,14 +281,14 @@ Published when a contact sensor changes state
 
 | Param | Description |
 |-------|-------------|
-| `sensor` | Name of the sensor |
-| `contact` | Current contact state |
+| `sensor` | Name |
+| `contact` | Contact state |
 | `prev_contact` | Previous contact state |
-| `entering_non_normal` | Previous contact state (indicates if entering non-normal) |
+| `entering_non_normal` | True if entering non-default state (eg true if a door is open) |
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this API description
+Service definition
 
 (this object)
 
@@ -341,7 +341,7 @@ Scheduled home automation service. Runs calendar-based cron jobs for lights, not
 
 #### `get_stats`
 
-Request service stats (light check history, vacation mode status, battery info). Response published on get_stats_reply
+light check history, vacation mode, battery info. Response on get_stats_reply
 
 _No parameters._
 
@@ -349,18 +349,18 @@ _No parameters._
 
 #### `get_stats_reply`
 
-Response to get_stats with full service statistics
+Service stats
 
 | Param | Description |
 |-------|-------------|
-| `light_check_history` | List of recent light check events |
-| `vacations_mode` | Whether vacation mode is enabled |
-| `speaker_announce` | Configured speaker announcements |
-| `battery_things` | List of devices with battery levels |
+| `light_check_history` | light check events |
+| `vacations_mode` | bool, vacation mode enabled |
+| `speaker_announce` | List of scheduled speaker announcements |
+| `battery_things` | List of devices and their battery levels |
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this service's MQTT API
+Service description
 
 | Param | Description |
 |-------|-------------|
@@ -443,13 +443,13 @@ Registers a `/door_snap` command with ZmwTelegram. When invoked, requests a snap
 
 #### `get_stats`
 
-Request door statistics (doorbell presses, motion events, door opens). Response published on get_stats_reply
+List of events: doorbell presses, motion, door open. Response on get_stats_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request the MQTT interface description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -457,35 +457,35 @@ _No parameters._
 
 #### `on_doorbell_pressed`
 
-Published when the doorbell button is pressed
+Doorbell button pressed
 
 | Param | Description |
 |-------|-------------|
-| `snap_path` | Path to camera snapshot (may be null) |
+| `snap_path?` | Path to camera snapshot |
 
 #### `on_motion_detected`
 
-Published when motion is detected at the door camera
+Motion detected by door camera
 
 | Param | Description |
 |-------|-------------|
-| `snap_path` | Path to camera snapshot (may be null) |
+| `snap_path?` | Path to camera snapshot |
 
 #### `on_motion_cleared`
 
-Published when the door motion event ends (vacancy reported or timeout)
+No motion at door (vacancy reported or timeout)
 
 #### `on_door_opened`
 
-Published when the door contact sensor reports the door opened
+Door contact sensor reports open
 
 #### `on_door_closed`
 
-Published when the door contact sensor reports the door closed
+Door contact sensor reports closed
 
 #### `get_stats_reply`
 
-Response to get_stats command with current door statistics
+Door stats
 
 | Param | Description |
 |-------|-------------|
@@ -499,7 +499,7 @@ Response to get_stats command with current door statistics
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this service's MQTT interface
+Service interface
 
 | Param | Description |
 |-------|-------------|
@@ -572,25 +572,25 @@ Every state change carries a human-readable reason. The web UI and Telegram noti
 
 #### `svc_state`
 
-Request current service state (schedule, boiler, sensors). Response on svc_state_reply
+Service state (schedule, boiler, sensors). Response on svc_state_reply
 
 _No parameters._
 
 #### `get_cfg_rules`
 
-Request configured heating rules. Response on get_cfg_rules_reply
+Get heating rules. Response on get_cfg_rules_reply
 
 _No parameters._
 
 #### `active_schedule`
 
-Request today's active schedule. Response on active_schedule_reply
+Request today's schedule. Response on active_schedule_reply
 
 _No parameters._
 
 #### `boost`
 
-Activate heating boost for N hours
+Activate heating for N hours
 
 | Param | Description |
 |-------|-------------|
@@ -598,7 +598,7 @@ Activate heating boost for N hours
 
 #### `off_now`
 
-Turn heating off immediately until next scheduled off slot
+Turn heating off immediately
 
 _No parameters._
 
@@ -609,11 +609,11 @@ Toggle a schedule slot on/off by time name
 | Param | Description |
 |-------|-------------|
 | `slot_nm` | Slot time in HH:MM format |
-| `reason` | [Optional] Reason to turn on/off |
+| `reason?` | Reason to turn on/off |
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -621,7 +621,7 @@ _No parameters._
 
 #### `svc_state_reply`
 
-Response to svc_state: current schedule, boiler state, and sensor readings
+Current schedule, boiler state, sensor readings
 
 | Param | Description |
 |-------|-------------|
@@ -633,21 +633,21 @@ Response to svc_state: current schedule, boiler state, and sensor readings
 
 #### `get_cfg_rules_reply`
 
-Response to get_cfg_rules: the raw rules configuration
+Configured temp-based rules
 
 List of rule config objects
 
 #### `active_schedule_reply`
 
-Response to active_schedule: today's schedule starting from current slot
+Today's schedule starting from current slot
 
 Payload: `[{'hour': 'int', 'minute': 'int', 'allow_on': 'Always|Never|Rule', 'request_on': 'bool', 'reason': 'str'}]`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description: this service's MQTT API
+Service description
 
-This object structure
+This object
 
 # ZmwLights
 
@@ -691,35 +691,35 @@ This service does not require a `config.json`. All configuration is provided via
 
 #### `get_lights`
 
-Request state of all discovered lights. Response published on get_lights_reply
+State of all lights. Response on get_lights_reply
 
 _No parameters._
 
 #### `get_switches`
 
-Request state of all discovered switches. Response published on get_switches_reply
+State of all switches. Response on get_switches_reply
 
 _No parameters._
 
 #### `all_lights_on`
 
-Turn on all lights matching a name prefix at 80% brightness. Response published on all_lights_on_reply
+Turn on all lights matching a name prefix at 80% brightness. Response on all_lights_on_reply
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Name prefix to filter lights (e.g. 'TVRoom') |
+| `prefix` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `all_lights_off`
 
-Turn off all lights matching a name prefix. Response published on all_lights_off_reply
+Turn off all lights matching a name prefix. Response on all_lights_off_reply
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Name prefix to filter lights (e.g. 'TVRoom') |
+| `prefix` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `get_mqtt_description`
 
-Request the MQTT API description for this service. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -727,19 +727,19 @@ _No parameters._
 
 #### `get_lights_reply`
 
-Response to get_lights. JSON array of light state objects
+Array of light state objects
 
-Payload: `[{'name': 'Light name', 'state': 'ON/OFF', 'brightness': '0-255', '...': 'other device-specific fields'}]`
+Payload: `[{'name': 'Light', 'state': 'ON/OFF', 'brightness': '0-255', '...': 'other device-specific fields'}]`
 
 #### `get_switches_reply`
 
-Response to get_switches. JSON array of switch state objects
+Array of switch state objects
 
-Payload: `[{'name': 'Switch name', 'state': 'ON/OFF'}]`
+Payload: `[{'name': 'Switch', 'state': 'ON/OFF'}]`
 
 #### `all_lights_on_reply`
 
-Confirmation that all_lights_on completed
+all_lights_on completed
 
 | Param | Description |
 |-------|-------------|
@@ -747,7 +747,7 @@ Confirmation that all_lights_on completed
 
 #### `all_lights_off_reply`
 
-Confirmation that all_lights_off completed
+all_lights_off completed
 
 | Param | Description |
 |-------|-------------|
@@ -755,7 +755,7 @@ Confirmation that all_lights_off completed
 
 #### `get_mqtt_description_reply`
 
-The MQTT API description for this service
+Service description
 
 | Param | Description |
 |-------|-------------|
@@ -823,30 +823,30 @@ See the ZmwDoorman README for details.
 
 #### `snap`
 
-Take a snapshot from a camera. Response published on on_snap_ready
+Cam snapshot. Response published on_snap_ready
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera host identifier |
+| `cam_host` | Camera |
 
 #### `rec`
 
-Start recording on a camera
+Start recording
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera host identifier |
-| `secs` | Recording duration in seconds |
+| `cam_host` | Camera |
+| `secs` | Duration (seconds) |
 
 #### `ls_cams`
 
-List online cameras. Response published on ls_cams_reply
+List online cams. Response on ls_cams_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Get MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -854,12 +854,12 @@ _No parameters._
 
 #### `on_snap_ready`
 
-Snapshot captured and ready
+Snapshot ready
 
 | Param | Description |
 |-------|-------------|
 | `event` | on_snap_ready |
-| `cam_host` | Camera host identifier |
+| `cam_host` | Cam id |
 | `snap_path` | Local path to snapshot file |
 
 #### `on_doorbell_button_pressed`
@@ -869,9 +869,9 @@ Doorbell button was pressed
 | Param | Description |
 |-------|-------------|
 | `event` | on_doorbell_button_pressed |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `snap_path` | Path to snapshot |
-| `full_cam_msg` | Raw camera event data |
+| `full_cam_msg` | Raw cam event |
 
 #### `on_motion_detected`
 
@@ -880,10 +880,10 @@ Camera detected motion
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_detected |
-| `cam_host` | Camera host |
-| `path_to_img` | Path to motion snapshot |
-| `motion_level` | Motion intensity level |
-| `full_cam_msg` | Raw camera event data |
+| `cam_host` | Cam id |
+| `path_to_img` | Snapshot path |
+| `motion_level` | Motion confidence |
+| `full_cam_msg` | Raw cam event |
 
 #### `on_motion_cleared`
 
@@ -892,8 +892,8 @@ Motion cleared by camera
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_cleared |
-| `cam_host` | Camera host |
-| `full_cam_msg` | Raw camera event data |
+| `cam_host` | Cam id |
+| `full_cam_msg` | Raw cam event |
 
 #### `on_motion_timeout`
 
@@ -902,17 +902,17 @@ Motion event timed out without camera reporting clear
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_timeout |
-| `cam_host` | Camera host |
-| `timeout` | Timeout value |
+| `cam_host` | Cam id |
+| `timeout` | seconds |
 
 #### `on_new_recording`
 
-A new recording completed and is available
+New recording completed and is available
 
 | Param | Description |
 |-------|-------------|
 | `event` | on_new_recording |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `path` | Local path to recording file |
 
 #### `on_recording_failed`
@@ -922,7 +922,7 @@ Recording failed
 | Param | Description |
 |-------|-------------|
 | `event` | on_recording_failed |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `path` | Path of failed recording |
 
 #### `on_reencoding_ready`
@@ -932,7 +932,7 @@ Re-encoding of a recording completed
 | Param | Description |
 |-------|-------------|
 | `event` | on_reencoding_ready |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `orig_path` | Original recording path |
 | `reencode_path` | Re-encoded file path |
 
@@ -943,18 +943,18 @@ Re-encoding of a recording failed
 | Param | Description |
 |-------|-------------|
 | `event` | on_reencoding_failed |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `path` | Path of failed re-encode |
 
 #### `ls_cams_reply`
 
-Response to ls_cams. List of online camera host identifiers
+List of online camera host identifiers
 
 Payload: `['cam_host_1', 'cam_host_2']`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. Full MQTT API description
+Service description
 
 | Param | Description |
 |-------|-------------|
@@ -1026,43 +1026,43 @@ Old samples are automatically purged daily at 02:22 based on the configured `ret
 
 #### `get_sensor_values`
 
-Get current values for a named sensor (Zigbee, Shelly, or virtual). Response on get_sensor_values_reply
+Current values for sensor. Response on get_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
-| `name` | Sensor name (e.g. 'Living_Room', 'Weather') |
+| `name` | Sensor (eg 'Living_Room', 'Weather') |
 
 #### `get_all_sensor_values`
 
-Get the current value of a specific metric across all sensors that measure it. Response on get_all_sensor_values_reply
+Current value of a metric in all sensors that have it. Response on get_all_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
-| `metric` | Metric name (e.g. 'temperature', 'humidity', 'power_a') |
+| `metric` | Metric (eg 'temperature', 'humidity'...) |
 
 #### `get_known_sensors`
 
-List all known sensor names. Response on get_known_sensors_reply
+List sensors. Response on get_known_sensors_reply
 
 _No parameters._
 
 #### `get_known_metrics`
 
-List all metrics being measured across all sensors. Response on get_known_metrics_reply
+List all known metrics in all sensors. Response on get_known_metrics_reply
 
 _No parameters._
 
 #### `get_sensors_measuring`
 
-List sensors that measure a specific metric. Response on get_sensors_measuring_reply
+List sensors measuring this metric. Response on get_sensors_measuring_reply
 
 | Param | Description |
 |-------|-------------|
-| `metric` | Metric name to query |
+| `metric` | Metric name |
 
 #### `get_mqtt_description`
 
-Returns this MQTT API description. Response on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -1070,7 +1070,7 @@ _No parameters._
 
 #### `get_sensor_values_reply`
 
-Response to get_sensor_values. Dict of metric name to current value
+Dict of metric name to current value
 
 | Param | Description |
 |-------|-------------|
@@ -1078,7 +1078,7 @@ Response to get_sensor_values. Dict of metric name to current value
 
 #### `get_all_sensor_values_reply`
 
-Response to get_all_sensor_values. Dict of sensor name to metric value
+Dict of sensor name to metric value
 
 | Param | Description |
 |-------|-------------|
@@ -1086,25 +1086,25 @@ Response to get_all_sensor_values. Dict of sensor name to metric value
 
 #### `get_known_sensors_reply`
 
-Response to get_known_sensors. List of sensor name strings
+List of sensor name strings
 
 Payload: `['<sensor_name>']`
 
 #### `get_known_metrics_reply`
 
-Response to get_known_metrics. List of metric name strings
+List of metric name strings
 
 Payload: `['<metric_name>']`
 
 #### `get_sensors_measuring_reply`
 
-Response to get_sensors_measuring. List of sensor name strings
+List of sensor name strings
 
 Payload: `['<sensor_name>']`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. The MQTT API description dict
+Service description
 
 # ZmwServicemon
 
@@ -1155,19 +1155,19 @@ Monitors a list of Shelly smart plugs over their local HTTP API and periodically
 
 #### `ls_devs`
 
-List monitored device names. Response published on ls_devs_reply
+List of devices. Response on ls_devs_reply
 
 _No parameters._
 
 #### `all_stats`
 
-Get stats for all monitored devices. Response published on all_stats_reply
+Last stats for all devices. Response on all_stats_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Return the MQTT API description for this service. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -1175,16 +1175,16 @@ _No parameters._
 
 #### `<device_name>/stats`
 
-Periodically published stats for each online Shelly plug (every bcast_period_secs)
+Periodically published stats for each online Shelly plug
 
 | Param | Description |
 |-------|-------------|
-| `device_name` | Name of the Shelly device |
-| `powered_on` | Whether the switch output is on |
-| `active_power_watts` | Current power draw in watts |
-| `voltage_volts` | Current voltage |
-| `current_amps` | Current amperage |
-| `temperature_c` | Device temperature in Celsius |
+| `device_name` | Name |
+| `powered_on` | Switch is on |
+| `active_power_watts` | Power draw in watts |
+| `voltage_volts` | Voltage |
+| `current_amps` | Amperage |
+| `temperature_c` | Device temperature |
 | `lifetime_energy_use_watt_hour` | Total energy usage in Wh |
 | `last_minute_energy_use_watt_hour` | Energy used in the last minute in Wh |
 | `device_current_time` | Device local time |
@@ -1194,21 +1194,19 @@ Periodically published stats for each online Shelly plug (every bcast_period_sec
 
 #### `ls_devs_reply`
 
-Response to ls_devs. List of device name strings
+List of devices
 
 Payload: `['device_name_1', 'device_name_2']`
 
 #### `all_stats_reply`
 
-Response to all_stats. Map of device name to stats object
+Map of device name to stats object
 
-| Param | Description |
-|-------|-------------|
-| `<device_name>` | {'device_name': '...', 'active_power_watts': '...', '...': ' ...'} |
+See `<device_name>/stats`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. The MQTT API description for this service
+Service description
 
 | Param | Description |
 |-------|-------------|
@@ -1266,39 +1264,39 @@ The Spotify-to-Sonos URI conversion uses a hardcoded Sonos magic URI (`sid=9&fla
 
 #### `prev_track`
 
-Skip to the previous track on the active speaker group
+Prev track
 
 _No parameters._
 
 #### `next_track`
 
-Skip to the next track on the active speaker group
+Next track
 
 _No parameters._
 
 #### `volume_up`
 
-Increase volume on the active speaker group
+volume+
 
 | Param | Description |
 |-------|-------------|
-| `vol` | (optional) Volume step percentage, default 5 |
+| `vol?` | Step percentage, default 5 |
 
 #### `volume_down`
 
-Decrease volume on the active speaker group
+volume-
 
 | Param | Description |
 |-------|-------------|
-| `vol` | (optional) Volume step percentage, default 5 |
+| `vol?` | Step percentage, default 5 |
 
 #### `spotify_hijack`
 
-Hijack Spotify playback to a set of Sonos speakers
+Move Spotify playback to set of Sonos speakers
 
 | Param | Description |
 |-------|-------------|
-| `<speaker_name>` | {'vol': 'Volume level (0-100)'} |
+| `<speaker_name>` | {'vol?': 'level (0-100)'} |
 
 #### `spotify_hijack_or_toggle_play`
 
@@ -1306,41 +1304,41 @@ If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack
 
 | Param | Description |
 |-------|-------------|
-| `<speaker_name>` | {'vol': 'Volume level (0-100)'} |
+| `<speaker_name>` | {'vol?': 'level (0-100)'} |
 
 #### `stop_all`
 
-Stop all playback and reset Sonos speaker states
+Stop playback, destroy groups
 
 _No parameters._
 
 #### `world_state`
 
-Request full Sonos network state. Response published on world_state_reply
+Get Sonos network state. Response on world_state_reply
 
 _No parameters._
 
 #### `ls_speakers`
 
-Request list of discovered speaker names. Response published on ls_speakers_reply
+List of speaker names. Response on ls_speakers_reply
 
 _No parameters._
 
 #### `get_sonos_play_uris`
 
-Request URIs currently playing on all speakers. Response published on get_sonos_play_uris_reply
+URIs playing on each speaker. Response on get_sonos_play_uris_reply
 
 _No parameters._
 
 #### `get_spotify_context`
 
-Request current Spotify context/state. Response published on get_spotify_context_reply
+Get Spotify context/state. Response on get_spotify_context_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -1348,39 +1346,39 @@ _No parameters._
 
 #### `world_state_reply`
 
-Response to world_state command
+Network state
 
 | Param | Description |
 |-------|-------------|
-| `speakers` | List of speaker state dicts |
-| `groups` | Map of coordinator name to member names |
+| `speakers` | List of speaker state |
+| `groups` | Map of coordinator name to member |
 | `zones` | List of zone names |
 
 #### `ls_speakers_reply`
 
-Response to ls_speakers command
+speaker list
 
-Payload: `['List of speaker name strings']`
+Payload: `['names']`
 
 #### `get_sonos_play_uris_reply`
 
-Response to get_sonos_play_uris command
+Currently playing
 
 | Param | Description |
 |-------|-------------|
-| `<speaker_name>` | URI string currently playing |
+| `<speaker_name>` | URI |
 
 #### `get_spotify_context_reply`
 
-Response to get_spotify_context command
+Spotify info with context URI and current track
 
 | Param | Description |
 |-------|-------------|
-| `media_info` | Spotify media info dict including context URI and current track |
+| `media_info` | dict |
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description command
+Service description
 
 | Param | Description |
 |-------|-------------|
@@ -1430,48 +1428,29 @@ An HTTPS server is started alongside the normal HTTP server. HTTP routes `/zmw.c
 
 #### `ls`
 
-List available Sonos speakers. Response published on ls_reply
+List speakers. Response on ls_reply
 
 _No parameters._
 
 #### `tts`
 
-Convert text to speech and play on all Sonos speakers
+Apply TTS then play result
 
 | Param | Description |
 |-------|-------------|
 | `msg` | Text to announce |
-| `lang` | (optional) Language code for TTS. Uses configured default if omitted |
-| `vol` | (optional) Volume 0-100. Uses configured default if omitted |
-
-#### `save_asset`
-
-Copy a local audio file into the TTS asset cache so it can be served to speakers. Response published on save_asset_reply
-
-| Param | Description |
-|-------|-------------|
-| `local_path` | Absolute path to the audio file on disk |
-
-#### `play_asset`
-
-Play an audio asset on all Sonos speakers. Exactly one source must be specified
-
-| Param | Description |
-|-------|-------------|
-| `name` | (option 1) Filename of an asset already in the TTS cache |
-| `local_path` | (option 2) Absolute path to a local file (will be copied to cache first) |
-| `public_www` | (option 3) Public URL of an audio file |
-| `vol` | (optional) Volume 0-100. Uses configured default if omitted |
+| `lang?` | Language code |
+| `vol?` | Volume 0-100 |
 
 #### `announcement_history`
 
-Request recent announcement history. Response published on announcement_history_reply
+Get service history. Response on announcement_history_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service definition
 
 _No parameters._
 
@@ -1479,39 +1458,28 @@ _No parameters._
 
 #### `ls_reply`
 
-Response to ls. Sorted list of Sonos speaker names
+List of speaker names
 
 Payload: `['speaker_name_1', 'speaker_name_2']`
 
 #### `tts_reply`
 
-Published after a TTS announcement completes. Contains the generated asset paths
+Published when a TTS announcement completes. Contains generated asset paths
 
 | Param | Description |
 |-------|-------------|
-| `local_path` | Filename of the generated TTS audio in the cache |
-| `uri` | Public URL where the TTS audio is served |
-
-#### `save_asset_reply`
-
-Response to save_asset. Contains status and asset URI on success
-
-| Param | Description |
-|-------|-------------|
-| `status` | 'ok' or 'error' |
-| `asset` | (on success) Filename of the saved asset |
-| `uri` | (on success) Public URL of the saved asset |
-| `cause` | (on error) Error description |
+| `local_path` | Filename generated TTS audio |
+| `uri` | Public URL where TTS audio is served |
 
 #### `announcement_history_reply`
 
-Response to announcement_history. List of recent announcements
+Announcement history
 
-Payload: `[{'timestamp': 'ISO timestamp', 'phrase': 'Announced text or marker', 'lang': 'Language code', 'volume': 'Volume used', 'uri': 'Audio URI played'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI'}]`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this API description
+Service description
 
 (this object)
 
@@ -1552,16 +1520,16 @@ The STT model is loaded in a background thread at startup. If loading fails (e.g
 
 #### `transcribe`
 
-Transcribe an audio file at the given path
+Transcribe audio
 
 | Param | Description |
 |-------|-------------|
-| `wav_path` | (preferred) Path to a WAV file |
-| `path` | (fallback) Path to any audio file |
+| `wav_path?` | (preferred) Local path to WAV |
+| `path?` | (fallback) Local path to audio |
 
 #### `get_history`
 
-Request transcription history. Response published on get_history_reply
+Service history. Response on get_history_reply
 
 _No parameters._
 
@@ -1569,24 +1537,24 @@ _No parameters._
 
 #### `transcription`
 
-Published when a transcription completes (from any source: HTTP, MQTT, or Telegram voice)
+A transcription completed
 
 | Param | Description |
 |-------|-------------|
-| `source` | Origin: 'http', 'mqtt', or 'telegram' |
-| `file` | Path to audio file (null for HTTP uploads) |
-| `text` | Transcribed text |
-| `confidence` | {'language': 'Detected language code', 'language_prob': 'Language detection probability', 'avg_log_prob': 'Average log probability of segments', 'no_speech_prob': 'Probability of no speech in segments'} |
+| `source` | http|mqtt|telegram |
+| `file?` | Path to file |
+| `text` | Result |
+| `confidence` | {'language': 'Detected lang', 'language_prob': 'Lang confidence', 'avg_log_prob': 'Transcription confidence', 'no_speech_prob': 'Probability of no speech'} |
 
 #### `get_history_reply`
 
-Response to get_history. Array of recent transcription results (max 20)
+Transcription history
 
-Payload: `[{'source': 'Origin', 'file': 'Audio path', 'text': 'Transcribed text', 'confidence': 'Confidence metrics'}]`
+Payload: `[{'source': 'http|mqtt|telegram', 'file': 'Path', 'text': 'Result', 'confidence': 'Confidence metrics'}]`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. Describes all MQTT commands and announcements for this service
+Service description
 
 | Param | Description |
 |-------|-------------|
@@ -1627,12 +1595,6 @@ All Spotify API calls are wrapped with automatic retry: if a 401 (token expired)
 
 ### Commands
 
-#### `publish_state`
-
-Request current player state. Response published on 'state'
-
-_No parameters._
-
 #### `stop`
 
 Stop playback
@@ -1647,72 +1609,61 @@ _No parameters._
 
 #### `next_track`
 
-Jump to next track
+Goto next
 
 _No parameters._
 
 #### `prev_track`
 
-Jump to previous track
+Goto prev
 
 _No parameters._
 
 #### `relative_jump_to_track`
 
-Skip forward or backward N tracks
+Skip/back N tracks
 
 | Param | Description |
 |-------|-------------|
-| `value` | Number of tracks to skip (positive=forward, negative=backward) |
+| `value` | Num of tracks to skip (positive=next, negative=back) |
 
 #### `set_volume`
 
-Set playback volume
+Volume
 
 | Param | Description |
 |-------|-------------|
-| `value` | Volume level 0-100 |
+| `value` | Level 0-100 |
 
 #### `get_status`
 
-Request full player state as JSON. Response published on get_status_reply
+Get state. Response on get_status_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+MQTT API description. Response on get_mqtt_description_reply
 
 _No parameters._
 
 ### Announcements
 
-#### `state`
-
-Current player state (response to publish_state)
-
-| Param | Description |
-|-------|-------------|
-| `is_authenticated` | bool |
-| `is_playing` | bool |
-| `volume` | int or null |
-| `media_info` | dict with title, artist, album_name, album_link, icon, duration, current_time, track_count, current_track, context (or null) |
-
 #### `get_status_reply`
 
-Full player state as JSON (response to get_status)
+Player state as JSON
 
 | Param | Description |
 |-------|-------------|
 | `is_authenticated` | bool |
 | `is_playing` | bool |
 | `volume` | int or null |
-| `media_info` | dict with title, artist, album_name, etc. (or null) |
-| `reauth_url` | string (only when not authenticated) |
+| `media_info?` | dict with title, artist, album_name, etc. |
+| `reauth_url` | url (when not authenticated) |
 
 #### `get_mqtt_description_reply`
 
-MQTT API description (response to get_mqtt_description)
+MQTT API description
 
 The get_mqtt_description() dict itself
 
@@ -1769,30 +1720,30 @@ Register a Telegram bot command that will be relayed over MQTT when invoked
 | Param | Description |
 |-------|-------------|
 | `cmd` | Command name (without /) |
-| `descr` | Help text for the command |
+| `descr` | Description |
 
 #### `send_photo`
 
-Send a photo to a Telegram chat
+Send photo
 
 | Param | Description |
 |-------|-------------|
 | `path` | Local file path to the image |
-| `msg` | (optional) Caption |
-| `topic` | (optional) Route to a specific chat via topic_map_chat |
+| `msg?` | Caption |
+| `topic?` | Service maps to topic_map_chat |
 
 #### `send_text`
 
-Send a text message to a Telegram chat
+Send text
 
 | Param | Description |
 |-------|-------------|
-| `msg` | Message text |
-| `topic` | (optional) Route to a specific chat via topic_map_chat |
+| `msg` | Text |
+| `topic?` | Service maps to topic_map_chat |
 
 #### `get_history`
 
-Request message history. Response published on get_history_reply
+Get messages history. Response on get_history_reply
 
 _No parameters._
 
@@ -1800,18 +1751,18 @@ _No parameters._
 
 #### `on_command/<cmd>`
 
-Published when a registered Telegram command is received
+User invoked <cmd> over Telegram
 
 | Param | Description |
 |-------|-------------|
-| `cmd` | The command name |
-| `cmd_args` | List of arguments |
-| `from` | Sender info |
+| `cmd` | Command name |
+| `cmd_args` | User args |
+| `from` | Sender |
 | `chat` | Chat info |
 
 #### `on_voice`
 
-Published when a voice/audio message is received (max 60s)
+Published when voice/audio received (max 60s)
 
 | Param | Description |
 |-------|-------------|
@@ -1820,14 +1771,14 @@ Published when a voice/audio message is received (max 60s)
 | `from_id` | Sender ID |
 | `from_name` | Sender name |
 | `chat_id` | Chat ID |
-| `duration` | Duration in seconds |
-| `original_mime_type` | MIME type of original audio |
+| `duration` | Duration (seconds) |
+| `original_mime_type` | original audio MIME |
 
 #### `get_history_reply`
 
-Response to get_history. List of message objects
+Messages list
 
-Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent|received', 'message': 'Message content'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent|received', 'message': 'Content'}]`
 
 # ZmwWhatsapp
 
@@ -1865,24 +1816,16 @@ Outgoing messages are rate-limited to 3 messages per 60 seconds. If the limit is
 
 #### `send_photo`
 
-Send a photo to all WhatsApp notify targets via a template message
+Send photo
 
 | Param | Description |
 |-------|-------------|
-| `path` | Local file path to the image |
-| `msg` | (optional) Caption text |
-
-#### `send_text`
-
-Send a text message to all WhatsApp notify targets (not yet implemented)
-
-| Param | Description |
-|-------|-------------|
-| `msg` | Message text |
+| `path` | Local path to image |
+| `msg?` | Caption |
 
 #### `get_history`
 
-Request message history. Response published on get_history_reply
+Message history. Response on get_history_reply
 
 _No parameters._
 
@@ -1890,6 +1833,6 @@ _No parameters._
 
 #### `get_history_reply`
 
-Response to get_history. List of message event objects
+Message list
 
-Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent', 'type': 'photo|text', '...': 'Additional details depending on type'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'direction': 'sent', 'type': 'photo|text', '...': 'Extra info'}]`

@@ -53,13 +53,13 @@ Registers a `/door_snap` command with ZmwTelegram. When invoked, requests a snap
 
 #### `get_stats`
 
-Request door statistics (doorbell presses, motion events, door opens). Response published on get_stats_reply
+List of events: doorbell presses, motion, door open. Response on get_stats_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request the MQTT interface description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -67,35 +67,35 @@ _No parameters._
 
 #### `on_doorbell_pressed`
 
-Published when the doorbell button is pressed
+Doorbell button pressed
 
 | Param | Description |
 |-------|-------------|
-| `snap_path` | Path to camera snapshot (may be null) |
+| `snap_path?` | Path to camera snapshot |
 
 #### `on_motion_detected`
 
-Published when motion is detected at the door camera
+Motion detected by door camera
 
 | Param | Description |
 |-------|-------------|
-| `snap_path` | Path to camera snapshot (may be null) |
+| `snap_path?` | Path to camera snapshot |
 
 #### `on_motion_cleared`
 
-Published when the door motion event ends (vacancy reported or timeout)
+No motion at door (vacancy reported or timeout)
 
 #### `on_door_opened`
 
-Published when the door contact sensor reports the door opened
+Door contact sensor reports open
 
 #### `on_door_closed`
 
-Published when the door contact sensor reports the door closed
+Door contact sensor reports closed
 
 #### `get_stats_reply`
 
-Response to get_stats command with current door statistics
+Door stats
 
 | Param | Description |
 |-------|-------------|
@@ -109,7 +109,7 @@ Response to get_stats command with current door statistics
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this service's MQTT interface
+Service interface
 
 | Param | Description |
 |-------|-------------|

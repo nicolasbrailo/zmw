@@ -42,26 +42,27 @@ class ZmwWhatsapp(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "MQTT-to-WhatsApp bridge for sending photos and messages via the WhatsApp Business Cloud API. Supports sending photos to configured phone numbers with rate limiting.",
+            "description": "MQTT-to-WhatsApp bridge. Only sends photos to configured numbers.",
             "meta": self.get_service_meta(),
             "commands": {
                 "send_photo": {
-                    "description": "Send a photo to all WhatsApp notify targets via a template message",
-                    "params": {"path": "Local file path to the image", "msg": "(optional) Caption text"}
+                    "description": "Send photo",
+                    "params": {"path": "Local path to image", "msg?": "Caption"}
                 },
-                "send_text": {
-                    "description": "Send a text message to all WhatsApp notify targets (not yet implemented)",
-                    "params": {"msg": "Message text"}
-                },
+                # Hide this if not impl'd yet
+                # "send_text": {
+                #     "description": "Send text (not impled, ignored)",
+                #     "params": {"msg": "Text"}
+                # },
                 "get_history": {
-                    "description": "Request message history. Response published on get_history_reply",
+                    "description": "Message history. Response on get_history_reply",
                     "params": {}
                 },
             },
             "announcements": {
                 "get_history_reply": {
-                    "description": "Response to get_history. List of message event objects",
-                    "payload": [{"timestamp": "ISO timestamp", "direction": "sent", "type": "photo|text", "...": "Additional details depending on type"}]
+                    "description": "Message list",
+                    "payload": [{"timestamp": "ISO timestamp", "direction": "sent", "type": "photo|text", "...": "Extra info"}]
                 },
             }
         }

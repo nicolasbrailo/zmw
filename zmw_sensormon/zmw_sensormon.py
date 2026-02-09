@@ -129,57 +129,58 @@ class ZmwSensormon(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Sensor data monitoring and history service. Monitors Zigbee sensors, Shelly plugs, and outside weather, storing time-series readings in SQLite. Provides current and historical values for temperature, humidity, power, battery, and other metrics.",
+            "description": "Sensor monitoring and history. Supports Zigbee, Shelly, and outside weather. "\
+                           "Exposes current values and timeseries for temperature, humidity, power, battery, etc.",
             "meta": self.get_service_meta(),
             "commands": {
                 "get_sensor_values": {
-                    "description": "Get current values for a named sensor (Zigbee, Shelly, or virtual). Response on get_sensor_values_reply",
-                    "params": {"name": "Sensor name (e.g. 'Living_Room', 'Weather')"}
+                    "description": "Current values for sensor. Response on get_sensor_values_reply",
+                    "params": {"name": "Sensor (eg 'Living_Room', 'Weather')"}
                 },
                 "get_all_sensor_values": {
-                    "description": "Get the current value of a specific metric across all sensors that measure it. Response on get_all_sensor_values_reply",
-                    "params": {"metric": "Metric name (e.g. 'temperature', 'humidity', 'power_a')"}
+                    "description": "Current value of a metric in all sensors that have it. Response on get_all_sensor_values_reply",
+                    "params": {"metric": "Metric (eg 'temperature', 'humidity'...)"}
                 },
                 "get_known_sensors": {
-                    "description": "List all known sensor names. Response on get_known_sensors_reply",
+                    "description": "List sensors. Response on get_known_sensors_reply",
                     "params": {}
                 },
                 "get_known_metrics": {
-                    "description": "List all metrics being measured across all sensors. Response on get_known_metrics_reply",
+                    "description": "List all known metrics in all sensors. Response on get_known_metrics_reply",
                     "params": {}
                 },
                 "get_sensors_measuring": {
-                    "description": "List sensors that measure a specific metric. Response on get_sensors_measuring_reply",
-                    "params": {"metric": "Metric name to query"}
+                    "description": "List sensors measuring this metric. Response on get_sensors_measuring_reply",
+                    "params": {"metric": "Metric name"}
                 },
                 "get_mqtt_description": {
-                    "description": "Returns this MQTT API description. Response on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "get_sensor_values_reply": {
-                    "description": "Response to get_sensor_values. Dict of metric name to current value",
+                    "description": "Dict of metric name to current value",
                     "payload": {"<metric>": "<value>"}
                 },
                 "get_all_sensor_values_reply": {
-                    "description": "Response to get_all_sensor_values. Dict of sensor name to metric value",
+                    "description": "Dict of sensor name to metric value",
                     "payload": {"<sensor_name>": "<value>"}
                 },
                 "get_known_sensors_reply": {
-                    "description": "Response to get_known_sensors. List of sensor name strings",
+                    "description": "List of sensor name strings",
                     "payload": ["<sensor_name>"]
                 },
                 "get_known_metrics_reply": {
-                    "description": "Response to get_known_metrics. List of metric name strings",
+                    "description": "List of metric name strings",
                     "payload": ["<metric_name>"]
                 },
                 "get_sensors_measuring_reply": {
-                    "description": "Response to get_sensors_measuring. List of sensor name strings",
+                    "description": "List of sensor name strings",
                     "payload": ["<sensor_name>"]
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description. The MQTT API description dict",
+                    "description": "Service description",
                     "payload": {}
                 },
             }

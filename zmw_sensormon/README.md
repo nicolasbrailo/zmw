@@ -63,43 +63,43 @@ Old samples are automatically purged daily at 02:22 based on the configured `ret
 
 #### `get_sensor_values`
 
-Get current values for a named sensor (Zigbee, Shelly, or virtual). Response on get_sensor_values_reply
+Current values for sensor. Response on get_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
-| `name` | Sensor name (e.g. 'Living_Room', 'Weather') |
+| `name` | Sensor (eg 'Living_Room', 'Weather') |
 
 #### `get_all_sensor_values`
 
-Get the current value of a specific metric across all sensors that measure it. Response on get_all_sensor_values_reply
+Current value of a metric in all sensors that have it. Response on get_all_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
-| `metric` | Metric name (e.g. 'temperature', 'humidity', 'power_a') |
+| `metric` | Metric (eg 'temperature', 'humidity'...) |
 
 #### `get_known_sensors`
 
-List all known sensor names. Response on get_known_sensors_reply
+List sensors. Response on get_known_sensors_reply
 
 _No parameters._
 
 #### `get_known_metrics`
 
-List all metrics being measured across all sensors. Response on get_known_metrics_reply
+List all known metrics in all sensors. Response on get_known_metrics_reply
 
 _No parameters._
 
 #### `get_sensors_measuring`
 
-List sensors that measure a specific metric. Response on get_sensors_measuring_reply
+List sensors measuring this metric. Response on get_sensors_measuring_reply
 
 | Param | Description |
 |-------|-------------|
-| `metric` | Metric name to query |
+| `metric` | Metric name |
 
 #### `get_mqtt_description`
 
-Returns this MQTT API description. Response on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -107,7 +107,7 @@ _No parameters._
 
 #### `get_sensor_values_reply`
 
-Response to get_sensor_values. Dict of metric name to current value
+Dict of metric name to current value
 
 | Param | Description |
 |-------|-------------|
@@ -115,7 +115,7 @@ Response to get_sensor_values. Dict of metric name to current value
 
 #### `get_all_sensor_values_reply`
 
-Response to get_all_sensor_values. Dict of sensor name to metric value
+Dict of sensor name to metric value
 
 | Param | Description |
 |-------|-------------|
@@ -123,22 +123,22 @@ Response to get_all_sensor_values. Dict of sensor name to metric value
 
 #### `get_known_sensors_reply`
 
-Response to get_known_sensors. List of sensor name strings
+List of sensor name strings
 
 Payload: `['<sensor_name>']`
 
 #### `get_known_metrics_reply`
 
-Response to get_known_metrics. List of metric name strings
+List of metric name strings
 
 Payload: `['<metric_name>']`
 
 #### `get_sensors_measuring_reply`
 
-Response to get_sensors_measuring. List of sensor name strings
+List of sensor name strings
 
 Payload: `['<sensor_name>']`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. The MQTT API description dict
+Service description

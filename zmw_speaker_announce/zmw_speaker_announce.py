@@ -95,72 +95,48 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Sonos speaker announcement service supporting TTS, pre-recorded asset playback, and live microphone recording. Broadcasts audio to all discovered Sonos speakers on the network.",
+            "description": "Speaker announcement service. Supports TTS or audio files. Broadcasts to all known Sonos speakers",
             "meta": self.get_service_meta(),
             "commands": {
                 "ls": {
-                    "description": "List available Sonos speakers. Response published on ls_reply",
+                    "description": "List speakers. Response on ls_reply",
                     "params": {}
                 },
                 "tts": {
-                    "description": "Convert text to speech and play on all Sonos speakers",
+                    "description": "Apply TTS then play result",
                     "params": {
                         "msg": "Text to announce",
-                        "lang": "(optional) Language code for TTS. Uses configured default if omitted",
-                        "vol": "(optional) Volume 0-100. Uses configured default if omitted"
-                    }
-                },
-                "save_asset": {
-                    "description": "Copy a local audio file into the TTS asset cache so it can be served to speakers. Response published on save_asset_reply",
-                    "params": {
-                        "local_path": "Absolute path to the audio file on disk"
-                    }
-                },
-                "play_asset": {
-                    "description": "Play an audio asset on all Sonos speakers. Exactly one source must be specified",
-                    "params": {
-                        "name": "(option 1) Filename of an asset already in the TTS cache",
-                        "local_path": "(option 2) Absolute path to a local file (will be copied to cache first)",
-                        "public_www": "(option 3) Public URL of an audio file",
-                        "vol": "(optional) Volume 0-100. Uses configured default if omitted"
+                        "lang?": "Language code",
+                        "vol?": "Volume 0-100"
                     }
                 },
                 "announcement_history": {
-                    "description": "Request recent announcement history. Response published on announcement_history_reply",
+                    "description": "Get service history. Response on announcement_history_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "description": "Service definition",
                     "params": {}
                 },
             },
             "announcements": {
                 "ls_reply": {
-                    "description": "Response to ls. Sorted list of Sonos speaker names",
+                    "description": "List of speaker names",
                     "payload": ["speaker_name_1", "speaker_name_2"]
                 },
                 "tts_reply": {
-                    "description": "Published after a TTS announcement completes. Contains the generated asset paths",
+                    "description": "Published when a TTS announcement completes. Contains generated asset paths",
                     "payload": {
-                        "local_path": "Filename of the generated TTS audio in the cache",
-                        "uri": "Public URL where the TTS audio is served"
-                    }
-                },
-                "save_asset_reply": {
-                    "description": "Response to save_asset. Contains status and asset URI on success",
-                    "payload": {
-                        "status": "'ok' or 'error'",
-                        "asset": "(on success) Filename of the saved asset",
-                        "uri": "(on success) Public URL of the saved asset",
-                        "cause": "(on error) Error description"
+                        "local_path": "Filename generated TTS audio",
+                        "uri": "Public URL where TTS audio is served"
                     }
                 },
                 "announcement_history_reply": {
-                    "description": "Response to announcement_history. List of recent announcements",
-                    "payload": [{"timestamp": "ISO timestamp", "phrase": "Announced text or marker", "lang": "Language code", "volume": "Volume used", "uri": "Audio URI played"}]
+                    "description": "Announcement history",
+                    "payload": [{"timestamp": "ISO timestamp", "phrase?": "Text", "lang": "Language", "volume": "Volume", "uri": "Asset URI"}]
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description with this API description",
+                    "description": "Service description",
                     "payload": "(this object)"
                 },
             }
@@ -208,8 +184,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             case "tts":
                 return self._tts_and_play(payload)
             case "save_asset":
+                # TODO: I think this is safe to remove, no service uses this
                 self._save_asset_to_www(payload.get('local_path', None))
             case "play_asset":
+                # TODO: I think this is safe to remove, no service uses this
                 self._play_asset(payload)
             case "announcement_history":
                 self.publish_own_svc_message("announcement_history_reply",

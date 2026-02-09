@@ -87,49 +87,49 @@ class ZmwLights(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Zigbee light and switch discovery and control service. Connects to Zigbee2MQTT, discovers all light and switch devices, groups them by name prefix, and provides on/off and brightness controls.",
+            "description": "Zigbee light/switch control service. Discovers all light and switch devices, groups them by prefix. Provides on/off and brightness controls.",
             "meta": self.get_service_meta(),
             "commands": {
                 "get_lights": {
-                    "description": "Request state of all discovered lights. Response published on get_lights_reply",
+                    "description": "State of all lights. Response on get_lights_reply",
                     "params": {}
                 },
                 "get_switches": {
-                    "description": "Request state of all discovered switches. Response published on get_switches_reply",
+                    "description": "State of all switches. Response on get_switches_reply",
                     "params": {}
                 },
                 "all_lights_on": {
-                    "description": "Turn on all lights matching a name prefix at 80% brightness. Response published on all_lights_on_reply",
-                    "params": {"prefix": "Name prefix to filter lights (e.g. 'TVRoom')"}
+                    "description": "Turn on all lights matching a name prefix at 80% brightness. Response on all_lights_on_reply",
+                    "params": {"prefix": "Prefix to filter lights (eg 'TVRoom')"}
                 },
                 "all_lights_off": {
-                    "description": "Turn off all lights matching a name prefix. Response published on all_lights_off_reply",
-                    "params": {"prefix": "Name prefix to filter lights (e.g. 'TVRoom')"}
+                    "description": "Turn off all lights matching a name prefix. Response on all_lights_off_reply",
+                    "params": {"prefix": "Prefix to filter lights (eg 'TVRoom')"}
                 },
                 "get_mqtt_description": {
-                    "description": "Request the MQTT API description for this service. Response published on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "get_lights_reply": {
-                    "description": "Response to get_lights. JSON array of light state objects",
-                    "payload": [{"name": "Light name", "state": "ON/OFF", "brightness": "0-255", "...": "other device-specific fields"}]
+                    "description": "Array of light state objects",
+                    "payload": [{"name": "Light", "state": "ON/OFF", "brightness": "0-255", "...": "other device-specific fields"}]
                 },
                 "get_switches_reply": {
-                    "description": "Response to get_switches. JSON array of switch state objects",
-                    "payload": [{"name": "Switch name", "state": "ON/OFF"}]
+                    "description": "Array of switch state objects",
+                    "payload": [{"name": "Switch", "state": "ON/OFF"}]
                 },
                 "all_lights_on_reply": {
-                    "description": "Confirmation that all_lights_on completed",
+                    "description": "all_lights_on completed",
                     "payload": {"status": "ok"}
                 },
                 "all_lights_off_reply": {
-                    "description": "Confirmation that all_lights_off completed",
+                    "description": "all_lights_off completed",
                     "payload": {"status": "ok"}
                 },
                 "get_mqtt_description_reply": {
-                    "description": "The MQTT API description for this service",
+                    "description": "Service description",
                     "payload": {"commands": {}, "announcements": {}}
                 },
             }

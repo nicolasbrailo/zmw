@@ -74,43 +74,43 @@ class ZmwCatSnackDispenser(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Manages an Aqara cat food dispenser via Zigbee2MQTT. Handles feeding schedules, monitors dispense events, triggers emergency dispenses on missed feedings, and sends Telegram notifications on success/failure.",
+            "description": "Manages cat food dispenser. Handle alerts, schedule, ad-hoc feeding",
             "meta": self.get_service_meta(),
             "commands": {
                 "feed_now": {
-                    "description": "Dispense food immediately. Response published on feed_now_reply",
-                    "params": {"source": "(optional) Who/what triggered this request", "serving_size": "(optional) Number of portions to dispense"}
+                    "description": "Dispense food. Response on feed_now_reply",
+                    "params": {"source?": "What triggered request", "serving_size?": "Number of portions"}
                 },
                 "get_history": {
-                    "description": "Request dispensing history. Response published on get_history_reply",
+                    "description": "Serving history. Response on get_history_reply",
                     "params": {}
                 },
                 "get_schedule": {
-                    "description": "Request the current feeding schedule. Response published on get_schedule_reply",
+                    "description": "Current feeding schedule. Response on get_schedule_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "feed_now_reply": {
-                    "description": "Result of a feed_now command",
-                    "payload": {"status": "'ok' or 'error'", "error": "(only on failure) Error description"}
+                    "description": "Result of feed_now",
+                    "payload": {"status": "ok|error", "error": "(on failure) description"}
                 },
                 "get_history_reply": {
-                    "description": "Response to get_history. List of dispensing event objects",
-                    "payload": [{"dispense_event_id": "int or null", "time_requested": "ISO timestamp",
-                                 "source": "What triggered this (Schedule, Telegram, WWW, etc.)", "portions_dispensed": "int or null",
-                                 "weight_dispensed": "int or null", "unit_acknowledged": "bool", "error": "string or null"}]
+                    "description": "Dispensing list",
+                    "payload": [{"dispense_event_id?": "int", "time_requested": "ISO timestamp",
+                                 "source": "schedule|telegram|WWW|...", "portions_dispensed?": "int",
+                                 "weight_dispensed?": "int", "unit_acknowledged": "bool", "error?": "string"}]
                 },
                 "get_schedule_reply": {
-                    "description": "Response to get_schedule. List of schedule entry objects",
-                    "payload": [{"days": "Day specifier (everyday, workdays, weekend, mon, etc.)", "hour": "0-23", "minute": "0-59", "serving_size": "int"}]
+                    "description": "Feeding schedule",
+                    "payload": [{"days": "everyday|workdays|weekend|mon|mon,tue|...", "hour": "0-23", "minute": "0-59", "serving_size": "int"}]
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description. Full MQTT API description dict",
+                    "description": "Service description",
                     "payload": {}
                 },
             }

@@ -319,13 +319,9 @@ class ZmwSpotify(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Spotify playback control service. Manages OAuth authentication and provides playback controls (play/pause, stop, volume, track navigation) over MQTT. Exposes current playback state including track metadata and album art.",
+            "description": "MQTT-Spotify control (play/pause, stop, volume, next, prev). Exposes playback state with track metadata",
             "meta": self.get_service_meta(),
             "commands": {
-                "publish_state": {
-                    "description": "Request current player state. Response published on 'state'",
-                    "params": {}
-                },
                 "stop": {
                     "description": "Stop playback",
                     "params": {}
@@ -335,41 +331,38 @@ class ZmwSpotify(ZmwMqttService):
                     "params": {}
                 },
                 "next_track": {
-                    "description": "Jump to next track",
+                    "description": "Goto next",
                     "params": {}
                 },
                 "prev_track": {
-                    "description": "Jump to previous track",
+                    "description": "Goto prev",
                     "params": {}
                 },
                 "relative_jump_to_track": {
-                    "description": "Skip forward or backward N tracks",
-                    "params": {"value": "Number of tracks to skip (positive=forward, negative=backward)"}
+                    "description": "Skip/back N tracks",
+                    "params": {"value": "Num of tracks to skip (positive=next, negative=back)"}
                 },
                 "set_volume": {
-                    "description": "Set playback volume",
-                    "params": {"value": "Volume level 0-100"}
+                    "description": "Volume",
+                    "params": {"value": "Level 0-100"}
                 },
                 "get_status": {
-                    "description": "Request full player state as JSON. Response published on get_status_reply",
+                    "description": "Get state. Response on get_status_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "description": "MQTT API description. Response on get_mqtt_description_reply",
                     "params": {}
                 },
             },
             "announcements": {
-                "state": {
-                    "description": "Current player state (response to publish_state)",
-                    "payload": {"is_authenticated": "bool", "is_playing": "bool", "volume": "int or null", "media_info": "dict with title, artist, album_name, album_link, icon, duration, current_time, track_count, current_track, context (or null)"}
-                },
                 "get_status_reply": {
-                    "description": "Full player state as JSON (response to get_status)",
-                    "payload": {"is_authenticated": "bool", "is_playing": "bool", "volume": "int or null", "media_info": "dict with title, artist, album_name, etc. (or null)", "reauth_url": "string (only when not authenticated)"}
+                    "description": "Player state as JSON",
+                    "payload": {"is_authenticated": "bool", "is_playing": "bool", "volume": "int or null",
+                                "media_info?": "dict with title, artist, album_name, etc.", "reauth_url": "url (when not authenticated)"}
                 },
                 "get_mqtt_description_reply": {
-                    "description": "MQTT API description (response to get_mqtt_description)",
+                    "description": "MQTT API description",
                     "payload": "The get_mqtt_description() dict itself"
                 },
             }
@@ -381,8 +374,6 @@ class ZmwSpotify(ZmwMqttService):
             return
 
         match subtopic:
-            case "publish_state":
-                self.publish_own_svc_message("state", self._get_full_state())
             case "stop":
                 log.info("Received stop command")
                 self._with_spotify('stop', self._stop)
@@ -408,11 +399,9 @@ class ZmwSpotify(ZmwMqttService):
                 log.info("Setting volume to %s", payload['value'])
                 self._with_spotify('set_volume', self._set_volume_pct, payload['value'])
             case "get_status":
-                self.publish_own_svc_message("get_status_reply",
-                    self._get_full_state())
+                self.publish_own_svc_message("get_status_reply", self._get_full_state())
             case "get_mqtt_description":
-                self.publish_own_svc_message("get_mqtt_description_reply",
-                    self.get_mqtt_description())
+                self.publish_own_svc_message("get_mqtt_description_reply", self.get_mqtt_description())
             case _:
                 # Ignore echo messages
                 pass

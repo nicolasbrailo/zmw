@@ -31,19 +31,19 @@ Monitors a list of Shelly smart plugs over their local HTTP API and periodically
 
 #### `ls_devs`
 
-List monitored device names. Response published on ls_devs_reply
+List of devices. Response on ls_devs_reply
 
 _No parameters._
 
 #### `all_stats`
 
-Get stats for all monitored devices. Response published on all_stats_reply
+Last stats for all devices. Response on all_stats_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Return the MQTT API description for this service. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -51,16 +51,16 @@ _No parameters._
 
 #### `<device_name>/stats`
 
-Periodically published stats for each online Shelly plug (every bcast_period_secs)
+Periodically published stats for each online Shelly plug
 
 | Param | Description |
 |-------|-------------|
-| `device_name` | Name of the Shelly device |
-| `powered_on` | Whether the switch output is on |
-| `active_power_watts` | Current power draw in watts |
-| `voltage_volts` | Current voltage |
-| `current_amps` | Current amperage |
-| `temperature_c` | Device temperature in Celsius |
+| `device_name` | Name |
+| `powered_on` | Switch is on |
+| `active_power_watts` | Power draw in watts |
+| `voltage_volts` | Voltage |
+| `current_amps` | Amperage |
+| `temperature_c` | Device temperature |
 | `lifetime_energy_use_watt_hour` | Total energy usage in Wh |
 | `last_minute_energy_use_watt_hour` | Energy used in the last minute in Wh |
 | `device_current_time` | Device local time |
@@ -70,21 +70,19 @@ Periodically published stats for each online Shelly plug (every bcast_period_sec
 
 #### `ls_devs_reply`
 
-Response to ls_devs. List of device name strings
+List of devices
 
 Payload: `['device_name_1', 'device_name_2']`
 
 #### `all_stats_reply`
 
-Response to all_stats. Map of device name to stats object
+Map of device name to stats object
 
-| Param | Description |
-|-------|-------------|
-| `<device_name>` | {'device_name': '...', 'active_power_watts': '...', '...': ' ...'} |
+See `<device_name>/stats`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. The MQTT API description for this service
+Service description
 
 | Param | Description |
 |-------|-------------|

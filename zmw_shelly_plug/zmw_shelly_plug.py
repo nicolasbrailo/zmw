@@ -30,32 +30,32 @@ class ZmwShellyPlug(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Monitors Shelly smart plugs over their local HTTP API and periodically broadcasts power/energy statistics over MQTT. Tracks power consumption, voltage, current, temperature, and energy usage per device.",
+            "description": "Monitors Shelly smart plugs, broadcast on MQTT power/energy stats.",
             "meta": self.get_service_meta(),
             "commands": {
                 "ls_devs": {
-                    "description": "List monitored device names. Response published on ls_devs_reply",
+                    "description": "List of devices. Response on ls_devs_reply",
                     "params": {}
                 },
                 "all_stats": {
-                    "description": "Get stats for all monitored devices. Response published on all_stats_reply",
+                    "description": "Last stats for all devices. Response on all_stats_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Return the MQTT API description for this service. Response published on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "<device_name>/stats": {
-                    "description": "Periodically published stats for each online Shelly plug (every bcast_period_secs)",
+                    "description": "Periodically published stats for each online Shelly plug",
                     "payload": {
-                        "device_name": "Name of the Shelly device",
-                        "powered_on": "Whether the switch output is on",
-                        "active_power_watts": "Current power draw in watts",
-                        "voltage_volts": "Current voltage",
-                        "current_amps": "Current amperage",
-                        "temperature_c": "Device temperature in Celsius",
+                        "device_name": "Name",
+                        "powered_on": "Switch is on",
+                        "active_power_watts": "Power draw in watts",
+                        "voltage_volts": "Voltage",
+                        "current_amps": "Amperage",
+                        "temperature_c": "Device temperature",
                         "lifetime_energy_use_watt_hour": "Total energy usage in Wh",
                         "last_minute_energy_use_watt_hour": "Energy used in the last minute in Wh",
                         "device_current_time": "Device local time",
@@ -65,15 +65,15 @@ class ZmwShellyPlug(ZmwMqttService):
                     }
                 },
                 "ls_devs_reply": {
-                    "description": "Response to ls_devs. List of device name strings",
+                    "description": "List of devices",
                     "payload": ["device_name_1", "device_name_2"]
                 },
                 "all_stats_reply": {
-                    "description": "Response to all_stats. Map of device name to stats object",
-                    "payload": {"<device_name>": {"device_name": "...", "active_power_watts": "...", "...":" ..."}}
+                    "description": "Map of device name to stats object",
+                    "payload": "See `<device_name>/stats`",
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description. The MQTT API description for this service",
+                    "description": "Service description",
                     "payload": {"commands": {}, "announcements": {}}
                 },
             }

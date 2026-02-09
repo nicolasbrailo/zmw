@@ -35,16 +35,16 @@ The STT model is loaded in a background thread at startup. If loading fails (e.g
 
 #### `transcribe`
 
-Transcribe an audio file at the given path
+Transcribe audio
 
 | Param | Description |
 |-------|-------------|
-| `wav_path` | (preferred) Path to a WAV file |
-| `path` | (fallback) Path to any audio file |
+| `wav_path?` | (preferred) Local path to WAV |
+| `path?` | (fallback) Local path to audio |
 
 #### `get_history`
 
-Request transcription history. Response published on get_history_reply
+Service history. Response on get_history_reply
 
 _No parameters._
 
@@ -52,24 +52,24 @@ _No parameters._
 
 #### `transcription`
 
-Published when a transcription completes (from any source: HTTP, MQTT, or Telegram voice)
+A transcription completed
 
 | Param | Description |
 |-------|-------------|
-| `source` | Origin: 'http', 'mqtt', or 'telegram' |
-| `file` | Path to audio file (null for HTTP uploads) |
-| `text` | Transcribed text |
-| `confidence` | {'language': 'Detected language code', 'language_prob': 'Language detection probability', 'avg_log_prob': 'Average log probability of segments', 'no_speech_prob': 'Probability of no speech in segments'} |
+| `source` | http|mqtt|telegram |
+| `file?` | Path to file |
+| `text` | Result |
+| `confidence` | {'language': 'Detected lang', 'language_prob': 'Lang confidence', 'avg_log_prob': 'Transcription confidence', 'no_speech_prob': 'Probability of no speech'} |
 
 #### `get_history_reply`
 
-Response to get_history. Array of recent transcription results (max 20)
+Transcription history
 
-Payload: `[{'source': 'Origin', 'file': 'Audio path', 'text': 'Transcribed text', 'confidence': 'Confidence metrics'}]`
+Payload: `[{'source': 'http|mqtt|telegram', 'file': 'Path', 'text': 'Result', 'confidence': 'Confidence metrics'}]`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. Describes all MQTT commands and announcements for this service
+Service description
 
 | Param | Description |
 |-------|-------------|

@@ -59,30 +59,30 @@ See the ZmwDoorman README for details.
 
 #### `snap`
 
-Take a snapshot from a camera. Response published on on_snap_ready
+Cam snapshot. Response published on_snap_ready
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera host identifier |
+| `cam_host` | Camera |
 
 #### `rec`
 
-Start recording on a camera
+Start recording
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera host identifier |
-| `secs` | Recording duration in seconds |
+| `cam_host` | Camera |
+| `secs` | Duration (seconds) |
 
 #### `ls_cams`
 
-List online cameras. Response published on ls_cams_reply
+List online cams. Response on ls_cams_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Get MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -90,12 +90,12 @@ _No parameters._
 
 #### `on_snap_ready`
 
-Snapshot captured and ready
+Snapshot ready
 
 | Param | Description |
 |-------|-------------|
 | `event` | on_snap_ready |
-| `cam_host` | Camera host identifier |
+| `cam_host` | Cam id |
 | `snap_path` | Local path to snapshot file |
 
 #### `on_doorbell_button_pressed`
@@ -105,9 +105,9 @@ Doorbell button was pressed
 | Param | Description |
 |-------|-------------|
 | `event` | on_doorbell_button_pressed |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `snap_path` | Path to snapshot |
-| `full_cam_msg` | Raw camera event data |
+| `full_cam_msg` | Raw cam event |
 
 #### `on_motion_detected`
 
@@ -116,10 +116,10 @@ Camera detected motion
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_detected |
-| `cam_host` | Camera host |
-| `path_to_img` | Path to motion snapshot |
-| `motion_level` | Motion intensity level |
-| `full_cam_msg` | Raw camera event data |
+| `cam_host` | Cam id |
+| `path_to_img` | Snapshot path |
+| `motion_level` | Motion confidence |
+| `full_cam_msg` | Raw cam event |
 
 #### `on_motion_cleared`
 
@@ -128,8 +128,8 @@ Motion cleared by camera
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_cleared |
-| `cam_host` | Camera host |
-| `full_cam_msg` | Raw camera event data |
+| `cam_host` | Cam id |
+| `full_cam_msg` | Raw cam event |
 
 #### `on_motion_timeout`
 
@@ -138,17 +138,17 @@ Motion event timed out without camera reporting clear
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_timeout |
-| `cam_host` | Camera host |
-| `timeout` | Timeout value |
+| `cam_host` | Cam id |
+| `timeout` | seconds |
 
 #### `on_new_recording`
 
-A new recording completed and is available
+New recording completed and is available
 
 | Param | Description |
 |-------|-------------|
 | `event` | on_new_recording |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `path` | Local path to recording file |
 
 #### `on_recording_failed`
@@ -158,7 +158,7 @@ Recording failed
 | Param | Description |
 |-------|-------------|
 | `event` | on_recording_failed |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `path` | Path of failed recording |
 
 #### `on_reencoding_ready`
@@ -168,7 +168,7 @@ Re-encoding of a recording completed
 | Param | Description |
 |-------|-------------|
 | `event` | on_reencoding_ready |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `orig_path` | Original recording path |
 | `reencode_path` | Re-encoded file path |
 
@@ -179,18 +179,18 @@ Re-encoding of a recording failed
 | Param | Description |
 |-------|-------------|
 | `event` | on_reencoding_failed |
-| `cam_host` | Camera host |
+| `cam_host` | Cam id |
 | `path` | Path of failed re-encode |
 
 #### `ls_cams_reply`
 
-Response to ls_cams. List of online camera host identifiers
+List of online camera host identifiers
 
 Payload: `['cam_host_1', 'cam_host_2']`
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description. Full MQTT API description
+Service description
 
 | Param | Description |
 |-------|-------------|

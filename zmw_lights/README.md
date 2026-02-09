@@ -40,35 +40,35 @@ This service does not require a `config.json`. All configuration is provided via
 
 #### `get_lights`
 
-Request state of all discovered lights. Response published on get_lights_reply
+State of all lights. Response on get_lights_reply
 
 _No parameters._
 
 #### `get_switches`
 
-Request state of all discovered switches. Response published on get_switches_reply
+State of all switches. Response on get_switches_reply
 
 _No parameters._
 
 #### `all_lights_on`
 
-Turn on all lights matching a name prefix at 80% brightness. Response published on all_lights_on_reply
+Turn on all lights matching a name prefix at 80% brightness. Response on all_lights_on_reply
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Name prefix to filter lights (e.g. 'TVRoom') |
+| `prefix` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `all_lights_off`
 
-Turn off all lights matching a name prefix. Response published on all_lights_off_reply
+Turn off all lights matching a name prefix. Response on all_lights_off_reply
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Name prefix to filter lights (e.g. 'TVRoom') |
+| `prefix` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `get_mqtt_description`
 
-Request the MQTT API description for this service. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -76,19 +76,19 @@ _No parameters._
 
 #### `get_lights_reply`
 
-Response to get_lights. JSON array of light state objects
+Array of light state objects
 
-Payload: `[{'name': 'Light name', 'state': 'ON/OFF', 'brightness': '0-255', '...': 'other device-specific fields'}]`
+Payload: `[{'name': 'Light', 'state': 'ON/OFF', 'brightness': '0-255', '...': 'other device-specific fields'}]`
 
 #### `get_switches_reply`
 
-Response to get_switches. JSON array of switch state objects
+Array of switch state objects
 
-Payload: `[{'name': 'Switch name', 'state': 'ON/OFF'}]`
+Payload: `[{'name': 'Switch', 'state': 'ON/OFF'}]`
 
 #### `all_lights_on_reply`
 
-Confirmation that all_lights_on completed
+all_lights_on completed
 
 | Param | Description |
 |-------|-------------|
@@ -96,7 +96,7 @@ Confirmation that all_lights_on completed
 
 #### `all_lights_off_reply`
 
-Confirmation that all_lights_off completed
+all_lights_off completed
 
 | Param | Description |
 |-------|-------------|
@@ -104,7 +104,7 @@ Confirmation that all_lights_off completed
 
 #### `get_mqtt_description_reply`
 
-The MQTT API description for this service
+Service description
 
 | Param | Description |
 |-------|-------------|

@@ -144,69 +144,70 @@ class ZmwReolinkCams(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Multi-camera Reolink service with motion detection, doorbell events, recording, and NVR-like web interface. Connects to Reolink cameras via webhook/ONVIF, broadcasts events over MQTT, and provides snapshot/recording controls.",
+            "description": "Multi-camera Reolink service with motion detection, doorbell events, recording, NVR. "\
+                           "Connects via webhook/ONVIF, broadcasts events over MQTT, expose snapshot/recording controls.",
             "meta": self.get_service_meta(),
             "commands": {
                 "snap": {
-                    "description": "Take a snapshot from a camera. Response published on on_snap_ready",
-                    "params": {"cam_host": "Camera host identifier"}
+                    "description": "Cam snapshot. Response published on_snap_ready",
+                    "params": {"cam_host": "Camera"}
                 },
                 "rec": {
-                    "description": "Start recording on a camera",
-                    "params": {"cam_host": "Camera host identifier", "secs": "Recording duration in seconds"}
+                    "description": "Start recording",
+                    "params": {"cam_host": "Camera", "secs": "Duration (seconds)"}
                 },
                 "ls_cams": {
-                    "description": "List online cameras. Response published on ls_cams_reply",
+                    "description": "List online cams. Response on ls_cams_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Get MQTT API description. Response published on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "on_snap_ready": {
-                    "description": "Snapshot captured and ready",
-                    "payload": {"event": "on_snap_ready", "cam_host": "Camera host identifier", "snap_path": "Local path to snapshot file"}
+                    "description": "Snapshot ready",
+                    "payload": {"event": "on_snap_ready", "cam_host": "Cam id", "snap_path": "Local path to snapshot file"}
                 },
                 "on_doorbell_button_pressed": {
                     "description": "Doorbell button was pressed",
-                    "payload": {"event": "on_doorbell_button_pressed", "cam_host": "Camera host", "snap_path": "Path to snapshot", "full_cam_msg": "Raw camera event data"}
+                    "payload": {"event": "on_doorbell_button_pressed", "cam_host": "Cam id", "snap_path": "Path to snapshot", "full_cam_msg": "Raw cam event"}
                 },
                 "on_motion_detected": {
                     "description": "Camera detected motion",
-                    "payload": {"event": "on_motion_detected", "cam_host": "Camera host", "path_to_img": "Path to motion snapshot", "motion_level": "Motion intensity level", "full_cam_msg": "Raw camera event data"}
+                    "payload": {"event": "on_motion_detected", "cam_host": "Cam id", "path_to_img": "Snapshot path", "motion_level": "Motion confidence", "full_cam_msg": "Raw cam event"}
                 },
                 "on_motion_cleared": {
                     "description": "Motion cleared by camera",
-                    "payload": {"event": "on_motion_cleared", "cam_host": "Camera host", "full_cam_msg": "Raw camera event data"}
+                    "payload": {"event": "on_motion_cleared", "cam_host": "Cam id", "full_cam_msg": "Raw cam event"}
                 },
                 "on_motion_timeout": {
                     "description": "Motion event timed out without camera reporting clear",
-                    "payload": {"event": "on_motion_timeout", "cam_host": "Camera host", "timeout": "Timeout value"}
+                    "payload": {"event": "on_motion_timeout", "cam_host": "Cam id", "timeout": "seconds"}
                 },
                 "on_new_recording": {
-                    "description": "A new recording completed and is available",
-                    "payload": {"event": "on_new_recording", "cam_host": "Camera host", "path": "Local path to recording file"}
+                    "description": "New recording completed and is available",
+                    "payload": {"event": "on_new_recording", "cam_host": "Cam id", "path": "Local path to recording file"}
                 },
                 "on_recording_failed": {
                     "description": "Recording failed",
-                    "payload": {"event": "on_recording_failed", "cam_host": "Camera host", "path": "Path of failed recording"}
+                    "payload": {"event": "on_recording_failed", "cam_host": "Cam id", "path": "Path of failed recording"}
                 },
                 "on_reencoding_ready": {
                     "description": "Re-encoding of a recording completed",
-                    "payload": {"event": "on_reencoding_ready", "cam_host": "Camera host", "orig_path": "Original recording path", "reencode_path": "Re-encoded file path"}
+                    "payload": {"event": "on_reencoding_ready", "cam_host": "Cam id", "orig_path": "Original recording path", "reencode_path": "Re-encoded file path"}
                 },
                 "on_reencoding_failed": {
                     "description": "Re-encoding of a recording failed",
-                    "payload": {"event": "on_reencoding_failed", "cam_host": "Camera host", "path": "Path of failed re-encode"}
+                    "payload": {"event": "on_reencoding_failed", "cam_host": "Cam id", "path": "Path of failed re-encode"}
                 },
                 "ls_cams_reply": {
-                    "description": "Response to ls_cams. List of online camera host identifiers",
+                    "description": "List of online camera host identifiers",
                     "payload": ["cam_host_1", "cam_host_2"]
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description. Full MQTT API description",
+                    "description": "Service description",
                     "payload": {"commands": {}, "announcements": {}}
                 },
             }

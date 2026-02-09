@@ -17,6 +17,19 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MQTT_SECTION_HEADER = "## MQTT"
 
 
+class _ReplaceSelfCalls(ast.NodeTransformer):
+    """Replace self.method() calls with None so ast.literal_eval can handle the rest."""
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        func = node.func
+        if (isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == 'self'):
+            return ast.copy_location(ast.Constant(value=None), node)
+        return node
+
+
 def extract_mqtt_description(py_path):
     """Parse a .py file and extract the dict literal from get_mqtt_description()."""
     with open(py_path) as f:
@@ -27,7 +40,23 @@ def extract_mqtt_description(py_path):
             continue
         for child in ast.walk(node):
             if isinstance(child, ast.Return) and child.value is not None:
-                return ast.literal_eval(child.value)
+                cleaned = _ReplaceSelfCalls().visit(child.value)
+                try:
+                    return ast.literal_eval(cleaned)
+                except ValueError as e:
+                    # Find the non-literal nodes to help diagnose the issue
+                    bad_nodes = []
+                    for n in ast.walk(cleaned):
+                        if isinstance(n, ast.Call):
+                            bad_nodes.append(f"line {n.lineno}: call to {ast.unparse(n.func)}()")
+                        elif isinstance(n, (ast.Name, ast.Attribute)) and not isinstance(
+                                getattr(n, '_parent', None), ast.Call):
+                            bad_nodes.append(f"line {n.lineno}: variable ref {ast.unparse(n)}")
+                    detail = "; ".join(bad_nodes[:5]) if bad_nodes else "unknown non-literal"
+                    raise ValueError(
+                        f"{py_path}: can't literal_eval get_mqtt_description() return value: "
+                        f"{e} — non-literal expressions found: {detail}"
+                    ) from e
 
     return None
 

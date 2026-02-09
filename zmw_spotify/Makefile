@@ -5,10 +5,8 @@ rebuild_deps: pipenv_rebuild_deps_base
 
 sub_all:
 	mosquitto_sub -v -h localhost -p 1883 -t 'zmw_spotify/#' -v
-sub_state:
-	mosquitto_sub -h localhost -p 1883 -t 'zmw_spotify/state' -v
 test_publish_state:
-	mosquitto_pub -h localhost -p 1883 -t 'zmw_spotify/publish_state' -m '{}'
+	mosquitto_pub -h localhost -p 1883 -t 'zmw_spotify/get_status' -m '{}'
 test_stop:
 	mosquitto_pub -h localhost -p 1883 -t 'zmw_spotify/stop' -m '{}'
 test_toggle_play:

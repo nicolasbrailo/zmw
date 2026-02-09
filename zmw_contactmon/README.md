@@ -58,23 +58,23 @@ Temporarily disable chime/sound notifications
 
 | Param | Description |
 |-------|-------------|
-| `timeout` | (optional) Duration in seconds to skip chimes. Uses configured default if omitted. |
+| `timeout?` | Seconds to skip chimes |
 
 #### `enable_chimes`
 
-Re-enable chime notifications immediately, cancelling any pending skip timeout
+Re-enable chimes immediately
 
 _No parameters._
 
 #### `publish_state`
 
-Request current service state. Response published on publish_state_reply
+Get sensors state. Response on publish_state_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -82,14 +82,14 @@ _No parameters._
 
 #### `publish_state_reply`
 
-Response to publish_state command with full service state. Also published after skip_chimes, enable_chimes, or publish_state. Contains full service state
+Service state. Published after skip_chimes, enable_chimes, or publish_state
 
 | Param | Description |
 |-------|-------------|
 | `sensors` | Dict of sensor_name -> {in_normal_state, contact, ...} |
-| `history` | List of recent contact state changes |
-| `skipping_chimes` | Boolean, true if chimes are currently suppressed |
-| `skipping_chimes_timeout_secs` | Seconds until chimes re-enable, or null |
+| `history` | Recent contact state changes |
+| `skipping_chimes` | true if chimes currently suppressed |
+| `skipping_chimes_timeout_secs?` | Seconds until chimes re-enable |
 
 #### `<sensor_name>/contact`
 
@@ -97,13 +97,13 @@ Published when a contact sensor changes state
 
 | Param | Description |
 |-------|-------------|
-| `sensor` | Name of the sensor |
-| `contact` | Current contact state |
+| `sensor` | Name |
+| `contact` | Contact state |
 | `prev_contact` | Previous contact state |
-| `entering_non_normal` | Previous contact state (indicates if entering non-normal) |
+| `entering_non_normal` | True if entering non-default state (eg true if a door is open) |
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description with this API description
+Service definition
 
 (this object)

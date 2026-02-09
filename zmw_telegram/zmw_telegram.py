@@ -257,38 +257,40 @@ class ZmwTelegram(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "MQTT-to-Telegram bridge for bidirectional messaging. Runs a Telegram bot that relays commands and voice messages over MQTT, and allows other services to send text or photos through Telegram. Supports rate limiting and voice message transcoding.",
+            "description": "MQTT-to-Telegram bridge.",
             "meta": self.get_service_meta(),
             "commands": {
                 "register_command": {
                     "description": "Register a Telegram bot command that will be relayed over MQTT when invoked",
-                    "params": {"cmd": "Command name (without /)", "descr": "Help text for the command"}
+                    "params": {"cmd": "Command name (without /)", "descr": "Description"}
                 },
                 "send_photo": {
-                    "description": "Send a photo to a Telegram chat",
-                    "params": {"path": "Local file path to the image", "msg": "(optional) Caption", "topic": "(optional) Route to a specific chat via topic_map_chat"}
+                    "description": "Send photo",
+                    "params": {"path": "Local file path to the image", "msg?": "Caption", "topic?": "Service maps to topic_map_chat"}
                 },
                 "send_text": {
-                    "description": "Send a text message to a Telegram chat",
-                    "params": {"msg": "Message text", "topic": "(optional) Route to a specific chat via topic_map_chat"}
+                    "description": "Send text",
+                    "params": {"msg": "Text", "topic?": "Service maps to topic_map_chat"}
                 },
                 "get_history": {
-                    "description": "Request message history. Response published on get_history_reply",
+                    "description": "Get messages history. Response on get_history_reply",
                     "params": {}
                 },
             },
             "announcements": {
                 "on_command/<cmd>": {
-                    "description": "Published when a registered Telegram command is received",
-                    "payload": {"cmd": "The command name", "cmd_args": "List of arguments", "from": "Sender info", "chat": "Chat info"}
+                    "description": "User invoked <cmd> over Telegram",
+                    "payload": {"cmd": "Command name", "cmd_args": "User args", "from": "Sender", "chat": "Chat info"}
                 },
                 "on_voice": {
-                    "description": "Published when a voice/audio message is received (max 60s)",
-                    "payload": {"path": "Original audio file path", "wav_path": "Transcoded WAV path (null if failed)", "from_id": "Sender ID", "from_name": "Sender name", "chat_id": "Chat ID", "duration": "Duration in seconds", "original_mime_type": "MIME type of original audio"}
+                    "description": "Published when voice/audio received (max 60s)",
+                    "payload": {"path": "Original audio file path", "wav_path": "Transcoded WAV path (null if failed)",
+                                "from_id": "Sender ID", "from_name": "Sender name", "chat_id": "Chat ID",
+                                "duration": "Duration (seconds)", "original_mime_type": "original audio MIME"}
                 },
                 "get_history_reply": {
-                    "description": "Response to get_history. List of message objects",
-                    "payload": [{"timestamp": "ISO timestamp", "direction": "sent|received", "message": "Message content"}]
+                    "description": "Messages list",
+                    "payload": [{"timestamp": "ISO timestamp", "direction": "sent|received", "message": "Content"}]
                 },
             }
         }

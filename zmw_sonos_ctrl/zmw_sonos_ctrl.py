@@ -57,77 +57,78 @@ class ZmwSonosCtrl(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Manages Sonos speaker groups and audio source selection. Discovers Sonos speakers on the network, creates speaker groups, and redirects Spotify playback to Sonos. Provides playback controls (volume, track skip) and speaker group management.",
+            "description": "Manage Sonos speakers. Discover speakers, create groups, control group "\
+                           "(redirect Spotify to Sonos, playback: volume, track skip). Commands apply to active group.",
             "meta": self.get_service_meta(),
             "commands": {
                 "prev_track": {
-                    "description": "Skip to the previous track on the active speaker group",
+                    "description": "Prev track",
                     "params": {}
                 },
                 "next_track": {
-                    "description": "Skip to the next track on the active speaker group",
+                    "description": "Next track",
                     "params": {}
                 },
                 "volume_up": {
-                    "description": "Increase volume on the active speaker group",
-                    "params": {"vol": "(optional) Volume step percentage, default 5"}
+                    "description": "volume+",
+                    "params": {"vol?": "Step percentage, default 5"}
                 },
                 "volume_down": {
-                    "description": "Decrease volume on the active speaker group",
-                    "params": {"vol": "(optional) Volume step percentage, default 5"}
+                    "description": "volume-",
+                    "params": {"vol?": "Step percentage, default 5"}
                 },
                 "spotify_hijack": {
-                    "description": "Hijack Spotify playback to a set of Sonos speakers",
-                    "params": {"<speaker_name>": {"vol": "Volume level (0-100)"}}
+                    "description": "Move Spotify playback to set of Sonos speakers",
+                    "params": {"<speaker_name>": {"vol?": "level (0-100)"}}
                 },
                 "spotify_hijack_or_toggle_play": {
                     "description": "If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack",
-                    "params": {"<speaker_name>": {"vol": "Volume level (0-100)"}}
+                    "params": {"<speaker_name>": {"vol?": "level (0-100)"}}
                 },
                 "stop_all": {
-                    "description": "Stop all playback and reset Sonos speaker states",
+                    "description": "Stop playback, destroy groups",
                     "params": {}
                 },
                 "world_state": {
-                    "description": "Request full Sonos network state. Response published on world_state_reply",
+                    "description": "Get Sonos network state. Response on world_state_reply",
                     "params": {}
                 },
                 "ls_speakers": {
-                    "description": "Request list of discovered speaker names. Response published on ls_speakers_reply",
+                    "description": "List of speaker names. Response on ls_speakers_reply",
                     "params": {}
                 },
                 "get_sonos_play_uris": {
-                    "description": "Request URIs currently playing on all speakers. Response published on get_sonos_play_uris_reply",
+                    "description": "URIs playing on each speaker. Response on get_sonos_play_uris_reply",
                     "params": {}
                 },
                 "get_spotify_context": {
-                    "description": "Request current Spotify context/state. Response published on get_spotify_context_reply",
+                    "description": "Get Spotify context/state. Response on get_spotify_context_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
-                    "description": "Request MQTT API description. Response published on get_mqtt_description_reply",
+                    "description": "Service description",
                     "params": {}
                 },
             },
             "announcements": {
                 "world_state_reply": {
-                    "description": "Response to world_state command",
-                    "payload": {"speakers": "List of speaker state dicts", "groups": "Map of coordinator name to member names", "zones": "List of zone names"}
+                    "description": "Network state",
+                    "payload": {"speakers": "List of speaker state", "groups": "Map of coordinator name to member", "zones": "List of zone names"}
                 },
                 "ls_speakers_reply": {
-                    "description": "Response to ls_speakers command",
-                    "payload": ["List of speaker name strings"]
+                    "description": "speaker list",
+                    "payload": ["names"]
                 },
                 "get_sonos_play_uris_reply": {
-                    "description": "Response to get_sonos_play_uris command",
-                    "payload": {"<speaker_name>": "URI string currently playing"}
+                    "description": "Currently playing",
+                    "payload": {"<speaker_name>": "URI"}
                 },
                 "get_spotify_context_reply": {
-                    "description": "Response to get_spotify_context command",
-                    "payload": {"media_info": "Spotify media info dict including context URI and current track"}
+                    "description": "Spotify info with context URI and current track",
+                    "payload": {"media_info": "dict"}
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description command",
+                    "description": "Service description",
                     "payload": {"commands": "...", "announcements": "..."}
                 },
             }

@@ -45,29 +45,31 @@ class ZmwSpeechToText(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Offline speech-to-text service using faster-whisper. Transcribes audio from Telegram voice messages, HTTP uploads, or MQTT file-path requests and publishes results to MQTT. Can translate non-English audio to English.",
+            "description": "Speech-to-text and translation service. Receives audio from Telegram, HTTP, or MQTT. Publishes English translated text.",
             "meta": self.get_service_meta(),
             "commands": {
                 "transcribe": {
-                    "description": "Transcribe an audio file at the given path",
-                    "params": {"wav_path": "(preferred) Path to a WAV file", "path": "(fallback) Path to any audio file"}
+                    "description": "Transcribe audio",
+                    "params": {"wav_path?": "(preferred) Local path to WAV", "path?": "(fallback) Local path to audio"}
                 },
                 "get_history": {
-                    "description": "Request transcription history. Response published on get_history_reply",
+                    "description": "Service history. Response on get_history_reply",
                     "params": {}
                 },
             },
             "announcements": {
                 "transcription": {
-                    "description": "Published when a transcription completes (from any source: HTTP, MQTT, or Telegram voice)",
-                    "payload": {"source": "Origin: 'http', 'mqtt', or 'telegram'", "file": "Path to audio file (null for HTTP uploads)", "text": "Transcribed text", "confidence": {"language": "Detected language code", "language_prob": "Language detection probability", "avg_log_prob": "Average log probability of segments", "no_speech_prob": "Probability of no speech in segments"}}
+                    "description": "A transcription completed",
+                    "payload": {"source": "http|mqtt|telegram", "file?": "Path to file", "text": "Result",
+                                "confidence": {"language": "Detected lang", "language_prob": "Lang confidence",
+                                "avg_log_prob": "Transcription confidence", "no_speech_prob": "Probability of no speech"}}
                 },
                 "get_history_reply": {
-                    "description": "Response to get_history. Array of recent transcription results (max 20)",
-                    "payload": [{"source": "Origin", "file": "Audio path", "text": "Transcribed text", "confidence": "Confidence metrics"}]
+                    "description": "Transcription history",
+                    "payload": [{"source": "http|mqtt|telegram", "file": "Path", "text": "Result", "confidence": "Confidence metrics"}]
                 },
                 "get_mqtt_description_reply": {
-                    "description": "Response to get_mqtt_description. Describes all MQTT commands and announcements for this service",
+                    "description": "Service description",
                     "payload": {"commands": {}, "announcements": {}}
                 },
             }

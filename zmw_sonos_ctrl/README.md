@@ -49,39 +49,39 @@ The Spotify-to-Sonos URI conversion uses a hardcoded Sonos magic URI (`sid=9&fla
 
 #### `prev_track`
 
-Skip to the previous track on the active speaker group
+Prev track
 
 _No parameters._
 
 #### `next_track`
 
-Skip to the next track on the active speaker group
+Next track
 
 _No parameters._
 
 #### `volume_up`
 
-Increase volume on the active speaker group
+volume+
 
 | Param | Description |
 |-------|-------------|
-| `vol` | (optional) Volume step percentage, default 5 |
+| `vol?` | Step percentage, default 5 |
 
 #### `volume_down`
 
-Decrease volume on the active speaker group
+volume-
 
 | Param | Description |
 |-------|-------------|
-| `vol` | (optional) Volume step percentage, default 5 |
+| `vol?` | Step percentage, default 5 |
 
 #### `spotify_hijack`
 
-Hijack Spotify playback to a set of Sonos speakers
+Move Spotify playback to set of Sonos speakers
 
 | Param | Description |
 |-------|-------------|
-| `<speaker_name>` | {'vol': 'Volume level (0-100)'} |
+| `<speaker_name>` | {'vol?': 'level (0-100)'} |
 
 #### `spotify_hijack_or_toggle_play`
 
@@ -89,41 +89,41 @@ If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack
 
 | Param | Description |
 |-------|-------------|
-| `<speaker_name>` | {'vol': 'Volume level (0-100)'} |
+| `<speaker_name>` | {'vol?': 'level (0-100)'} |
 
 #### `stop_all`
 
-Stop all playback and reset Sonos speaker states
+Stop playback, destroy groups
 
 _No parameters._
 
 #### `world_state`
 
-Request full Sonos network state. Response published on world_state_reply
+Get Sonos network state. Response on world_state_reply
 
 _No parameters._
 
 #### `ls_speakers`
 
-Request list of discovered speaker names. Response published on ls_speakers_reply
+List of speaker names. Response on ls_speakers_reply
 
 _No parameters._
 
 #### `get_sonos_play_uris`
 
-Request URIs currently playing on all speakers. Response published on get_sonos_play_uris_reply
+URIs playing on each speaker. Response on get_sonos_play_uris_reply
 
 _No parameters._
 
 #### `get_spotify_context`
 
-Request current Spotify context/state. Response published on get_spotify_context_reply
+Get Spotify context/state. Response on get_spotify_context_reply
 
 _No parameters._
 
 #### `get_mqtt_description`
 
-Request MQTT API description. Response published on get_mqtt_description_reply
+Service description
 
 _No parameters._
 
@@ -131,39 +131,39 @@ _No parameters._
 
 #### `world_state_reply`
 
-Response to world_state command
+Network state
 
 | Param | Description |
 |-------|-------------|
-| `speakers` | List of speaker state dicts |
-| `groups` | Map of coordinator name to member names |
+| `speakers` | List of speaker state |
+| `groups` | Map of coordinator name to member |
 | `zones` | List of zone names |
 
 #### `ls_speakers_reply`
 
-Response to ls_speakers command
+speaker list
 
-Payload: `['List of speaker name strings']`
+Payload: `['names']`
 
 #### `get_sonos_play_uris_reply`
 
-Response to get_sonos_play_uris command
+Currently playing
 
 | Param | Description |
 |-------|-------------|
-| `<speaker_name>` | URI string currently playing |
+| `<speaker_name>` | URI |
 
 #### `get_spotify_context_reply`
 
-Response to get_spotify_context command
+Spotify info with context URI and current track
 
 | Param | Description |
 |-------|-------------|
-| `media_info` | Spotify media info dict including context URI and current track |
+| `media_info` | dict |
 
 #### `get_mqtt_description_reply`
 
-Response to get_mqtt_description command
+Service description
 
 | Param | Description |
 |-------|-------------|
