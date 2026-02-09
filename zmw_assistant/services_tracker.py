@@ -6,6 +6,16 @@ from zzmw_lib.logs import build_logger
 log = build_logger("ZmwAssistantSvcTracker")
 
 
+_CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
+_STOPWORDS = {
+    'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'do', 'does', 'did',
+    'i', 'me', 'my', 'we', 'our', 'you', 'your', 'it', 'its',
+    'what', "what's", 'which', 'who', 'how', 'when', 'where', 'why',
+    'can', 'will', 'would', 'could', 'should', 'please',
+    'to', 'of', 'in', 'for', 'at', 'by', 'with', 'from',
+    'and', 'or', 'but', 'not', 'if', 'then', 'than', 'that', 'this',
+    'all', 'some', 'any', 'no', 'so',
+}
 _REPLY_TOPIC_RE = re.compile(r'\s*\.?\s*Response\s+(published\s+)?on\s+\S+\s*$', re.IGNORECASE)
 def _strip_reply_suffix(description):
     """Strip 'Response on X_reply' / 'Response published on X' suffixes."""
@@ -40,6 +50,32 @@ def compact_ifaces_for_llm(svcs_ifaces):
                     lines.append(f"- {cmd_name}: {desc}")
         lines.append("")
     return '\n'.join(lines)
+
+
+def _build_service_keywords(svc_name, iface):
+    """Build a searchable text blob for a service from its name, description, and commands."""
+    parts = []
+    # Split CamelCase name into words (e.g. "ZmwLights" -> "zmw lights")
+    parts.append(' '.join(_CAMEL_SPLIT_RE.split(svc_name)).lower())
+    if iface.get('description'):
+        parts.append(iface['description'].lower())
+    for cmd_name, cmd in iface.get('commands', {}).items():
+        parts.append(cmd_name.replace('_', ' ').lower())
+        if cmd.get('description'):
+            parts.append(cmd['description'].lower())
+    return ' '.join(parts)
+
+
+def _tokenize_query(user_query):
+    """Tokenize and filter a user query: lowercase, strip punctuation, remove stopwords."""
+    words = re.findall(r'[a-z0-9]+', user_query.lower())
+    return [w for w in words if w not in _STOPWORDS]
+
+
+def _score_keywords(query_words, keywords_text):
+    """Count how many query words appear as whole words in the keywords text."""
+    kw_words = set(keywords_text.split())
+    return sum(1 for w in query_words if w in kw_words)
 
 
 _IFACE_REPLY_WILDCARD = "+/get_mqtt_description_reply"
@@ -89,5 +125,27 @@ class ServicesTracker:
     def get_svcs_llm_context(self):
         with self._ifaces_lock:
             return compact_ifaces_for_llm(self._svcs_ifaces)
+
+    def get_svcs_llm_context_filtered(self, user_query, max_results=3):
+        """Return compact LLM context for only services relevant to user_query."""
+        query_words = _tokenize_query(user_query)
+        if not query_words:
+            return self.get_svcs_llm_context()
+
+        with self._ifaces_lock:
+            scored = []
+            for svc_name, iface in self._svcs_ifaces.items():
+                kw_text = _build_service_keywords(svc_name, iface)
+                score = _score_keywords(query_words, kw_text)
+                if score > 0:
+                    scored.append((score, svc_name, iface))
+
+            if not scored:
+                return compact_ifaces_for_llm(self._svcs_ifaces)
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top = scored[:max_results]
+            filtered = {name: iface for _, name, iface in top}
+            return compact_ifaces_for_llm(filtered)
 
 
