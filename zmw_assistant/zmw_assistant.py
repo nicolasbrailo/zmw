@@ -3,6 +3,8 @@ import pathlib
 import os
 import threading
 
+from flask import request as FlaskRequest
+
 from zzmw_lib.zmw_mqtt_mon import ZmwMqttServiceMonitor
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.logs import build_logger
@@ -35,6 +37,12 @@ class LazyLlama:
                 return None
             return self._llm(*args, **kwargs)
 
+    def create_chat_completion(self, **kwargs):
+        with self._lock:
+            if self._llm is None:
+                return None
+            return self._llm.create_chat_completion(**kwargs)
+
     def tokenize(self, text_bytes):
         with self._lock:
             if self._llm is None:
@@ -62,6 +70,7 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         www.serve_url('/get_services_llm_context', self._svcs.get_svcs_llm_context)
         www.serve_url('/get_z2m_llm_context', self._zigbee_things.get_z2m_llm_context)
         www.serve_url('/debug_llm_context', self._debug_llm_context)
+        www.serve_url('/assistant_ask', self._assistant_ask, methods=['POST'])
         www.serve_url('/foo', self._foo)
 
     def _on_connect(self, client, userdata, flags, ret_code, props):
@@ -78,6 +87,19 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         tokens = self._llm.tokenize(text.encode())
         token_count = len(tokens) if tokens is not None else "model not loaded"
         return f"<pre>Tokens: {token_count}\n\n{text}</pre>"
+
+    def _assistant_ask(self):
+        prompt = FlaskRequest.form.get('prompt', '')
+        output = self._llm.create_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=256,
+        )
+        if output is None:
+            reply = "Model not loaded yet"
+        else:
+            reply = output['choices'][0]['message']['content']
+        return (f"<pre>Prompt: {prompt}\n\nReply: {reply}</pre>"
+                f"<br><a href='/assistant.html'>Back</a>")
 
     def _foo(self):
         output = self._llm(

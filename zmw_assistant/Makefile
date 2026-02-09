@@ -12,4 +12,11 @@ models/7B/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf:
 	mkdir -p models/7B
 	wget -O models/7B/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
 
+models/7B/Llama-3.2-1B-Instruct-Q4_K_M.gguf:
+	mkdir -p models/7B
+	wget -O models/7B/Llama-3.2-1B-Instruct-Q4_K_M.gguf https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf
+
+models/7B/Llama-3.2-3B-Instruct-Q4_K_M.gguf:
+	mkdir -p models/7B
+	wget -O models/7B/Llama-3.2-3B-Instruct-Q4_K_M.gguf https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf
 
