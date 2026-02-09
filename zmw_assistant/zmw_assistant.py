@@ -1,6 +1,7 @@
 import json
 import pathlib
 import os
+import re
 import threading
 
 from zz2m.z2mproxy import Z2MProxy
@@ -43,12 +44,19 @@ class LazyLlama:
 _IFACE_REPLY_WILDCARD = "+/get_mqtt_description_reply"
 
 
+_REPLY_TOPIC_RE = re.compile(r'\s*\.?\s*Response\s+(published\s+)?on\s+\S+\s*$', re.IGNORECASE)
+
+
+def _strip_reply_suffix(description):
+    """Strip 'Response on X_reply' / 'Response published on X' suffixes."""
+    return _REPLY_TOPIC_RE.sub('', description)
+
+
 def compact_ifaces_for_llm(svcs_ifaces):
     """Compact service interface descriptions into a short text format for LLM context.
 
     Strips announcements, reply schemas, and metadata. Keeps only service descriptions
     and commands with their parameters."""
-    # TODO: skip defintion of get_mqtt_description in the ifaces, the LLM won't need metadata
     lines = []
     for svc_name, iface in sorted(svcs_ifaces.items()):
         lines.append(f"## {svc_name}")
@@ -61,62 +69,94 @@ def compact_ifaces_for_llm(svcs_ifaces):
                 if cmd_name == 'get_mqtt_description':
                     continue
                 params = cmd.get('params', {})
+                desc = _strip_reply_suffix(cmd.get('description', ''))
                 if params:
                     param_parts = []
                     for p_name, p_desc in params.items():
                         optional = '(optional)' in str(p_desc).lower() if p_desc else False
                         param_parts.append(f"{p_name}?" if optional else p_name)
                     params_str = ', '.join(param_parts)
-                    lines.append(f"- {cmd_name}({params_str}): {cmd.get('description', '')}")
+                    lines.append(f"- {cmd_name}({params_str}): {desc}")
                 else:
-                    lines.append(f"- {cmd_name}: {cmd.get('description', '')}")
+                    lines.append(f"- {cmd_name}: {desc}")
         lines.append("")
     return '\n'.join(lines)
 
-_Z2M_SKIP_ACTIONS = {'linkquality', 'update'}
+_Z2M_SKIP_ACTIONS = {
+    'linkquality', 'update',
+    'identify', 'battery', 'power_on_behavior', 'color_temp_startup',
+    'effect', 'execute_if_off',
+}
+
+_Z2M_SKIP_THING_TYPES = {'button'}
 
 
-def _compact_action(action):
-    """Format a single action as a compact string, or None to skip."""
+def _compact_action_inline(action):
+    """Format a single action as an inline string, or None to skip."""
     if action.name in _Z2M_SKIP_ACTIONS:
         return None
     meta = action.value.meta
     if meta['type'] in ('composite', 'list', 'user_defined'):
         return None
 
-    mode = 'RW' if action.can_set else 'R'
     if meta['type'] == 'binary':
-        return f"- {action.name}: {meta['value_on']}/{meta['value_off']} [{mode}]"
+        return f"{action.name} {meta['value_on']}/{meta['value_off']}"
     if meta['type'] == 'numeric':
         lo = meta.get('value_min', '')
         hi = meta.get('value_max', '')
-        range_str = f"{lo}-{hi}" if lo != '' or hi != '' else "numeric"
-        return f"- {action.name}: {range_str} [{mode}]"
+        if lo != '' or hi != '':
+            return f"{action.name} {lo}-{hi}"
+        return action.name
     if meta['type'] == 'enum':
         vals = '/'.join(str(v) for v in meta.get('values', []))
-        return f"- {action.name}: {vals} [{mode}]"
-    return f"- {action.name} [{mode}]"
+        return f"{action.name} {vals}" if vals else action.name
+    return action.name
 
 
 def compact_z2m_things_for_llm(things):
-    """Compact Z2M things into a short text format for LLM context."""
+    """Compact Z2M things into a short text format for LLM context, grouped by type."""
     lines = [
         "## Zigbee2MQTT Devices",
         "Control devices by publishing JSON to zigbee2mqtt/{device_name}/set",
-        "Read device state from zigbee2mqtt/{device_name}",
         "",
     ]
-    for thing in sorted(things, key=lambda t: t.name):
-        if thing.broken:
+
+    # Group things by type
+    by_type = {}
+    for thing in things:
+        if thing.broken or thing.thing_type in _Z2M_SKIP_THING_TYPES or len(thing.actions) == 0:
             continue
-        type_str = f" ({thing.thing_type})" if thing.thing_type else ""
-        lines.append(f"### {thing.name}{type_str}")
-        for action_name in thing.actions:
-            action = thing.actions[action_name]
-            desc = _compact_action(action)
-            if desc:
-                lines.append(desc)
+        type_key = thing.thing_type or 'other'
+        by_type.setdefault(type_key, []).append(thing)
+
+    # Controllable devices first (next to the "how to control" heading)
+    sensors = by_type.pop('sensor', [])
+    for type_key in sorted(by_type.keys()):
+        label = type_key.title()
+        label = f"{label}es" if label.endswith(('s', 'sh', 'ch', 'x', 'z')) else f"{label}s"
+        lines.append(f"### {label}")
+        for thing in sorted(by_type[type_key], key=lambda t: t.name):
+            actions = []
+            for action in thing.actions.values():
+                desc = _compact_action_inline(action)
+                if desc:
+                    actions.append(desc)
+            if actions:
+                lines.append(f"- {thing.name}: {', '.join(actions)}")
+            else:
+                lines.append(f"- {thing.name}")
         lines.append("")
+
+    # Sensors last (queried via service, not directly via z2m)
+    if sensors:
+        lines.append("### Sensors (query via ZmwSensormon)")
+        for thing in sorted(sensors, key=lambda t: t.name):
+            metrics = [a.name for a in thing.actions.values()
+                       if a.name not in _Z2M_SKIP_ACTIONS]
+            if metrics:
+                lines.append(f"- {thing.name}: {', '.join(metrics)}")
+        lines.append("")
+
     return '\n'.join(lines)
 
 
@@ -145,6 +185,7 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         www.serve_url('/get_service_interfaces_for_llm', self._get_ifaces_for_llm)
         www.serve_url('/debug_llm_context', self._debug_llm_context)
         www.serve_url('/debug_z2m_context', self._debug_z2m_context)
+        www.serve_url('/debug_services_context', self._debug_services_context)
         www.serve_url('/foo', self._foo)
 
     def _on_connect(self, client, userdata, flags, ret_code, props):
@@ -185,7 +226,7 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         with self._ifaces_lock:
             return compact_ifaces_for_llm(self._svcs_ifaces)
 
-    def _debug_llm_context(self):
+    def _debug_services_context(self):
         with self._ifaces_lock:
             text = compact_ifaces_for_llm(self._svcs_ifaces)
         tokens = self._llm.tokenize(text.encode())
@@ -195,6 +236,16 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
     def _debug_z2m_context(self):
         things = self._z2m.get_all_registered_things()
         text = compact_z2m_things_for_llm(things)
+        tokens = self._llm.tokenize(text.encode())
+        token_count = len(tokens) if tokens is not None else "model not loaded"
+        return f"<pre>Tokens: {token_count}\n\n{text}</pre>"
+
+    def _debug_llm_context(self):
+        with self._ifaces_lock:
+            svc_text = compact_ifaces_for_llm(self._svcs_ifaces)
+        things = self._z2m.get_all_registered_things()
+        z2m_text = compact_z2m_things_for_llm(things)
+        text = svc_text + "\n" + z2m_text
         tokens = self._llm.tokenize(text.encode())
         token_count = len(tokens) if tokens is not None else "model not loaded"
         return f"<pre>Tokens: {token_count}\n\n{text}</pre>"
