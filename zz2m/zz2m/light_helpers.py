@@ -356,6 +356,16 @@ def monkeypatch_lights(z2m):
         log.debug("Thing %s is a light, will monkeypatch", light.name)
         _monkeypatch_light(light)
 
+def identify_buttons(z2m):
+    """ Identify button/remote devices and set their thing_type to 'button'.
+    Buttons in z2m have an 'action' enum feature (click/press/hold events)
+    and no thing_type set by the default parser. """
+    for thing in z2m.get_things_if(
+            lambda t: t.thing_type is None and 'action' in t.actions):
+        if thing.actions['action'].value.meta.get('type') == 'enum':
+            log.debug("Thing %s identified as button", thing.name)
+            thing.thing_type = 'button'
+
 def any_light_on(z2m, light_names):
     """ Returns true if any of the lights in light_names is turned on. Will
     throw an error if any of the things in light_names is not a light. Will throw if not a light, or thing doesn't exist """

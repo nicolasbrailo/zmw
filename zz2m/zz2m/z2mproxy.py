@@ -1,7 +1,7 @@
 from zzmw_lib.logs import build_logger
 log = build_logger("Z2M")
 
-from zz2m.light_helpers import monkeypatch_lights
+from zz2m.light_helpers import monkeypatch_lights, identify_buttons
 
 from ctypes import c_int32
 from datetime import datetime, timedelta
@@ -138,6 +138,7 @@ class Z2MProxy:
             log.info('Bridge published network definition. No new devices were found.')
 
         monkeypatch_lights(self)
+        identify_buttons(self)
         if not self._cb_on_z2m_network_discovery:
             log.info('Zigbee2Mqtt network,%s device definition published. Discovered %d things.',
                      " first" if is_first_discovery else "", len(self._known_things.keys()))
