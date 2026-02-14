@@ -4,6 +4,9 @@ import os
 import pathlib
 import re
 
+from flask_sock import Sock
+from simple_websocket import ConnectionClosed
+
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
@@ -92,6 +95,7 @@ class ZmwLights(ZmwMqttService):
         super().__init__(cfg, "zmw_lights", scheduler=sched)
         self._lights = []
         self._switches = []
+        self._ws_clients = set()
 
         # Set up www directory and endpoints
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
@@ -101,6 +105,10 @@ class ZmwLights(ZmwMqttService):
         www.serve_url('/get_lights', lambda: [l.get_json_state() for l in self._lights])
         www.serve_url('/get_switches', lambda: [s.get_json_state() for s in self._switches])
         www.serve_url('/get_groups', self._get_groups)
+        www.serve_url('/get_ws_url', lambda: {'url': www.public_url_base.replace('http', 'ws', 1) + '/ws/thing_updates'})
+
+        self._sock = Sock(www)
+        self._sock.route('/ws/thing_updates')(self._ws_thing_updates)
 
         self._z2m = Z2MProxy(cfg, self, sched,
                              cb_on_z2m_network_discovery=self._on_z2m_network_discovery,
@@ -140,10 +148,35 @@ class ZmwLights(ZmwMqttService):
         self._lights = new_lights
         self._switches = new_switches
 
+        for thing in self._lights + self._switches:
+            thing.on_state_change_from_mqtt = lambda t=thing: self._on_thing_state_changed(t)
+
         for light in self._lights:
             log.info("Discovered light %s", light.name)
         for switch in self._switches:
             log.info("Discovered switch %s", switch.name)
+
+    def _ws_thing_updates(self, ws):
+        self._ws_clients.add(ws)
+        try:
+            while True:
+                ws.receive()
+        except ConnectionClosed:
+            pass
+        finally:
+            self._ws_clients.discard(ws)
+
+    def _on_thing_state_changed(self, thing):
+        if not self._ws_clients:
+            return
+        msg = json.dumps(thing.get_json_state())
+        dead = set()
+        for ws in self._ws_clients:
+            try:
+                ws.send(msg)
+            except Exception:
+                dead.add(ws)
+        self._ws_clients -= dead
 
     def _get_groups(self):
         all_names = [t.name for t in self._lights] + [t.name for t in self._switches]
@@ -186,11 +219,11 @@ class ZmwLights(ZmwMqttService):
                 },
                 "all_lights_on": {
                     "description": "Turn on all lights matching a name prefix at 80% brightness. Response on all_lights_on_reply",
-                    "params": {"prefix": "Prefix to filter lights (eg 'TVRoom')"}
+                    "params": {"prefix?": "Prefix to filter lights (eg 'TVRoom')"}
                 },
                 "all_lights_off": {
                     "description": "Turn off all lights matching a name prefix. Response on all_lights_off_reply",
-                    "params": {"prefix": "Prefix to filter lights (eg 'TVRoom')"}
+                    "params": {"prefix?": "Prefix to filter lights (eg 'TVRoom')"}
                 },
                 "get_mqtt_description": {
                     "description": "Service description",

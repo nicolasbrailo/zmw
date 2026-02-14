@@ -1387,6 +1387,7 @@ class MqttLights extends React.Component {
 
   async componentDidMount() {
     this.fetchThings();
+    this._connectWebSocket();
   }
 
   componentDidUpdate(prevProps) {
@@ -1395,8 +1396,64 @@ class MqttLights extends React.Component {
     }
   }
 
+  componentWillUnmount() {
+    this._wsClosing = true;
+    if (this._ws) {
+      this._ws.close();
+      this._ws = null;
+    }
+  }
+
   on_app_became_visible() {
     this.fetchThings();
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
+      this._connectWebSocket();
+    }
+  }
+
+  _connectWebSocket() {
+    if (this._ws) {
+      this._ws.close();
+    }
+    if (this._wsUrl) {
+      this._openWebSocket(this._wsUrl);
+    } else {
+      mJsonGet(`${this.props.api_base_path}/get_ws_url`, (resp) => {
+        this._wsUrl = resp.url;
+        this._openWebSocket(resp.url);
+      });
+    }
+  }
+
+  _openWebSocket(url) {
+    const ws = new WebSocket(url);
+    this._ws = ws;
+    ws.onmessage = (e) => {
+      const update = JSON.parse(e.data);
+      console.log('WS thing update:', update);
+      this._applyThingUpdate(update);
+    };
+    ws.onclose = () => {
+      if (!this._wsClosing) {
+        setTimeout(() => this._connectWebSocket(), 2000);
+      }
+    };
+  }
+
+  _applyThingUpdate(update) {
+    this.setState(prevState => {
+      const name = update.thing_name;
+      const newLights = prevState.lights.map(l =>
+        l.thing_name === name ? { ...l, ...update } : l
+      );
+      const newSwitches = prevState.switches.map(s =>
+        s.thing_name === name ? { ...s, ...update } : s
+      );
+      const { groups, sortedPrefixes } = buildGroupedThings(
+        prevState.serverGroups, newLights, newSwitches, this.props.buttons || []
+      );
+      return { lights: newLights, switches: newSwitches, groups, sortedPrefixes };
+    });
   }
 
   rebuildGroups() {

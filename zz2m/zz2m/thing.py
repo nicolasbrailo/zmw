@@ -80,6 +80,9 @@ class Zigbee2MqttThing:
     debug_mqtt_actions: bool = False
     # Callback whenever any action is updated from MQTT
     on_any_change_from_mqtt: Callable = None
+    # Like on_any_change_from_mqtt, but only fires when state actually differs
+    on_state_change_from_mqtt: Callable = None
+    _last_notified_state: str = None
     user_defined: map = None
 
     def dictify(self):
@@ -189,6 +192,12 @@ class Zigbee2MqttThing:
 
         if thing_updated and self.on_any_change_from_mqtt is not None:
             self.on_any_change_from_mqtt(self)
+
+        if thing_updated and self.on_state_change_from_mqtt is not None:
+            snapshot = json.dumps(self.get_json_state(), sort_keys=True)
+            if snapshot != self._last_notified_state:
+                self._last_notified_state = snapshot
+                self.on_state_change_from_mqtt(self)
 
     def set(self, key, val):
         """ Set value (by user). Propagates to value object, applies metadata-validation """
