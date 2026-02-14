@@ -9,13 +9,17 @@ https://github.com/jjlawren/sonos-websocket/tree/main
 
 import aiohttp
 import asyncio
+import requests
 import soco
 import time
 
 from soco.snapshot import Snapshot
 from zzmw_lib.logs import build_logger
+from sonos_helpers import SOCO_DISCOVER_TIMEOUT
 
 log = build_logger("MqttSpeakerAnnounceSonos")
+
+_SONOS_EXC = (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException)
 
 async def _sonos_ws_connect(api_key, ip_addr):
     uri = f"wss://{ip_addr}:1443/websocket/api"
@@ -87,15 +91,26 @@ async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None):
     if 'speaker_ip_list' in api_cfg:
         log.info("Skip Sonos discovery, using static IP list %s", api_cfg['speaker_ip_list'])
         for ip in api_cfg['speaker_ip_list']:
-            dev = soco.SoCo(ip)
-            tasks.append(_async_sonos_announce_one(api_cfg, dev.ip_address, dev.uid, alert_uri, volume))
+            try:
+                dev = soco.SoCo(ip)
+                tasks.append(_async_sonos_announce_one(api_cfg, dev.ip_address, dev.uid, alert_uri, volume))
+            except _SONOS_EXC:
+                log.warning("Failed to connect to speaker at %s, skipping", ip, exc_info=True)
     else:
-        spks = soco.discover()
+        try:
+            spks = soco.discover(timeout=SOCO_DISCOVER_TIMEOUT)
+        except _SONOS_EXC:
+            log.error("Sonos discovery failed", exc_info=True)
+            return False
         if spks is None:
             log.error("Sonos discovery broken, can't announce")
             return False
         for spk in spks:
             tasks.append(_async_sonos_announce_one(api_cfg, spk.ip_address, spk.uid, alert_uri, volume))
+
+    if not tasks:
+        log.error("No speakers available for announcement")
+        return False
 
     await asyncio.gather(*tasks)
     return True
@@ -111,32 +126,71 @@ def sonos_announce_ws(api_cfg, alert_uri, volume=None):
     return asyncio.run(_async_sonos_announce_all(api_cfg, alert_uri, volume))
 
 def _sonos_announce_local_prep_zones(volume, force_play):
-    zones = soco.discover()
+    try:
+        zones = soco.discover(timeout=SOCO_DISCOVER_TIMEOUT)
+    except _SONOS_EXC:
+        log.error("Sonos discovery failed", exc_info=True)
+        return []
+
     if zones is None:
         log.error("Sonos discovery is broken, can't find zones")
         return []
 
     announce_zones = []
     for zone in zones:
-        trans_state = zone.get_current_transport_info()
-        non_pausable_play = trans_state["current_transport_state"] == "PLAYING" and not force_play
-        non_pausable_media = non_pausable_play or zone.is_playing_tv
-        if non_pausable_media:
-            log.info('Will skip %s from announcement, currently playing media', zone.player_name)
+        try:
+            zone_name = zone.player_name
+        except _SONOS_EXC:
+            log.warning("Failed to get name for zone %s, skipping", zone.ip_address, exc_info=True)
             continue
 
-        # Each Sonos group has one coordinator only these can play, pause, etc.
-        if zone.is_coordinator:
-            # pause music for each coordinators if playing
+        try:
             trans_state = zone.get_current_transport_info()
-            if trans_state["current_transport_state"] == "PLAYING":
+            is_playing = trans_state["current_transport_state"] == "PLAYING"
+        except _SONOS_EXC:
+            log.warning("Failed to get transport info for %s, skipping", zone_name, exc_info=True)
+            continue
+
+        try:
+            playing_tv = zone.is_playing_tv
+        except _SONOS_EXC:
+            log.warning("Failed to check TV state for %s, assuming not playing TV", zone_name, exc_info=True)
+            playing_tv = False
+
+        non_pausable_play = is_playing and not force_play
+        non_pausable_media = non_pausable_play or playing_tv
+        if non_pausable_media:
+            log.info('Will skip %s from announcement, currently playing media', zone_name)
+            continue
+
+        try:
+            is_coord = zone.is_coordinator
+        except _SONOS_EXC:
+            log.warning("Failed to check coordinator status for %s, assuming not coordinator", zone_name, exc_info=True)
+            is_coord = False
+
+        # Each Sonos group has one coordinator only these can play, pause, etc.
+        if is_coord and is_playing:
+            try:
                 zone.pause()
+            except _SONOS_EXC:
+                log.warning("Failed to pause %s", zone_name, exc_info=True)
 
         # For every Sonos player set volume and mute for every zone, then save state
-        zone.mute = False
-        zone.volume = volume or 50
-        zone.snap = Snapshot(zone)
-        zone.snap.snapshot()
+        try:
+            zone.mute = False
+            zone.volume = volume or 50
+        except _SONOS_EXC:
+            log.warning("Failed to set volume/mute for %s, skipping", zone_name, exc_info=True)
+            continue
+
+        try:
+            zone.snap = Snapshot(zone)
+            zone.snap.snapshot()
+        except _SONOS_EXC:
+            log.warning("Failed to snapshot %s, skipping", zone_name, exc_info=True)
+            continue
+
         announce_zones.append(zone)
     return announce_zones
 
@@ -174,10 +228,13 @@ def sonos_announce_local(alert_uri, volume, timeout, force_play):
             # that playback is fininshed: if announcement was sent to all devices, any of them
             # finishing should be an indication that the real announcement is
             # finished.
-            trans_state = zone.get_current_transport_info()
-            if trans_state["current_transport_state"] != "PLAYING":
-                announcement_finished = True
-                break
+            try:
+                trans_state = zone.get_current_transport_info()
+                if trans_state["current_transport_state"] != "PLAYING":
+                    announcement_finished = True
+                    break
+            except _SONOS_EXC:
+                log.warning("Failed to check transport state for %s during wait", zone.player_name, exc_info=True)
 
         if not announcement_finished:
             time.sleep(1)
