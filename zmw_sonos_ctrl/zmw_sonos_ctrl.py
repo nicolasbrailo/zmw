@@ -60,6 +60,7 @@ class ZmwSonosCtrl(ZmwMqttService):
             "description": "Manage Sonos speakers. Discover speakers, create groups, control group "\
                            "(redirect Spotify to Sonos, playback: volume, track skip). Commands apply to active group.",
             "meta": self.get_service_meta(),
+            "sonos_state": get_all_sonos_state(),
             "commands": {
                 "prev_track": {
                     "description": "Prev track",

@@ -17,17 +17,18 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MQTT_SECTION_HEADER = "## MQTT"
 
 
-class _ReplaceSelfCalls(ast.NodeTransformer):
-    """Replace self.method() calls with None so ast.literal_eval can handle the rest."""
+class _ReplaceNonLiterals(ast.NodeTransformer):
+    """Replace non-literal expressions (calls, comprehensions, etc.) with None
+    so ast.literal_eval can handle the rest."""
 
     def visit_Call(self, node):
-        self.generic_visit(node)
-        func = node.func
-        if (isinstance(func, ast.Attribute)
-                and isinstance(func.value, ast.Name)
-                and func.value.id == 'self'):
-            return ast.copy_location(ast.Constant(value=None), node)
-        return node
+        return ast.copy_location(ast.Constant(value=None), node)
+
+    def visit_ListComp(self, node):
+        return ast.copy_location(ast.Constant(value=None), node)
+
+    def visit_GeneratorExp(self, node):
+        return ast.copy_location(ast.Constant(value=None), node)
 
 
 def extract_mqtt_description(py_path):
@@ -40,7 +41,7 @@ def extract_mqtt_description(py_path):
             continue
         for child in ast.walk(node):
             if isinstance(child, ast.Return) and child.value is not None:
-                cleaned = _ReplaceSelfCalls().visit(child.value)
+                cleaned = _ReplaceNonLiterals().visit(child.value)
                 try:
                     return ast.literal_eval(cleaned)
                 except ValueError as e:

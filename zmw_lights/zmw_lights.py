@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import re
 
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
@@ -11,6 +12,85 @@ from zz2m.z2mproxy import Z2MProxy
 from zz2m.www import Z2Mwebservice
 
 log = build_logger("ZmwLights")
+
+_Z2M_SKIP_ACTIONS = {
+    'linkquality', 'update',
+    'identify', 'battery', 'power_on_behavior', 'color_temp_startup',
+    'effect', 'execute_if_off',
+}
+
+_CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
+
+def _discover_groups(names):
+    """Find light groups by CamelCase prefix overlap."""
+    # Build valid CamelCase prefixes for each name
+    name_prefixes = {}
+    for name in names:
+        parts = _CAMEL_SPLIT_RE.split(name)
+        prefixes = set()
+        for i in range(1, len(parts)):
+            p = ''.join(parts[:i])
+            if len(p) >= 3:
+                prefixes.add(p)
+        name_prefixes[name] = prefixes
+
+    # For each candidate prefix, collect names that have it as a CamelCase boundary
+    all_prefixes = set()
+    for prefixes in name_prefixes.values():
+        all_prefixes |= prefixes
+
+    prefix_members = {}
+    for prefix in all_prefixes:
+        members = {n for n, pfxs in name_prefixes.items() if prefix in pfxs}
+        if len(members) >= 2:
+            prefix_members[prefix] = members
+
+    # Deduplicate: if two prefixes have identical member sets, keep the longer one
+    seen_sets = {}
+    for prefix in sorted(prefix_members, key=len):
+        key = frozenset(prefix_members[prefix])
+        seen_sets[key] = prefix
+    unique = {v: prefix_members[v] for v in seen_sets.values()}
+
+    # Assign each light to its most specific (longest) group
+    assigned = set()
+    result = []
+    for p in sorted(unique, key=len, reverse=True):
+        members = unique[p] - assigned
+        if len(members) >= 2:
+            assigned |= members
+            result.append({'name': p, 'lights': sorted(members)})
+
+    return sorted(result, key=lambda g: g['name'])
+
+def _describe_action(action):
+    """Format a single action as {name, values}, or None to skip."""
+    if action.name in _Z2M_SKIP_ACTIONS:
+        return None
+    meta = action.value.meta
+    if meta['type'] in ('composite', 'list', 'user_defined'):
+        return None
+    if meta['type'] == 'binary':
+        return {'name': action.name, 'values': [meta['value_on'], meta['value_off']]}
+    if meta['type'] == 'numeric':
+        lo = meta.get('value_min', '')
+        hi = meta.get('value_max', '')
+        if lo != '' or hi != '':
+            return {'name': action.name, 'values': [f"{lo}-{hi}"]}
+        return {'name': action.name, 'values': []}
+    if meta['type'] == 'enum':
+        return {'name': action.name, 'values': list(meta.get('values', []))}
+    return {'name': action.name, 'values': []}
+
+def _describe_things(things, only_actions=None):
+    """Build a list of {name, actions} dicts for a set of Z2M things.
+    If only_actions is set, only include actions whose name is in that set."""
+    result = []
+    for thing in things:
+        actions = [a for a in (_describe_action(act) for act in thing.actions.values())
+                   if a is not None and (only_actions is None or a['name'] in only_actions)]
+        result.append({'name': thing.name, 'actions': actions})
+    return result
 
 class ZmwLights(ZmwMqttService):
     """ ZmwService for REST lights """
@@ -132,7 +212,10 @@ class ZmwLights(ZmwMqttService):
                     "description": "Service description",
                     "payload": {"commands": {}, "announcements": {}}
                 },
-            }
+            },
+            "known_lights": _describe_things(self._lights),
+            "known_switches": _describe_things(self._switches, only_actions={'state'}),
+            "known_groups": _discover_groups([l.name for l in self._lights]),
         }
 
     def on_service_received_message(self, subtopic, payload):

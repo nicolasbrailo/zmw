@@ -101,10 +101,15 @@ class ZmwReolinkCams(ZmwMqttService):
             merged_cfg.update(cam_cfg)
             webhook_url = f"{www.public_url_base}/cam/{cam_host}"
             cam = ZmwReolinkCam(merged_cfg, webhook_url=webhook_url, mqtt=self, scheduler=sched)
+            cam._alias = cam_cfg.get('alias')
             self.cams[cam_host] = cam
 
             # Register webhook endpoint for this camera
             www.serve_url(f'/cam/{cam_host}', cam.on_cam_webhook, methods=['GET', 'POST'])
+
+        self._alias_to_host = {
+            cam._alias: host for host, cam in self.cams.items() if cam._alias
+        }
 
         # Initialize NVR
         self.nvr = Nvr(cfg['rec_path'], cfg.get('snap_path_on_movement'), www)
@@ -123,6 +128,13 @@ class ZmwReolinkCams(ZmwMqttService):
         for cam_host, cam in self.cams.items():
             log.info("Connecting to camera %s...", cam_host)
             cam.connect_bg()
+
+    def _resolve_cam(self, payload):
+        cam_host = payload.get('cam_host') if payload else None
+        if cam_host is None:
+            alias = payload.get('cam_alias') if payload else None
+            cam_host = self._alias_to_host.get(alias)
+        return self.cams.get(cam_host)
 
     def on_doorbell_pressed(self, cam_host):
         """Record when a doorbell was pressed"""
@@ -147,14 +159,20 @@ class ZmwReolinkCams(ZmwMqttService):
             "description": "Multi-camera Reolink service with motion detection, doorbell events, recording, NVR. "\
                            "Connects via webhook/ONVIF, broadcasts events over MQTT, expose snapshot/recording controls.",
             "meta": self.get_service_meta(),
+            "known_cameras": [
+                {"cam_host": host, "is_doorbell": cam._is_doorbell_cam,
+                 "alias": cam._alias}
+                for host, cam in self.cams.items()
+                if not cam.failed_to_connect()
+            ],
             "commands": {
                 "snap": {
                     "description": "Cam snapshot. Response published on_snap_ready",
-                    "params": {"cam_host": "Camera"}
+                    "params": {"cam_host": "Camera host or alias (cam_alias)"}
                 },
                 "rec": {
                     "description": "Start recording",
-                    "params": {"cam_host": "Camera", "secs": "Duration (seconds)"}
+                    "params": {"cam_host": "Camera host or alias (cam_alias)", "secs": "Duration (seconds)"}
                 },
                 "ls_cams": {
                     "description": "List online cams. Response on ls_cams_reply",
@@ -268,13 +286,11 @@ class ZmwReolinkCams(ZmwMqttService):
         if subtopic.startswith('on_'):
             return
 
-        cam_host = payload.get('cam_host') if payload else None
-
         match subtopic:
             case "snap":
-                cam = self.cams.get(cam_host)
+                cam = self._resolve_cam(payload)
                 if cam is None:
-                    log.warning("Received snap for unknown camera: %s", cam_host)
+                    log.warning("Received snap for unknown camera: %s", payload)
                     return
                 self.publish_own_svc_message("on_snap_ready", {
                     'event': 'on_snap_ready',
@@ -282,9 +298,9 @@ class ZmwReolinkCams(ZmwMqttService):
                     'snap_path': cam.get_snapshot(),
                 })
             case "rec":
-                cam = self.cams.get(cam_host)
+                cam = self._resolve_cam(payload)
                 if cam is None:
-                    log.warning("Received rec for unknown camera: %s", cam_host)
+                    log.warning("Received rec for unknown camera: %s", payload)
                     return
                 cam.start_recording(payload.get('secs', None) if payload else None)
             case "ls_cams":

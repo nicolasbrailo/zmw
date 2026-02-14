@@ -63,7 +63,7 @@ Cam snapshot. Response published on_snap_ready
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera |
+| `cam_host` | Camera host or alias (cam_alias) |
 
 #### `rec`
 
@@ -71,7 +71,7 @@ Start recording
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera |
+| `cam_host` | Camera host or alias (cam_alias) |
 | `secs` | Duration (seconds) |
 
 #### `ls_cams`

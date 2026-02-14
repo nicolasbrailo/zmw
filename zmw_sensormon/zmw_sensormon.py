@@ -183,7 +183,14 @@ class ZmwSensormon(ZmwMqttService):
                     "description": "Service description",
                     "payload": {}
                 },
-            }
+            },
+            "sensors": [
+                {
+                    'name': sensor_name,
+                    'metrics': self._sensors.get_metrics_for_sensor(sensor_name),
+                }
+                for sensor_name in self._sensors.get_known_sensors()
+            ],
         }
 
     def on_service_received_message(self, subtopic, payload):
@@ -204,11 +211,9 @@ class ZmwSensormon(ZmwMqttService):
                 self.publish_own_svc_message("get_all_sensor_values_reply",
                     self._get_all_sensor_values(payload['metric']))
             case "get_known_sensors":
-                self.publish_own_svc_message("get_known_sensors_reply",
-                    self._sensors.get_known_sensors())
+                self.publish_own_svc_message("get_known_sensors_reply", self._sensors.get_known_sensors())
             case "get_known_metrics":
-                self.publish_own_svc_message("get_known_metrics_reply",
-                    self._sensors.get_known_metrics())
+                self.publish_own_svc_message("get_known_metrics_reply", self._sensors.get_known_metrics())
             case "get_sensors_measuring":
                 if 'metric' not in payload:
                     log.error("get_sensors_measuring: missing 'metric' in payload: '%s'", payload)
