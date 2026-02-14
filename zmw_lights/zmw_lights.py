@@ -34,34 +34,28 @@ def _discover_groups(names):
                 prefixes.add(p)
         name_prefixes[name] = prefixes
 
-    # For each candidate prefix, collect names that have it as a CamelCase boundary
-    all_prefixes = set()
+    # Count how many names share each prefix
+    prefix_counts = {}
     for prefixes in name_prefixes.values():
-        all_prefixes |= prefixes
+        for p in prefixes:
+            prefix_counts[p] = prefix_counts.get(p, 0) + 1
 
-    prefix_members = {}
-    for prefix in all_prefixes:
-        members = {n for n, pfxs in name_prefixes.items() if prefix in pfxs}
-        if len(members) >= 2:
-            prefix_members[prefix] = members
+    # Assign each name to the prefix with the most members (broadest group)
+    groups = {}
+    for name, prefixes in name_prefixes.items():
+        best = None
+        best_count = 1
+        for p in prefixes:
+            if prefix_counts[p] > best_count:
+                best = p
+                best_count = prefix_counts[p]
+        if best:
+            groups.setdefault(best, []).append(name)
 
-    # Deduplicate: if two prefixes have identical member sets, keep the longer one
-    seen_sets = {}
-    for prefix in sorted(prefix_members, key=len):
-        key = frozenset(prefix_members[prefix])
-        seen_sets[key] = prefix
-    unique = {v: prefix_members[v] for v in seen_sets.values()}
-
-    # Assign each light to its most specific (longest) group
-    assigned = set()
-    result = []
-    for p in sorted(unique, key=len, reverse=True):
-        members = unique[p] - assigned
-        if len(members) >= 2:
-            assigned |= members
-            result.append({'name': p, 'lights': sorted(members)})
-
-    return sorted(result, key=lambda g: g['name'])
+    return sorted(
+        [{'name': k, 'lights': sorted(v)} for k, v in groups.items()],
+        key=lambda g: g['name']
+    )
 
 def _describe_action(action):
     """Format a single action as {name, values}, or None to skip."""
@@ -106,6 +100,7 @@ class ZmwLights(ZmwMqttService):
         www.serve_url('/all_lights_off/prefix/<prefix>', self._all_lights_off, methods=['PUT'])
         www.serve_url('/get_lights', lambda: [l.get_json_state() for l in self._lights])
         www.serve_url('/get_switches', lambda: [s.get_json_state() for s in self._switches])
+        www.serve_url('/get_groups', self._get_groups)
 
         self._z2m = Z2MProxy(cfg, self, sched,
                              cb_on_z2m_network_discovery=self._on_z2m_network_discovery,
@@ -149,6 +144,17 @@ class ZmwLights(ZmwMqttService):
             log.info("Discovered light %s", light.name)
         for switch in self._switches:
             log.info("Discovered switch %s", switch.name)
+
+    def _get_groups(self):
+        all_names = [t.name for t in self._lights] + [t.name for t in self._switches]
+        groups = _discover_groups(all_names)
+        assigned = set()
+        for g in groups:
+            assigned.update(g['lights'])
+        others = sorted(set(all_names) - assigned)
+        if others:
+            groups.append({'name': 'Others', 'lights': others})
+        return groups
 
     def _all_lights_on(self, prefix):
         ls = self._z2m.get_things_if(lambda t: t.thing_type == 'light' and t.name.startswith(prefix))

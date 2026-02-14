@@ -1069,124 +1069,69 @@ async function getThingsMeta(api_base_path, things) {
   return metaByName;
 }
 
-function getPrefixGroups(lightNames) {
-  // Get valid prefixes for a name (split at uppercase letters, min 3 chars)
-  function getValidPrefixes(name) {
-    const prefixes = [];
-    for (let i = 1; i < name.length; i++) {
-      if (name[i] >= 'A' && name[i] <= 'Z') {
-        const prefix = name.substring(0, i);
-        if (prefix.length >= 3) {
-          prefixes.push(prefix);
-        }
-      }
-    }
-    if (name.length >= 3) {
-      prefixes.push(name);
-    }
-    return prefixes;
-  }
-
-  // Count occurrences of each prefix
-  const prefixCounts = {};
-  for (const name of lightNames) {
-    for (const prefix of getValidPrefixes(name)) {
-      prefixCounts[prefix] = (prefixCounts[prefix] || 0) + 1;
-    }
-  }
-
-  // For each light, find the prefix with the most lights (>= 2)
-  const groups = {};
-  const assigned = new Set();
-
-  for (const name of lightNames) {
-    let bestPrefix = null;
-    let bestCount = 1;
-
-    for (const prefix of getValidPrefixes(name)) {
-      if (prefixCounts[prefix] > bestCount) {
-        bestPrefix = prefix;
-        bestCount = prefixCounts[prefix];
-      }
-    }
-
-    if (bestPrefix) {
-      if (!groups[bestPrefix]) {
-        groups[bestPrefix] = [];
-      }
-      groups[bestPrefix].push(name);
-      assigned.add(name);
-    }
-  }
-
-  // Put unassigned lights in "Others"
-  const others = lightNames.filter(name => !assigned.has(name));
-  if (others.length > 0) {
-    groups['Others'] = others;
-  }
-
-  return groups;
-}
-
-function groupThingsByPrefix(things) {
-  // things = [{ name: 'X', type: 'light'|'button'|'switch', ... }, ...]
-  const names = things.map(t => t.name);
-  const prefixGroups = getPrefixGroups(names);
-
+function buildGroupedThings(serverGroups, lights, switches, buttons) {
+  // Build lookup maps
   const thingsByName = {};
-  for (const thing of things) {
-    thingsByName[thing.name] = thing;
-  }
-
-  const groups = {};
-  const sortedPrefixes = Object.keys(prefixGroups).sort((a, b) => {
-    if (a === 'Others') return 1;
-    if (b === 'Others') return -1;
-    return a.localeCompare(b);
-  });
-
-  for (const prefix of sortedPrefixes) {
-    groups[prefix] = prefixGroups[prefix]
-      .map(name => thingsByName[name])
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  return groups;
-}
-
-function normalizeThings(lights, switches, buttons) {
-  const things = [];
-
-  // Add lights
   for (const light of lights) {
-    things.push({
-      name: light.thing_name,
-      type: 'light',
-      data: light,
-    });
+    thingsByName[light.thing_name] = { name: light.thing_name, type: 'light', data: light };
   }
-
-  // Add switches
   for (const sw of switches) {
-    things.push({
-      name: sw.thing_name,
-      type: 'switch',
-      data: sw,
-    });
+    thingsByName[sw.thing_name] = { name: sw.thing_name, type: 'switch', data: sw };
   }
 
-  // Add buttons
+  // Assign buttons to groups by prefix match
+  const buttonThings = [];
   for (const buttonObj of buttons) {
     const buttonName = Object.keys(buttonObj)[0];
     const buttonUrl = buttonObj[buttonName];
-    things.push({
-      name: buttonName,
-      type: 'button',
-      data: { name: buttonName, url: buttonUrl },
-    });
+    buttonThings.push({ name: buttonName, type: 'button', data: { name: buttonName, url: buttonUrl } });
   }
 
-  return things;
+  const groups = {};
+  const sortedPrefixes = [];
+  for (const g of serverGroups) {
+    const members = g.lights
+      .filter(name => thingsByName[name])
+      .map(name => thingsByName[name])
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // Add buttons whose name starts with this group prefix
+    if (g.name !== 'Others') {
+      for (const bt of buttonThings) {
+        if (bt.name.startsWith(g.name)) {
+          members.push(bt);
+        }
+      }
+    }
+    if (members.length > 0) {
+      groups[g.name] = members;
+      sortedPrefixes.push(g.name);
+    }
+  }
+
+  // Add unassigned buttons to Others
+  const assignedButtons = new Set();
+  for (const prefix of sortedPrefixes) {
+    for (const t of groups[prefix]) {
+      if (t.type === 'button') assignedButtons.add(t.name);
+    }
+  }
+  const unassignedButtons = buttonThings.filter(bt => !assignedButtons.has(bt.name));
+  if (unassignedButtons.length > 0) {
+    if (!groups['Others']) {
+      groups['Others'] = [];
+      sortedPrefixes.push('Others');
+    }
+    groups['Others'].push(...unassignedButtons);
+  }
+
+  // Ensure Others is last
+  const idx = sortedPrefixes.indexOf('Others');
+  if (idx >= 0 && idx < sortedPrefixes.length - 1) {
+    sortedPrefixes.splice(idx, 1);
+    sortedPrefixes.push('Others');
+  }
+
+  return { groups, sortedPrefixes };
 }
 
 class ZmwLight extends React.Component {
@@ -1429,15 +1374,13 @@ class MqttLights extends React.Component {
 
   constructor(props) {
     super(props);
-    // Compute initial groups from buttons (available immediately via props)
-    const initialThings = normalizeThings([], [], props.buttons || []);
-    const initialGroups = groupThingsByPrefix(initialThings);
     this.state = {
       lights: [],
       switches: [],
       meta: {},
-      groups: initialGroups,
-      sortedPrefixes: Object.keys(initialGroups),
+      serverGroups: [],
+      groups: {},
+      sortedPrefixes: [],
       loading: true,
     };
   }
@@ -1447,9 +1390,8 @@ class MqttLights extends React.Component {
   }
 
   componentDidUpdate(prevProps) {
-    // Re-compute groups if buttons prop changed
     if (prevProps.buttons !== this.props.buttons) {
-      this.recomputeGroups();
+      this.rebuildGroups();
     }
   }
 
@@ -1457,14 +1399,11 @@ class MqttLights extends React.Component {
     this.fetchThings();
   }
 
-  recomputeGroups() {
-    const allThings = normalizeThings(
-      this.state.lights,
-      this.state.switches,
-      this.props.buttons || []
+  rebuildGroups() {
+    const { groups, sortedPrefixes } = buildGroupedThings(
+      this.state.serverGroups, this.state.lights, this.state.switches, this.props.buttons || []
     );
-    const groups = groupThingsByPrefix(allThings);
-    this.setState({ groups, sortedPrefixes: Object.keys(groups) });
+    this.setState({ groups, sortedPrefixes });
   }
 
   clearCache() {
@@ -1518,15 +1457,16 @@ class MqttLights extends React.Component {
           const newState = {
             [type]: things,
             meta: { ...prevState.meta, ...metaForThings },
+            loading: false,
           };
-          // Recompute groups with updated data
+          // Rebuild groups with updated data
           const lights = type === 'lights' ? things : prevState.lights;
           const switches = type === 'switches' ? things : prevState.switches;
-          const allThings = normalizeThings(lights, switches, this.props.buttons || []);
-          const groups = groupThingsByPrefix(allThings);
+          const { groups, sortedPrefixes } = buildGroupedThings(
+            prevState.serverGroups, lights, switches, this.props.buttons || []
+          );
           newState.groups = groups;
-          newState.sortedPrefixes = Object.keys(groups);
-          newState.loading = false;
+          newState.sortedPrefixes = sortedPrefixes;
           return newState;
         });
 
@@ -1536,9 +1476,13 @@ class MqttLights extends React.Component {
   }
 
   fetchThings() {
-    // Fetch lights and switches independently - UI updates as each arrives
-    this.fetchAndUpdateThings('lights', '/get_lights');
-    this.fetchAndUpdateThings('switches', '/get_switches');
+    // Fetch groups from backend, then lights and switches
+    mJsonGet(`${this.props.api_base_path}/get_groups`, (serverGroups) => {
+      this.setState({ serverGroups }, () => {
+        this.fetchAndUpdateThings('lights', '/get_lights');
+        this.fetchAndUpdateThings('switches', '/get_switches');
+      });
+    });
   }
 
   render() {
