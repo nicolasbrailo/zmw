@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Playground Results</title>
+<style>
+body { font-family: monospace; font-size: 13px; margin: 20px; }
+h2 { margin-bottom: 5px; }
+.meta { color: #666; margin-bottom: 15px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; position: sticky; top: 0; }
+tr.ok { }
+tr.fail td { background: #fff0f0; }
+.elapsed { color: #999; font-size: 11px; }
+.score { font-size: 16px; font-weight: bold; margin: 15px 0; }
+.score .pass { color: #2a2; }
+.score .fail { color: #c33; }
+#context { margin-top: 30px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; }
+</style>
+</head><body>
+<h2>Playground Results</h2>
+<div class="meta">Model: models/7B/qwen2.5-1.5b-instruct-q4_k_m.gguf</div>
+<div class="score"><span class="fail">24/33 (73%)</span></div>
+<table>
+<tr><th>#</th><th>Prompt</th><th>Got</th><th>Expected</th><th>Time</th><th></th></tr>
+<tr class="ok"><td>1</td><td>turn kitchen lights on</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;all_lights_on&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.all_lights_on</td><td class="elapsed">2.9s</td><td>OK</td></tr>
+<tr class="ok"><td>2</td><td>turn kitchen lights off</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;all_lights_off&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.all_lights_off</td><td class="elapsed">2.6s</td><td>OK</td></tr>
+<tr class="ok"><td>3</td><td>turn off all lights</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;all_lights_off&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.all_lights_off</td><td class="elapsed">4.8s</td><td>OK</td></tr>
+<tr class="ok"><td>4</td><td>are there any lights on?</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;get_lights&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.get_lights</td><td class="elapsed">3.6s</td><td>OK</td></tr>
+<tr class="ok"><td>5</td><td>are there any lights on</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;get_lights&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.get_lights</td><td class="elapsed">2.5s</td><td>OK</td></tr>
+<tr class="ok"><td>6</td><td>set color of EntradaColor to red</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;all_lights_on&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.all_lights_on</td><td class="elapsed">3.1s</td><td>OK</td></tr>
+<tr class="ok"><td>7</td><td>EntradaColor color purple</td><td>{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;all_lights_on&quot;, &quot;args&quot;: {}}</td><td>ZmwLights.all_lights_on</td><td class="elapsed">3.2s</td><td>OK</td></tr>
+<tr class="ok"><td>8</td><td>stop all music</td><td>{&quot;service&quot;: &quot;ZmwSonosCtrl&quot;, &quot;command&quot;: &quot;stop_all&quot;, &quot;args&quot;: {}}</td><td>ZmwSonosCtrl.stop_all</td><td class="elapsed">2.9s</td><td>OK</td></tr>
+<tr class="ok"><td>9</td><td>stop music</td><td>{&quot;service&quot;: &quot;ZmwSpotify&quot;, &quot;command&quot;: &quot;stop&quot;, &quot;args&quot;: {}}</td><td>ZmwSpotify.stop</td><td class="elapsed">2.9s</td><td>OK</td></tr>
+<tr class="ok"><td>10</td><td>volume up</td><td>{&quot;service&quot;: &quot;ZmwSonosCtrl&quot;, &quot;command&quot;: &quot;volume_up&quot;, &quot;args&quot;: {}}</td><td>ZmwSonosCtrl.volume_up</td><td class="elapsed">3.2s</td><td>OK</td></tr>
+<tr class="ok"><td>11</td><td>raise the TV volume</td><td>{&quot;service&quot;: &quot;ZmwSonosCtrl&quot;, &quot;command&quot;: &quot;volume_up&quot;, &quot;args&quot;: {}}</td><td>ZmwSonosCtrl.volume_up</td><td class="elapsed">3.2s</td><td>OK</td></tr>
+<tr class="fail"><td>12</td><td>please raise the volume</td><td>{&quot;service&quot;: &quot;ZmwSpeakerAnnounce&quot;, &quot;command&quot;: &quot;tts&quot;, &quot;args&quot;: {&quot;msg&quot;: &quot;Please raise the volume&quot;}}</td><td>ZmwSonosCtrl.volume_up</td><td class="elapsed">3.5s</td><td>FAIL</td></tr>
+<tr class="ok"><td>13</td><td>what music is playing?</td><td>{&quot;service&quot;: &quot;ZmwSpotify&quot;, &quot;command&quot;: &quot;get_status&quot;, &quot;args&quot;: {}}</td><td>ZmwSpotify.get_status</td><td class="elapsed">2.6s</td><td>OK</td></tr>
+<tr class="ok"><td>14</td><td>what song is playing</td><td>{&quot;service&quot;: &quot;ZmwSpotify&quot;, &quot;command&quot;: &quot;get_status&quot;, &quot;args&quot;: {}}</td><td>ZmwSpotify.get_status</td><td class="elapsed">2.4s</td><td>OK</td></tr>
+<tr class="ok"><td>15</td><td>what is the meaning of life</td><td>DONT_KNOW</td><td>DONT_KNOW</td><td class="elapsed">0.6s</td><td>OK</td></tr>
+<tr class="ok"><td>16</td><td>how do i get to my work</td><td>DONT_KNOW</td><td>DONT_KNOW</td><td class="elapsed">0.7s</td><td>OK</td></tr>
+<tr class="ok"><td>17</td><td>what color is the sky?</td><td>DONT_KNOW</td><td>DONT_KNOW</td><td class="elapsed">0.9s</td><td>OK</td></tr>
+<tr class="ok"><td>18</td><td>turn heating on</td><td>{&quot;service&quot;: &quot;ZmwHeating&quot;, &quot;command&quot;: &quot;boost&quot;, &quot;args&quot;: {&quot;hours&quot;: &quot;N&quot;}}</td><td>ZmwHeating.boost</td><td class="elapsed">3.0s</td><td>OK</td></tr>
+<tr class="ok"><td>19</td><td>boost heating</td><td>{&quot;service&quot;: &quot;ZmwHeating&quot;, &quot;command&quot;: &quot;boost&quot;, &quot;args&quot;: {&quot;hours&quot;: &quot;N&quot;}}</td><td>ZmwHeating.boost</td><td class="elapsed">2.9s</td><td>OK</td></tr>
+<tr class="fail"><td>20</td><td>what&#x27;s the temperature</td><td>{&quot;service&quot;: &quot;ZmwSensormon&quot;, &quot;command&quot;: &quot;get_sensor_values&quot;, &quot;args&quot;: {&quot;name&quot;: &quot;OliviaAQMSensor&quot;}}</td><td>ZmwSensormon.get_all_sensor_values</td><td class="elapsed">3.5s</td><td>FAIL</td></tr>
+<tr class="ok"><td>21</td><td>what&#x27;s the temperature in TVRoom</td><td>{&quot;service&quot;: &quot;ZmwSensormon&quot;, &quot;command&quot;: &quot;get_sensor_values&quot;, &quot;args&quot;: {&quot;name&quot;: &quot;TVRoomAQMSensor&quot;}}</td><td>ZmwSensormon.get_sensor_values</td><td class="elapsed">3.7s</td><td>OK</td></tr>
+<tr class="fail"><td>22</td><td>Is the TV room cold?</td><td>{&quot;service&quot;: &quot;ZmwHeating&quot;, &quot;command&quot;: &quot;get_cfg_rules&quot;, &quot;args&quot;: {}}</td><td>ZmwSensormon.get_sensor_values</td><td class="elapsed">2.9s</td><td>FAIL</td></tr>
+<tr class="fail"><td>23</td><td>is it cold outside?</td><td>{&quot;service&quot;: &quot;ZmwHeating&quot;, &quot;command&quot;: &quot;get_cfg_rules&quot;, &quot;args&quot;: {}}</td><td>ZmwSensormon.get_sensor_values</td><td class="elapsed">2.9s</td><td>FAIL</td></tr>
+<tr class="fail"><td>24</td><td>is it cold?</td><td>{&quot;service&quot;: &quot;ZmwHeating&quot;, &quot;command&quot;: &quot;get_cfg_rules&quot;, &quot;args&quot;: {}}</td><td>ZmwSensormon.get_all_sensor_values</td><td class="elapsed">4.0s</td><td>FAIL</td></tr>
+<tr class="ok"><td>25</td><td>feed the cat</td><td>{&quot;service&quot;: &quot;ZmwCatSnackDispenser&quot;, &quot;command&quot;: &quot;feed_now&quot;, &quot;args&quot;: {}}</td><td>ZmwCatSnackDispenser.feed_now</td><td class="elapsed">2.7s</td><td>OK</td></tr>
+<tr class="ok"><td>26</td><td>did the cat eat today?</td><td>{&quot;service&quot;: &quot;ZmwCatSnackDispenser&quot;, &quot;command&quot;: &quot;get_history&quot;, &quot;args&quot;: {}}</td><td>ZmwCatSnackDispenser.get_history</td><td class="elapsed">3.0s</td><td>OK</td></tr>
+<tr class="fail"><td>27</td><td>is the door open?</td><td>{&quot;service&quot;: &quot;ZmwDoorman&quot;, &quot;command&quot;: &quot;get_stats&quot;, &quot;args&quot;: {}}</td><td>ZmwContactmon.publish_state</td><td class="elapsed">2.5s</td><td>FAIL</td></tr>
+<tr class="ok"><td>28</td><td>is the window open?</td><td>{&quot;service&quot;: &quot;ZmwContactmon&quot;, &quot;command&quot;: &quot;publish_state&quot;, &quot;args&quot;: {}}</td><td>ZmwContactmon.publish_state</td><td class="elapsed">2.4s</td><td>OK</td></tr>
+<tr class="fail"><td>29</td><td>disable door open alarms</td><td>{&quot;service&quot;: &quot;ZmwDoorman&quot;, &quot;command&quot;: &quot;get_stats&quot;, &quot;args&quot;: {}}</td><td>ZmwContactmon.skip_chimes</td><td class="elapsed">2.4s</td><td>FAIL</td></tr>
+<tr class="fail"><td>30</td><td>disable door open chimes</td><td>{&quot;service&quot;: &quot;ZmwDoorman&quot;, &quot;command&quot;: &quot;get_stats&quot;, &quot;args&quot;: {}}</td><td>ZmwContactmon.skip_chimes</td><td class="elapsed">2.5s</td><td>FAIL</td></tr>
+<tr class="ok"><td>31</td><td>announce on the speakers that the food is ready</td><td>{&quot;service&quot;: &quot;ZmwSpeakerAnnounce&quot;, &quot;command&quot;: &quot;tts&quot;, &quot;args&quot;: {&quot;msg&quot;: &quot;The food is ready&quot;}}</td><td>ZmwSpeakerAnnounce.tts</td><td class="elapsed">3.2s</td><td>OK</td></tr>
+<tr class="ok"><td>32</td><td>announce it&#x27;s time to go</td><td>{&quot;service&quot;: &quot;ZmwSpeakerAnnounce&quot;, &quot;command&quot;: &quot;tts&quot;, &quot;args&quot;: {&quot;msg&quot;: &quot;It is time to go&quot;}}</td><td>ZmwSpeakerAnnounce.tts</td><td class="elapsed">3.4s</td><td>OK</td></tr>
+<tr class="fail"><td>33</td><td>call Nico to the kitchen</td><td>{&quot;service&quot;: &quot;ZmwSonosCtrl&quot;, &quot;command&quot;: &quot;next_track&quot;, &quot;args&quot;: {}}</td><td>ZmwSpeakerAnnounce.tts</td><td class="elapsed">2.9s</td><td>FAIL</td></tr>
+</table>
+<div id="context"><b>System context:</b>
+You are a home assistant. Pick a command from the services below.
+Reply JSON: {&quot;service&quot;: &quot;...&quot;, &quot;command&quot;: &quot;...&quot;, &quot;args&quot;: {...}}
+Only use listed commands and args. Leave args empty ({}) unless the user gives a value.
+Pick the command whose description best matches the request.
+If nothing matches, reply exactly: DONT_KNOW
+Do not explain or add any other text.
+
+Examples:
+User: turn on the living room lights
+{&quot;service&quot;: &quot;ZmwLights&quot;, &quot;command&quot;: &quot;all_lights_on&quot;, &quot;args&quot;: {&quot;prefix&quot;: &quot;LivingRoom&quot;}}
+User: what song is playing
+{&quot;service&quot;: &quot;ZmwSpotify&quot;, &quot;command&quot;: &quot;get_status&quot;, &quot;args&quot;: {}}
+User: what is the meaning of life
+DONT_KNOW
+
+Available services:
+## ZmwCatSnackDispenser
+Manages cat food dispenser. Handle alerts, schedule, ad-hoc feeding
+Commands:
+- feed_now: Dispense food
+- get_history: Serving history
+- get_schedule: Current feeding schedule
+
+## ZmwContactmon
+Monitors Zigbee contact sensors (doors, windows). Actions on state change, timeouts, or curfew. Actions: Telegram/WhatsApp notifications, speaker announcements. Actions can be suppressed.
+Sensors: ContactSensor_BathroomWindow (closed), ContactSensor_FrontDoor (closed)
+Commands:
+- enable_chimes: Re-enable chimes immediately
+- publish_state: Get sensors state
+- skip_chimes: Temporarily disable chime/sound notifications
+
+## ZmwCronenbergs
+Scheduled home automation cron jobs. Has scheduled lights-off, vacation mode (simulates occupancy), scheduled TTS speaker announcements, weekly low-battery Telegram alerts.
+Commands:
+- get_stats: light check history, vacation mode, battery info
+
+## ZmwDoorman
+Door+doorbell manager. Orchestrates door events from a Reolink camera and contact sensor. Plays announcement, sends photos via WhatsApp/Telegram, manages door-open lights scene
+Commands:
+- get_stats: List of events: doorbell presses, motion, door open
+
+## ZmwHeating
+Manages heating via a boiler with a Zigbee on/off relay. Has boost/off overrides, temperature-based rules, schedule control and Telegram integration
+Commands:
+- active_schedule: Request today&#x27;s schedule
+- boost(hours): Activate heating for N hours
+- get_cfg_rules: Get heating rules
+- off_now: Turn heating off immediately
+- slot_toggle(slot_nm): Toggle a schedule slot on/off by time name
+- svc_state: Service state (schedule, boiler, sensors)
+
+## ZmwLights
+Zigbee light/switch control service. Discovers all light and switch devices, groups them by prefix. Provides on/off and brightness controls.
+Groups: Baticuarto, Cocina, Emma, Entrada, Olivia, TVRoomFloorlamp, Wtf
+Lights: BatiOficinaColor, BaticuartoBelador, BaticuartoNicoVelador, CocinaCeiling, CocinaCountertop, CocinaFloorlamp, CocinaSink, EmmaFloorlampColor, EmmaTriangleLamp, EmmaVelador, EntradaCeiling, EntradaColor, OliviaFloorlamp, OliviaSonoslamp, OliviaVelador, TVRoomFloorlampLeft, TVRoomFloorlampRight, TVRoomSnoopy, WtfLamp14_IkeaOpalTemp, WtfLamp9_E14_IkeaTemp
+Commands:
+- all_lights_off: Turn off all lights matching a name prefix
+- all_lights_on: Turn on all lights matching a name prefix at 80% brightness
+- get_lights: State of all lights
+- get_switches: State of all switches
+
+## ZmwReolinkCams
+Multi-camera Reolink service with motion detection, doorbell events, recording, NVR. Connects via webhook/ONVIF, broadcasts events over MQTT, expose snapshot/recording controls.
+Cameras: door cam
+Commands:
+- ls_cams: List online cams
+- rec(cam_host, secs): Start recording
+- snap(cam_host): Cam snapshot. Response published on_snap_ready
+
+## ZmwSensormon
+Sensor monitoring and history. Supports Zigbee, Shelly, and outside weather. Exposes current values and timeseries for temperature, humidity, power, battery, etc.
+Sensors: TVRoomAQMSensor (temperature, humidity, pm25, voc_index, feels_like_temp); OliviaAQMSensor (temperature, humidity, pm25, voc_index, feels_like_temp); BaticuartoAQMSensor (temperature, humidity, pm25, voc_index, feels_like_temp); ContactSensor_BathroomWindow (battery, contact, device_temperature, voltage); ContactSensor_FrontDoor (battery, contact, device_temperature, voltage); BanioTempSensor (battery, temperature, humidity, voltage, feels_like_temp); EmmaTempSensor (battery, temperature, humidity, voltage, feels_like_temp); CocinaTempSensor (battery, temperature, humidity, voltage, feels_like_temp); BaticuartoBeladorBtn (battery); CocinaBtnHeladera (battery); TVRoomBtn (battery); BaticuartoWorldOffBtn (battery); OliviaBtn (battery); EmmaBtn (battery); wtfBtn2_Ikea5Keys (battery); Compumon (active_power_watts, voltage_volts, current_amps, temperature_c, lifetime_energy_use_watt_hour, last_minute_energy_use_watt_hour, device_temperature); Telemon (active_power_watts, voltage_volts, current_amps, device_temperature, lifetime_energy_use_watt_hour, last_minute_energy_use_watt_hour); WtfMotionSensor1_Tradfri (occupancy, battery); WtfMotionSensor3_Tradfri (occupancy, battery); WtfMotionSensor2_Tradfri (occupancy, battery); CocinaMediaCtrlBtn (battery); BatiOficinaBtn (battery); wtfBtn5_IkeaOnOff (battery); WtfPowerMeter_Sensor (ac_frequency, voltage, power_a, power_b, power_ab, current_a, current_b, power_factor_a, power_factor_b, energy_flow_a, energy_flow_b, energy_a, energy_b, energy_produced_a, energy_produced_b); Outside (temperature, humidity, feels_like_temp); Weather (temperature, humidity, feels_like_temp)
+Commands:
+- get_all_sensor_values(metric): Current value of a metric in all sensors that have it
+- get_known_metrics: List all known metrics in all sensors
+- get_known_sensors: List sensors
+- get_sensor_values(name): Current values for sensor
+- get_sensors_measuring(metric): List sensors measuring this metric
+
+## ZmwSonosCtrl
+Manage Sonos speakers. Discover speakers, create groups, control group (redirect Spotify to Sonos, playback: volume, track skip). Commands apply to active group.
+Speakers: BatiDiscos, BatiPatio, Baticocina, Batiloft, OliviaSonoslamp, TV Room
+Groups: BatiDiscos: [BatiDiscos, BatiPatio, Baticocina]; Batiloft: [Batiloft]; OliviaSonoslamp: [OliviaSonoslamp]; TV Room: [TV Room]
+Commands:
+- get_sonos_play_uris: URIs playing on each speaker
+- get_spotify_context: Get Spotify context/state
+- ls_speakers: List of speaker names
+- next_track: Next track
+- prev_track: Prev track
+- spotify_hijack(&lt;speaker_name&gt;): Move Spotify playback to set of Sonos speakers
+- spotify_hijack_or_toggle_play(&lt;speaker_name&gt;): If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack
+- stop_all: Stop playback, destroy groups
+- volume_down: volume-
+- volume_up: volume+
+- world_state: Get Sonos network state
+
+## ZmwSpeakerAnnounce
+Speaker announcement service. Supports TTS or audio files. Broadcasts to all known Sonos speakers
+Commands:
+- announcement_history: Get service history
+- ls: List speakers
+- tts(msg): Apply TTS then play result
+
+## ZmwSpotify
+MQTT-Spotify control (play/pause, stop, volume, next, prev). Exposes playback state with track metadata
+Commands:
+- get_status: Get state
+- next_track: Goto next
+- prev_track: Goto prev
+- relative_jump_to_track(value): Skip/back N tracks
+- set_volume(value): Volume
+- stop: Stop playback
+- toggle_play: Toggle play/pause
+
+## ZmwTelegram
+MQTT-to-Telegram bridge.
+Commands:
+- get_history: Get messages history
+- register_command(cmd, descr): Register a Telegram bot command that will be relayed over MQTT when invoked
+- send_photo(path): Send photo
+- send_text(msg): Send text
+
+## ZmwWhatsapp
+MQTT-to-WhatsApp bridge. Only sends photos to configured numbers.
+Commands:
+- get_history: Message history
+- send_photo(path): Send photo
+
+</div>
+</body></html>

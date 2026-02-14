@@ -1430,7 +1430,7 @@ class MqttLights extends React.Component {
     this._ws = ws;
     ws.onmessage = (e) => {
       const update = JSON.parse(e.data);
-      console.log('WS thing update:', update);
+      // console.log('WS thing update:', update);
       this._applyThingUpdate(update);
     };
     ws.onclose = () => {
