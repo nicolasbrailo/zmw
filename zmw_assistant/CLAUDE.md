@@ -4,6 +4,11 @@ Local LLM-based home automation assistant. Takes natural language commands ("tur
 
 Runs on a resource-constrained host (`bati.casa`) using small quantized models (1-3B params, Q4_K_M GGUF) via `llama-cpp-python`. No GPU — CPU-only inference.
 
+# TODO
+- Check if adding more examples makes resulsts better
+- "Do not explain or add any other text." -> Is this needed, since the grammar constrains output?
+
+
 ## How it works
 
 1. **User says something** (via web UI, Telegram voice, etc.)

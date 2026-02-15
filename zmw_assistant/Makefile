@@ -11,7 +11,6 @@ update_svcs.json:
 
 rebuild_deps: pipenv_rebuild_deps_base
 	pipenv install llama-cpp-python --verbose
-	pipenv install -e "$(shell readlink -f "$(PWD)/../zz2m")"
 
 .PHONY: download_all_models
 download_all_models: \

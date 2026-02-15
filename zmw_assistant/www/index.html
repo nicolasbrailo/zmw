@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="icon" href="favicon.ico" type="image/x-icon"/>
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon"/>
+<link rel="apple-touch-icon" href="favicon.ico"/>
+<link rel="manifest" href="manifest.json"/>
+<title>Assistant</title>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="stylesheet" href="/zmw.css" />
+<style>
+</style>
+</head>
+
+<body class="dark">
+  <h1><img src="/favicon.ico" alt="Assistant" /> Assistant</h1>
+  <form method="post" action="/assistant_ask">
+  <textarea name="prompt" rows="4" cols="60"></textarea><br>
+  <button type="submit">Ask</button>
+</form>
+
+<a href="/debug_llm_context">Debug context</a>
+
+</body>
+
+</html>

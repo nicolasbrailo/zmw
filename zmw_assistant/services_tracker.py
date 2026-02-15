@@ -6,16 +6,8 @@ from zzmw_lib.logs import build_logger
 log = build_logger("ZmwAssistantSvcTracker")
 
 
-_CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
-_STOPWORDS = {
-    'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'do', 'does', 'did',
-    'i', 'me', 'my', 'we', 'our', 'you', 'your', 'it', 'its',
-    'what', "what's", 'which', 'who', 'how', 'when', 'where', 'why',
-    'can', 'will', 'would', 'could', 'should', 'please',
-    'to', 'of', 'in', 'for', 'at', 'by', 'with', 'from',
-    'and', 'or', 'but', 'not', 'if', 'then', 'than', 'that', 'this',
-    'all', 'some', 'any', 'no', 'so',
-}
+_SKIP_SERVICES = {'ZmwDoorman', 'ZmwShellyPlug', 'ZmwSpeechToText', 'ZmwTelegram', 'ZmwWhatsapp'}
+
 _REPLY_TOPIC_RE = re.compile(r'\s*\.?\s*Response\s+(published\s+)?on\s+\S+\s*$', re.IGNORECASE)
 def _strip_reply_suffix(description):
     """Strip 'Response on X_reply' / 'Response published on X' suffixes."""
@@ -28,62 +20,31 @@ def compact_ifaces_for_llm(svcs_ifaces):
     and commands with their parameters."""
     lines = []
     for svc_name, iface in sorted(svcs_ifaces.items()):
+        if svc_name in _SKIP_SERVICES:
+            continue
         lines.append(f"## {svc_name}")
         if iface.get('description'):
             lines.append(iface['description'])
+        if iface.get('llm_context_extra'):
+            lines.append(iface['llm_context_extra'])
         commands = iface.get('commands', {})
         if commands:
             lines.append("Commands:")
+            skip_cmds = set(iface.get('llm_skip_commands', []))
             for cmd_name, cmd in sorted(commands.items()):
-                if cmd_name == 'get_mqtt_description':
+                if cmd_name == 'get_mqtt_description' or cmd_name in skip_cmds:
                     continue
                 params = cmd.get('params', {})
                 desc = _strip_reply_suffix(cmd.get('description', ''))
-                if params:
-                    required_params = _get_required_params(params)
-                    if required_params:
-                        params_str = ', '.join(required_params)
-                        lines.append(f"- {cmd_name}({params_str}): {desc}")
-                    else:
-                        lines.append(f"- {cmd_name}: {desc}")
+                param_names = [p.rstrip('?') for p in params if p != '?']
+                if param_names:
+                    params_str = ', '.join(param_names)
+                    lines.append(f"- {cmd_name}({params_str}): {desc}")
                 else:
                     lines.append(f"- {cmd_name}: {desc}")
         lines.append("")
     return '\n'.join(lines)
 
-
-def _build_service_keywords(svc_name, iface):
-    """Build a searchable text blob for a service from its name, description, and commands."""
-    parts = []
-    # Split CamelCase name into words (e.g. "ZmwLights" -> "zmw lights")
-    parts.append(' '.join(_CAMEL_SPLIT_RE.split(svc_name)).lower())
-    if iface.get('description'):
-        parts.append(iface['description'].lower())
-    for cmd_name, cmd in iface.get('commands', {}).items():
-        parts.append(cmd_name.replace('_', ' ').lower())
-        if cmd.get('description'):
-            parts.append(cmd['description'].lower())
-    return ' '.join(parts)
-
-
-def _tokenize_query(user_query):
-    """Tokenize and filter a user query: lowercase, strip punctuation, remove stopwords."""
-    words = re.findall(r'[a-z0-9]+', user_query.lower())
-    return [w for w in words if w not in _STOPWORDS]
-
-
-def _normalize_word(w):
-    """Strip punctuation and trailing 's' for basic stemming."""
-    w = re.sub(r'[^a-z0-9]', '', w)
-    if len(w) > 3 and w.endswith('s'):
-        w = w[:-1]
-    return w
-
-
-def _score_keywords(query_words, keywords_text):
-    """Count how many query words appear as whole words in the keywords text."""
-    kw_words = set(_normalize_word(w) for w in keywords_text.split() if w)
-    return sum(1 for w in query_words if _normalize_word(w) in kw_words)
 
 
 def _gbnf_lit(text):
@@ -91,15 +52,19 @@ def _gbnf_lit(text):
     return '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
-def _get_required_params(params):
-    """Extract required (non-optional) param names from a command's params dict."""
+def _get_params(params):
+    """Classify params into required and optional lists (names with '?' stripped)."""
     required = []
+    optional = []
     for p_name, p_desc in params.items():
         is_optional = (p_name.endswith('?')
                        or ('(optional)' in str(p_desc).lower() if p_desc else False))
-        if not is_optional:
-            required.append(p_name)
-    return required
+        clean_name = p_name.rstrip('?')
+        if is_optional:
+            optional.append(clean_name)
+        else:
+            required.append(clean_name)
+    return required, optional
 
 
 def build_gbnf_grammar(svcs_ifaces):
@@ -109,38 +74,54 @@ def build_gbnf_grammar(svcs_ifaces):
     so only real service names, command names, and arg structures are valid output."""
     svc_rule_names = []
     rules = []
+    needs_val = False
 
     for svc_name, iface in sorted(svcs_ifaces.items()):
+        if svc_name in _SKIP_SERVICES:
+            continue
         commands = iface.get('commands', {})
         if not commands:
             continue
 
+        param_values = iface.get('llm_grammar_values', {})
+        skip_cmds = set(iface.get('llm_skip_commands', []))
         rule_name = 'svc-' + re.sub(r'[^a-zA-Z0-9]', '-', svc_name)
         cmd_alts = []
 
         for cmd_name, cmd in sorted(commands.items()):
-            if cmd_name == 'get_mqtt_description':
+            if cmd_name == 'get_mqtt_description' or cmd_name in skip_cmds:
                 continue
 
-            required_params = _get_required_params(cmd.get('params', {}))
+            required, optional = _get_params(cmd.get('params', {}))
+            all_params = required + optional
 
-            if not required_params:
-                json_str = f'{{"service": "{svc_name}", "command": "{cmd_name}", "args": {{}}}}'
-                cmd_alts.append(_gbnf_lit(json_str))
-            else:
-                # Build GBNF with val slots: literal "...prefix..." val literal "...suffix..."
+            def _build_args_alt(param_list):
+                if not param_list:
+                    return _gbnf_lit(f'{{"service": "{svc_name}", "command": "{cmd_name}", "args": {{}}}}')
                 parts = []
-                prefix = f'{{"service": "{svc_name}", "command": "{cmd_name}", "args": {{'
-                for i, p in enumerate(required_params):
+                pfx = f'{{"service": "{svc_name}", "command": "{cmd_name}", "args": {{'
+                for i, p in enumerate(param_list):
                     if i > 0:
-                        prefix += ', '
-                    prefix += f'"{p}": "'
-                    parts.append(_gbnf_lit(prefix))
-                    parts.append('val')
-                    prefix = '"'
-                prefix += '}}'
-                parts.append(_gbnf_lit(prefix))
-                cmd_alts.append(' '.join(parts))
+                        pfx += ', '
+                    pfx += f'"{p}": "'
+                    parts.append(_gbnf_lit(pfx))
+                    known = param_values.get(p)
+                    if known:
+                        parts.append('(' + ' | '.join(_gbnf_lit(v) for v in known) + ')')
+                    else:
+                        parts.append('val')
+                        nonlocal needs_val
+                        needs_val = True
+                    pfx = '"'
+                pfx += '}}'
+                parts.append(_gbnf_lit(pfx))
+                return ' '.join(parts)
+
+            # Always allow the full-params version
+            cmd_alts.append(_build_args_alt(all_params))
+            # If there are optional params, also allow required-only (or empty args)
+            if optional:
+                cmd_alts.append(_build_args_alt(required))
 
         if cmd_alts:
             svc_rule_names.append(rule_name)
@@ -151,7 +132,8 @@ def build_gbnf_grammar(svcs_ifaces):
 
     root = 'root ::= ' + ' | '.join(svc_rule_names) + ' | "DONT_KNOW"'
     rules.insert(0, root)
-    rules.append('val ::= [a-zA-Z0-9_ ]+')
+    if needs_val:
+        rules.append('val ::= [a-zA-Z0-9_ ]+')
 
     return '\n'.join(rules)
 
@@ -170,6 +152,8 @@ class ServicesTracker:
         self._svcs_ifaces = {}
 
     def on_mqtt_connected(self, client):
+        # It's important to subscribe here: the subscription to a topic is async, so if
+        # we subscribe when the first service is discovered, we'll miss responses
         client.subscribe(_IFACE_REPLY_WILDCARD, qos=1)
 
     def on_new_svc_discovered(self, svc_name, svc_meta):
@@ -196,6 +180,17 @@ class ServicesTracker:
             log.info("Received interface definition for %s", svc_name)
             self._svcs_ifaces[svc_name] = iface
 
+    def rediscover_all(self):
+        """Re-request interface definitions from all known services."""
+        with self._ifaces_lock:
+            ifaces = dict(self._svcs_ifaces)
+        for svc_name, iface in ifaces.items():
+            meta = iface.get('meta', {})
+            mqtt_topic = meta.get('mqtt_topic')
+            if mqtt_topic:
+                log.info("Re-requesting interface for %s", svc_name)
+                self.mqtt_client.broadcast(f"{mqtt_topic}/get_mqtt_description", {})
+
     def get_svc_ifaces(self):
         with self._ifaces_lock:
             return self._svcs_ifaces
@@ -203,29 +198,5 @@ class ServicesTracker:
     def get_svcs_llm_context(self):
         with self._ifaces_lock:
             return compact_ifaces_for_llm(self._svcs_ifaces)
-
-    def get_svcs_llm_context_filtered(self, user_query, max_results=3):
-        """Return (compact_text, filtered_ifaces_dict) for services relevant to user_query."""
-        query_words = _tokenize_query(user_query)
-        if not query_words:
-            with self._ifaces_lock:
-                all_ifaces = dict(self._svcs_ifaces)
-            return self.get_svcs_llm_context(), all_ifaces
-
-        with self._ifaces_lock:
-            scored = []
-            for svc_name, iface in self._svcs_ifaces.items():
-                kw_text = _build_service_keywords(svc_name, iface)
-                score = _score_keywords(query_words, kw_text)
-                if score > 0:
-                    scored.append((score, svc_name, iface))
-
-            if not scored:
-                return '', {}
-
-            scored.sort(key=lambda x: x[0], reverse=True)
-            top = scored[:max_results]
-            filtered = {name: iface for _, name, iface in top}
-            return compact_ifaces_for_llm(filtered), filtered
 
 
