@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import pathlib
@@ -12,13 +13,18 @@ from zzmw_lib.zmw_mqtt_mon import ZmwMqttServiceMonitor
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.logs import build_logger
 
-from services_tracker import ServicesTracker
+from services_tracker import ServicesTracker, build_gbnf_grammar
 from z2m_tracker import Z2mTracker
 
 log = build_logger("ZmwAssistant")
 
 _LLM_PREAMBLE = """\
-You are a home assistant. Respond ONLY with a JSON command or DONT_KNOW.
+You are a home assistant. Pick a command from the services below.
+Reply JSON: {"service": "...", "command": "...", "args": {...}}
+Only use listed commands and args. Leave args empty ({}) unless the user gives a value.
+Pick the command whose description best matches the request.
+If nothing matches, reply exactly: DONT_KNOW
+Do not explain or add any other text.
 
 Examples:
 User: turn on the living room lights
@@ -67,13 +73,26 @@ class LazyLlama:
             return self._llm.tokenize(text_bytes)
 
 
+def _parse_argv_overrides():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--llm-model-path', dest='llm_model_path')
+    parser.add_argument('--llm-use-grammar', dest='llm_use_grammar',
+                        type=lambda v: v.lower() in ('1', 'true', 'yes'))
+    parser.add_argument('--summary-only', action='store_true', default=None)
+    args, _ = parser.parse_known_args()
+    return {k: v for k, v in vars(args).items() if v is not None}
+
+
 class ZmwAssistant(ZmwMqttServiceMonitor):
     def __init__(self, cfg, www, sched):
         super().__init__(cfg, sched)
 
+        cfg.update(_parse_argv_overrides())
+
         self._svcs = ServicesTracker(self)
         self._zigbee_things = Z2mTracker(cfg, self, sched)
 
+        self._use_grammar = cfg['llm_use_grammar']
         self._llm = LazyLlama(
             model_path=cfg['llm_model_path'],
             n_ctx=cfg['llm_context_sz'],
@@ -89,7 +108,8 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         www.serve_url('/debug_llm_context', self._debug_llm_context)
         www.serve_url('/assistant_ask', self._assistant_ask, methods=['POST'])
 
-        threading.Thread(target=_run_benchmark, args=(self,), daemon=True).start()
+        summary_only = cfg.get('summary_only', False)
+        #threading.Thread(target=_run_benchmark, args=(self, summary_only), daemon=True).start()
 
     def _on_connect(self, client, userdata, flags, ret_code, props):
         super()._on_connect(client, userdata, flags, ret_code, props)
@@ -107,15 +127,23 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         return f"<pre>Tokens: {token_count}\n\n{text}</pre>"
 
     def _ask_llm(self, prompt):
-        svc_context = self._svcs.get_svcs_llm_context_filtered(prompt)
+        svc_context, svc_ifaces = self._svcs.get_svcs_llm_context_filtered(prompt)
         z2m_context = self._zigbee_things.get_z2m_llm_context_filtered(prompt)
         system_msg = _LLM_PREAMBLE + svc_context + "\n" + z2m_context
+
+        kwargs = {}
+        if self._use_grammar:
+            from llama_cpp import LlamaGrammar
+            kwargs['grammar'] = LlamaGrammar.from_string(build_gbnf_grammar(svc_ifaces))
+
         output = self._llm.create_chat_completion(
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=256,
+            temperature=0.0,
+            **kwargs,
         )
         if output is None:
             reply = "Model not loaded yet"
@@ -139,27 +167,40 @@ _BENCHMARK_QUERIES = [
      '{"service": "ZmwLights", "command": "all_lights_on", "args": {"prefix": "kitchen"}}'),
     ("turn kitchen lights off",
      '{"service": "ZmwLights", "command": "all_lights_off", "args": {"prefix": "kitchen"}}'),
+    ("are there any lights on?",
+     '{"service": "ZmwLights", "command": "all_lights_off", "args": {"prefix": "kitchen"}}'),
     ("what music is playing?",
      '{"service": "ZmwSpotify", "command": "get_status", "args": {}}'),
     ("stop music",
      '{"service": "ZmwSpotify", "command": "stop", "args": {}}'),
+    ("Is the TV room cold?",
+     '{"service": "ZmwSensormon", "command": "get_sensor_values", "args": {"TVRoom"}}'),
     ("is the door open?",
      '{"service": "ZmwContactmon", "command": "publish_state", "args": {}}'),
+    ("what color is the sky?",
+     'DONT_KNOW'),
+    ("raise the TV volume",
+     '{"service": "ZmwSonosCtrl", "command": "volume_up", "args": {}}'),
+    ("announce on the speakers that the food is ready",
+     '{"service": "ZmwSpeakerAnnounce", "command": "tts", "args": {"msg": "food is ready"}}'),
 ]
 
 
-def _run_benchmark(assistant, delay=2):
+def _run_benchmark(assistant, summary_only=False, delay=6):
     time.sleep(delay)
     log.info("Starting LLM benchmark (%d queries)...", len(_BENCHMARK_QUERIES))
+    t0 = time.monotonic()
     results = []
     for query, expected in _BENCHMARK_QUERIES:
         reply, system_msg, prompt = assistant._ask_llm(query)
         results.append({"prompt": prompt, "expected": expected, "system_msg": system_msg, "reply": reply})
+    elapsed = time.monotonic() - t0
 
-    print("\n" + "=" * 60)
-    print("LLM BENCHMARK RESULTS")
-    print("=" * 60)
-    print(f"""
+    if not summary_only:
+        print("\n" + "=" * 60)
+        print("LLM BENCHMARK RESULTS")
+        print("=" * 60)
+        print(f"""
 The following are benchmark results for a small local LLM used as a home assistant.
 The LLM receives a system message with available services and a user prompt.
 It should respond with a JSON command or DONT_KNOW.
@@ -170,23 +211,24 @@ Preamble (included at the start of every system message):
 ```
 {_LLM_PREAMBLE}```
 """)
-    for i, r in enumerate(results, 1):
-        print(f"--- Test {i}/{len(results)} ---")
-        print(f"Prompt: {r['prompt']}")
-        print(f"Expected: {r['expected']}")
-        print(f"Reply: {r['reply']}")
-        print(f"System message (after preamble):")
-        # Strip preamble from system_msg since it's already shown above
-        context = r['system_msg'][len(_LLM_PREAMBLE):]
-        print(f"```\n{context}```")
-        print()
+        for i, r in enumerate(results, 1):
+            print(f"--- Test {i}/{len(results)} ---")
+            print(f"Prompt: {r['prompt']}")
+            print(f"Expected: {r['expected']}")
+            print(f"Reply: {r['reply']}")
+            print(f"System message (after preamble):")
+            # Strip preamble from system_msg since it's already shown above
+            context = r['system_msg'][len(_LLM_PREAMBLE):]
+            print(f"```\n{context}```")
+            print()
     print("--- SUMMARY ---")
     for r in results:
-        match = "PASS" if r['reply'].strip() == r['expected'] else "FAIL"
+        match = "PASS" if r['reply'].strip().lower() == r['expected'].lower() else "FAIL"
         print(f"[{match}] {r['prompt']}")
         print(f"  expected: {r['expected']}")
         print(f"  got:      {r['reply']}")
-    print()
+    passed = sum(1 for r in results if r['reply'].strip().lower() == r['expected'].lower())
+    print(f"\n{passed}/{len(results)} passed in {elapsed:.1f}s ({elapsed/len(results):.1f}s/query)")
     print("=" * 60)
     print("END BENCHMARK")
     print("=" * 60 + "\n")

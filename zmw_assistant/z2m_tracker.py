@@ -1,7 +1,11 @@
 import re
+import json
 
 from zz2m.z2mproxy import Z2MProxy
 from services_tracker import _tokenize_query, _score_keywords
+
+from zzmw_lib.logs import build_logger
+log = build_logger("ZmwZ2mTracker")
 
 _CAMEL_SPLIT_RE = re.compile(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])')
 
@@ -110,6 +114,11 @@ class Z2mTracker:
         return compact_z2m_things_for_llm(things)
 
     def get_z2m_llm_context_filtered(self, user_query):
+        d = {}
+        for t in self._z2m.get_all_registered_things():
+            d[t.name] = t.dictify()
+        log.warning(json.dumps(d, default=str, indent=2))
+        return ""
         """Return compact Z2M context for only things relevant to user_query."""
         things = self._z2m.get_all_registered_things()
         query_words = _tokenize_query(user_query)
