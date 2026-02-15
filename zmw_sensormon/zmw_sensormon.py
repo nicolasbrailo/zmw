@@ -127,6 +127,19 @@ class ZmwSensormon(ZmwMqttService):
         www.serve_url('/sensors/get/<name>', self._get_sensor_values)
         www.serve_url('/sensors/get_all/<metric>', self._get_all_sensor_values)
 
+    def _build_llm_context_extra(self):
+        _USEFUL_METRICS = {'temperature', 'humidity', 'pm25', 'voc_index', 'feels_like_temp'}
+        items = []
+        for sensor_name in self._sensors.get_known_sensors():
+            metrics = self._sensors.get_metrics_for_sensor(sensor_name)
+            useful = [m for m in metrics if m in _USEFUL_METRICS]
+            if not useful:
+                continue
+            items.append(f"{sensor_name} ({', '.join(useful)})")
+        if not items:
+            return ''
+        return "Sensors: " + '; '.join(items)
+
     def get_mqtt_description(self):
         return {
             "description": "Check if your room is hot or cold: sensor monitoring and history. Supports Zigbee, Shelly, and outside weather. "\
@@ -191,6 +204,7 @@ class ZmwSensormon(ZmwMqttService):
                 }
                 for sensor_name in self._sensors.get_known_sensors()
             ],
+            "llm_context_extra": self._build_llm_context_extra(),
         }
 
     def on_service_received_message(self, subtopic, payload):

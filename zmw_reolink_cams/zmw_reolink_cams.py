@@ -154,6 +154,14 @@ class ZmwReolinkCams(ZmwMqttService):
                 alerts.append(f"Doorbell {cam_host} is not connected")
         return alerts
 
+    def _build_llm_context_extra(self):
+        names = [cam._alias or host
+                 for host, cam in self.cams.items()
+                 if not cam.failed_to_connect()]
+        if not names:
+            return ''
+        return "Cameras: " + ', '.join(names)
+
     def get_mqtt_description(self):
         return {
             "description": "Multi-camera Reolink service with motion detection, doorbell events, recording, NVR. "\
@@ -165,6 +173,7 @@ class ZmwReolinkCams(ZmwMqttService):
                 for host, cam in self.cams.items()
                 if not cam.failed_to_connect()
             ],
+            "llm_context_extra": self._build_llm_context_extra(),
             "commands": {
                 "snap": {
                     "description": "Cam snapshot. Response published on_snap_ready",

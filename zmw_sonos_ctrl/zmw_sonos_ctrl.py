@@ -55,12 +55,21 @@ class ZmwSonosCtrl(ZmwMqttService):
         self._sock.route('/line_in_requested')(self._ws_line_in_requested)
         # TODO: Add a WS endpoint to stream updates from Spotify, so it lists the playing media in the UI
 
+    def _build_llm_context_extra(self):
+        state = get_all_sonos_state()
+        speakers = state.get('speakers', [])
+        if not speakers:
+            return ''
+        names = sorted(s['speaker_info']['zone_name'] for s in speakers)
+        return "Speakers: " + ', '.join(names)
+
     def get_mqtt_description(self):
         return {
             "description": "Manage Sonos speakers. Discover network, create groups, control group "\
                            "(redirect Spotify to Sonos, playback: volume, track skip, play/pause). Commands apply to active group.",
             "meta": self.get_service_meta(),
             "sonos_state": get_all_sonos_state(),
+            "llm_context_extra": self._build_llm_context_extra(),
             "commands": {
                 "prev_track": {
                     "description": "Prev track",

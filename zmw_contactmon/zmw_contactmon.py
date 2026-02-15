@@ -56,6 +56,12 @@ class ZmwContactmon(ZmwMqttService):
             alerts.append(f"{sensor}: {status}")
         return alerts
 
+    def _build_llm_context_extra(self):
+        names = list(self._actions_on_sensor_change.keys())
+        if not names:
+            return ''
+        return "Sensors: " + ', '.join(names)
+
     def get_mqtt_description(self):
         return {
                 "description": "Monitors Zigbee contact sensors (doors, windows). Actions on state change, timeouts, or curfew. "\
@@ -65,6 +71,7 @@ class ZmwContactmon(ZmwMqttService):
                 {"name": name, "normal_state": acts["normal_state"]}
                 for name, acts in self._actions_on_sensor_change.items()
             ],
+            "llm_context_extra": self._build_llm_context_extra(),
             "commands": {
                 "skip_chimes": {
                     "description": "Temporarily disable/silence/mute door chime notifications",

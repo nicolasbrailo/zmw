@@ -204,6 +204,16 @@ class ZmwLights(ZmwMqttService):
         self._z2m.broadcast_things(ls)
         return {}
 
+    def _build_llm_context_extra(self):
+        parts = []
+        groups = _discover_groups([l.name for l in self._lights])
+        if groups:
+            parts.append("Groups: " + ', '.join(g['name'] for g in groups))
+        light_names = sorted(l.name for l in self._lights)
+        if light_names:
+            parts.append("Lights: " + ', '.join(light_names))
+        return '\n'.join(parts)
+
     def get_mqtt_description(self):
         return {
             "description": "Zigbee light/switch control service. Discovers all light and switch devices, groups them by prefix. Provides on/off and brightness controls.",
@@ -255,6 +265,7 @@ class ZmwLights(ZmwMqttService):
             "known_lights": _describe_things(self._lights),
             "known_switches": _describe_things(self._switches, only_actions={'state'}),
             "known_groups": _discover_groups([l.name for l in self._lights]),
+            "llm_context_extra": self._build_llm_context_extra(),
         }
 
     def on_service_received_message(self, subtopic, payload):
