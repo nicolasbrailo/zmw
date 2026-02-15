@@ -18,10 +18,12 @@
   <h1><img src="/favicon.ico" alt="Assistant" /> Assistant</h1>
   <form method="post" action="/assistant_ask">
   <textarea name="prompt" rows="4" cols="60"></textarea><br>
+  <label><input type="checkbox" name="dry_run" value="1"> Don't execute</label>
   <button type="submit">Ask</button>
 </form>
 
 <a href="/debug_llm_context">Debug context</a>
+<a href="/get_history">History</a>
 
 </body>
 

@@ -1,7 +1,10 @@
 import argparse
+import collections
+import json
 import os
 import pathlib
 import threading
+import time
 
 from flask import request as FlaskRequest
 
@@ -85,6 +88,7 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         cfg.update(_parse_argv_overrides())
 
         self._svcs = ServicesTracker(self)
+        self._history = collections.deque(maxlen=20)
 
         self._use_grammar = cfg['llm_use_grammar']
         self._llm = LazyLlama(
@@ -101,10 +105,35 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         www.serve_url('/update_llm_context', self._update_llm_context)
         www.serve_url('/debug_llm_context', self._debug_llm_context)
         www.serve_url('/assistant_ask', self._assistant_ask, methods=['POST'])
+        www.serve_url('/get_history', lambda: list(self._history))
+
+        self.subscribe_with_cb('zmw_speech_to_text', self._on_stt_message)
 
     def _on_connect(self, client, userdata, flags, ret_code, props):
         super()._on_connect(client, userdata, flags, ret_code, props)
         self._svcs.on_mqtt_connected(client)
+
+    def _on_stt_message(self, subtopic, payload):
+        if subtopic != 'transcription':
+            return
+        text = payload.get('text', '').strip()
+        if not text:
+            return
+        source = payload.get('source', 'stt')
+        log.info("STT transcription received: '%s'", text)
+        reply, _, _ = self._ask_llm(text)
+        log.info("LLM reply: %s", reply)
+        exec_result = self._llm_exec(reply, prompt=text)
+        if isinstance(exec_result, dict) and exec_result.get('error'):
+            self.broadcast('zmw_telegram/send_text', {'msg': exec_result['error']})
+        elif exec_result:
+            self.broadcast('zmw_telegram/send_text', {
+                'msg': json.dumps(exec_result, default=str),
+            })
+        self._history.append({
+            'prompt': text, 'reply': reply, 'exec_result': exec_result,
+            'time': time.time(), 'source': source,
+        })
 
     def on_new_svc_discovered(self, svc_name, svc_meta):
         self._svcs.on_new_svc_discovered(svc_name, svc_meta)
@@ -120,6 +149,74 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         tokens = self._llm.tokenize(text.encode())
         token_count = len(tokens) if tokens is not None else "model not loaded"
         return f"<pre>Tokens: {token_count}\n\n{text}\n\nGrammar:\n{grammar}</pre>"
+
+    def _llm_exec(self, llm_reply, prompt=''):
+        """Execute an LLM command reply.
+
+        Returns:
+            dict with 'error' on failure,
+            {} for fire-and-forget commands,
+            service response payload for commands with replies,
+            None for DONT_KNOW.
+        """
+        if llm_reply.strip() == 'DONT_KNOW':
+            return {'error': f"I don't know how to reply to: {prompt}"}
+
+        try:
+            parsed = json.loads(llm_reply)
+        except (json.JSONDecodeError, TypeError):
+            log.warning("LLM reply is not valid JSON: %s", llm_reply)
+            return {'error': f"LLM produced invalid response: {llm_reply}"}
+
+        svc_name = parsed.get('service')
+        cmd_name = parsed.get('command')
+        args = parsed.get('args', {})
+
+        ifaces = self._svcs.get_svc_ifaces()
+        iface = ifaces.get(svc_name)
+        if not iface:
+            log.warning("Unknown service '%s' in LLM reply", svc_name)
+            return {'error': f"Unknown service: {svc_name}"}
+
+        mqtt_topic = iface.get('meta', {}).get('mqtt_topic')
+        if not mqtt_topic:
+            log.warning("Service '%s' has no mqtt_topic", svc_name)
+            return {'error': f"Service {svc_name} has no MQTT topic"}
+
+        expects_reply = f"{cmd_name}_reply" in iface.get('announcements', {})
+
+        log.info("Executing %s.%s(%s)", svc_name, cmd_name, args)
+
+        if not expects_reply:
+            self.broadcast(f"{mqtt_topic}/{cmd_name}", args)
+            return {}
+
+        reply_topic = f"{mqtt_topic}/{cmd_name}_reply"
+        result = {}
+        event = threading.Event()
+
+        def _on_reply(_client, _userdata, msg):
+            try:
+                result['payload'] = json.loads(msg.payload)
+            except (json.JSONDecodeError, TypeError):
+                result['payload'] = msg.payload.decode('utf-8', errors='replace')
+            event.set()
+
+        self.client.message_callback_add(reply_topic, _on_reply)
+        self.client.subscribe(reply_topic)
+        self.broadcast(f"{mqtt_topic}/{cmd_name}", args)
+
+        got_reply = event.wait(timeout=10)
+
+        self.client.unsubscribe(reply_topic)
+        self.client.message_callback_remove(reply_topic)
+
+        if got_reply:
+            log.info("Reply from %s.%s: %s", svc_name, cmd_name, result['payload'])
+            return result['payload']
+
+        log.warning("Timeout waiting for reply from %s.%s", svc_name, cmd_name)
+        return {'error': f"Timeout waiting for {svc_name}.{cmd_name}"}
 
     def _ask_llm(self, prompt):
         system_msg = _LLM_PREAMBLE + self._svcs.get_svcs_llm_context()
@@ -146,10 +243,20 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         return reply, system_msg, prompt
 
     def _assistant_ask(self):
-        reply, system_msg, prompt = self._ask_llm(FlaskRequest.form.get('prompt', ''))
+        prompt = FlaskRequest.form.get('prompt', '')
+        dry_run = FlaskRequest.form.get('dry_run') == '1'
+        reply, system_msg, _ = self._ask_llm(prompt)
+        exec_result = None
+        if not dry_run:
+            exec_result = self._llm_exec(reply, prompt=prompt)
+        self._history.append({
+            'prompt': prompt, 'reply': reply, 'exec_result': exec_result,
+            'time': time.time(), 'source': 'www',
+        })
         return (f"<pre>Prompt: {prompt}\n\n</pre>"
                 f"<pre>System: {system_msg}\n\n</pre>"
                 f"<pre>Reply: {reply}</pre>"
-                f"<br><a href='/assistant.html'>Back</a>")
+                f"<pre>Result: {json.dumps(exec_result, default=str)}</pre>"
+                f"<br><a href='/'>Back</a>")
 
 service_runner(ZmwAssistant)
