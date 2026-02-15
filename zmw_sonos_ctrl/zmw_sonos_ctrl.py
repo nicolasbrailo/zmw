@@ -77,6 +77,7 @@ class ZmwSonosCtrl(ZmwMqttService):
                            "(redirect Spotify to Sonos, playback: volume, track skip, play/pause). Commands apply to active group.",
             "meta": self.get_service_meta(),
             "sonos_state": get_all_sonos_state(),
+            "llm_skip_commands": ["ls_speakers", "world_state"],
             "llm_context_extra": self._build_llm_context_extra(),
             "llm_grammar_values": self._build_llm_grammar_values(),
             "commands": {

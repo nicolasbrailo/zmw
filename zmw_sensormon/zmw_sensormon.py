@@ -216,6 +216,7 @@ class ZmwSensormon(ZmwMqttService):
                 }
                 for sensor_name in self._sensors.get_known_sensors()
             ],
+            "llm_skip_commands": ["get_known_sensors", "get_known_metrics", "get_sensors_measuring"],
             "llm_context_extra": self._build_llm_context_extra(),
             "llm_grammar_values": self._build_llm_grammar_values(),
         }

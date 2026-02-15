@@ -275,6 +275,7 @@ class ZmwLights(ZmwMqttService):
             "known_lights": _describe_things(self._lights),
             "known_switches": _describe_things(self._switches, only_actions={'state'}),
             "known_groups": _discover_groups([l.name for l in self._lights]),
+            "llm_skip_commands": ["get_lights", "get_switches"],
             "llm_context_extra": self._build_llm_context_extra(),
             "llm_grammar_values": self._build_llm_grammar_values(),
         }

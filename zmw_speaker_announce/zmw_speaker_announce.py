@@ -97,6 +97,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         return {
             "description": "Text-to-speech announcements. Say a message out loud on speakers. Useful for calling people or announcing things. Broadcasts to all known Sonos speakers",
             "meta": self.get_service_meta(),
+            "llm_skip_commands": ["ls"],
             "commands": {
                 "ls": {
                     "description": "List speakers. Response on ls_reply",

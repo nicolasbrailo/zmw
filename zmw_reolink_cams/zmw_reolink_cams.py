@@ -181,6 +181,7 @@ class ZmwReolinkCams(ZmwMqttService):
                 for host, cam in self.cams.items()
                 if not cam.failed_to_connect()
             ],
+            "llm_skip_commands": ["ls_cams"],
             "llm_context_extra": self._build_llm_context_extra(),
             "llm_grammar_values": self._build_llm_grammar_values(),
             "commands": {
