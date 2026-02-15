@@ -154,6 +154,14 @@ class ZmwReolinkCams(ZmwMqttService):
                 alerts.append(f"Doorbell {cam_host} is not connected")
         return alerts
 
+    def _build_llm_grammar_values(self):
+        names = [cam._alias or host
+                 for host, cam in self.cams.items()
+                 if not cam.failed_to_connect()]
+        if names:
+            return {'cam_host': names}
+        return {}
+
     def _build_llm_context_extra(self):
         names = [cam._alias or host
                  for host, cam in self.cams.items()
@@ -174,6 +182,7 @@ class ZmwReolinkCams(ZmwMqttService):
                 if not cam.failed_to_connect()
             ],
             "llm_context_extra": self._build_llm_context_extra(),
+            "llm_grammar_values": self._build_llm_grammar_values(),
             "commands": {
                 "snap": {
                     "description": "Cam snapshot. Response published on_snap_ready",

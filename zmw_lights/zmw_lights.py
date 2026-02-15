@@ -204,6 +204,16 @@ class ZmwLights(ZmwMqttService):
         self._z2m.broadcast_things(ls)
         return {}
 
+    def _build_llm_grammar_values(self):
+        names = set()
+        for g in _discover_groups([l.name for l in self._lights]):
+            names.add(g['name'])
+        for l in self._lights:
+            names.add(l.name)
+        if names:
+            return {'prefix': sorted(names)}
+        return {}
+
     def _build_llm_context_extra(self):
         parts = []
         groups = _discover_groups([l.name for l in self._lights])
@@ -266,6 +276,7 @@ class ZmwLights(ZmwMqttService):
             "known_switches": _describe_things(self._switches, only_actions={'state'}),
             "known_groups": _discover_groups([l.name for l in self._lights]),
             "llm_context_extra": self._build_llm_context_extra(),
+            "llm_grammar_values": self._build_llm_grammar_values(),
         }
 
     def on_service_received_message(self, subtopic, payload):

@@ -127,6 +127,18 @@ class ZmwSensormon(ZmwMqttService):
         www.serve_url('/sensors/get/<name>', self._get_sensor_values)
         www.serve_url('/sensors/get_all/<metric>', self._get_all_sensor_values)
 
+    def _build_llm_grammar_values(self):
+        vals = {}
+        known = self._sensors.get_known_sensors()
+        if known:
+            vals['name'] = sorted(known)
+            all_metrics = set()
+            for sensor_name in known:
+                all_metrics.update(self._sensors.get_metrics_for_sensor(sensor_name))
+            if all_metrics:
+                vals['metric'] = sorted(all_metrics)
+        return vals
+
     def _build_llm_context_extra(self):
         _USEFUL_METRICS = {'temperature', 'humidity', 'pm25', 'voc_index', 'feels_like_temp'}
         items = []
@@ -205,6 +217,7 @@ class ZmwSensormon(ZmwMqttService):
                 for sensor_name in self._sensors.get_known_sensors()
             ],
             "llm_context_extra": self._build_llm_context_extra(),
+            "llm_grammar_values": self._build_llm_grammar_values(),
         }
 
     def on_service_received_message(self, subtopic, payload):

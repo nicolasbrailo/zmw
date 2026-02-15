@@ -55,6 +55,14 @@ class ZmwSonosCtrl(ZmwMqttService):
         self._sock.route('/line_in_requested')(self._ws_line_in_requested)
         # TODO: Add a WS endpoint to stream updates from Spotify, so it lists the playing media in the UI
 
+    def _build_llm_grammar_values(self):
+        state = get_all_sonos_state()
+        speakers = state.get('speakers', [])
+        if speakers:
+            names = sorted(s['speaker_info']['zone_name'] for s in speakers)
+            return {'<speaker_name>': names}
+        return {}
+
     def _build_llm_context_extra(self):
         state = get_all_sonos_state()
         speakers = state.get('speakers', [])
@@ -70,6 +78,7 @@ class ZmwSonosCtrl(ZmwMqttService):
             "meta": self.get_service_meta(),
             "sonos_state": get_all_sonos_state(),
             "llm_context_extra": self._build_llm_context_extra(),
+            "llm_grammar_values": self._build_llm_grammar_values(),
             "commands": {
                 "prev_track": {
                     "description": "Prev track",
