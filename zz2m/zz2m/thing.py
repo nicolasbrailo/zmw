@@ -329,7 +329,7 @@ class Zigbee2MqttActionValue:
                 # This wasn't a JSON after all
                 pass
 
-        return self._set_value(val)
+        return self._set_value(val, from_mqtt=False)
 
     def set_value_from_mqtt_update(self, val):
         """
@@ -343,11 +343,11 @@ class Zigbee2MqttActionValue:
             return
 
         try:
-            self._set_value(val)
+            self._set_value(val, from_mqtt=True)
         except ValueError as ex:
             log.error(ex)
 
-    def _set_value(self, val):
+    def _set_value(self, val, from_mqtt=False):
         def log_bad_set():
             raise ValueError(
                 f'{self.thing_name} received invalid value {val} - {self.debug_str()}')
@@ -378,12 +378,25 @@ class Zigbee2MqttActionValue:
             return
 
         if self.meta['type'] == 'numeric':
+            num_val = int(val)
             if (self.meta['value_min'] is not None) and (
-                    int(val) < self.meta['value_min']):
-                log_bad_set()
+                    num_val < self.meta['value_min']):
+                if from_mqtt:
+                    log.warning('%s received out-of-range value %s (min %s), '
+                                'clamping - %s', self.thing_name, val,
+                                self.meta['value_min'], self.debug_str())
+                    val = self.meta['value_min']
+                else:
+                    log_bad_set()
             if (self.meta['value_max'] is not None) and (
-                    int(val) > self.meta['value_max']):
-                log_bad_set()
+                    num_val > self.meta['value_max']):
+                if from_mqtt:
+                    log.warning('%s received out-of-range value %s (max %s), '
+                                'clamping - %s', self.thing_name, val,
+                                self.meta['value_max'], self.debug_str())
+                    val = self.meta['value_max']
+                else:
+                    log_bad_set()
             self._current = val
             return
 
