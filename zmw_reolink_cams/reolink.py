@@ -24,7 +24,9 @@ log = build_logger("Reolink")
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.scheduler").setLevel(logging.ERROR)
-logging.getLogger("reolink_aio.api").setLevel(logging.ERROR)
+_reolink_api_logger = logging.getLogger("reolink_aio.api")
+_reolink_api_logger.setLevel(logging.ERROR)
+_reolink_api_logger.addFilter(lambda r: "Error while unsubscribing" not in r.getMessage())
 logging.getLogger("reolink_aio.api.data").setLevel(logging.ERROR)
 logging.getLogger("reolink_aio.helpers").setLevel(logging.ERROR)
 
@@ -219,7 +221,7 @@ class ReolinkDoorbell(ABC):
                 return
             # On renew exception, fallthrough and try to resubscribe
             except SubscriptionError:
-                log.error("Cam %s subscription error", self._cam_host, exc_info=True)
+                log.info("Cam %s subscription renewal failed, will resubscribe", self._cam_host)
             except RuntimeError:
                 log.error("Runtime error renewing cam %s subscription", self._cam_host, exc_info=True)
 
