@@ -67,7 +67,7 @@ class ZmwContactmon(ZmwMqttService):
             ],
             "commands": {
                 "skip_chimes": {
-                    "description": "Temporarily disable chime/sound notifications",
+                    "description": "Temporarily disable/silence/mute door chime notifications",
                     "params": {"timeout?": "Seconds to skip chimes"}
                 },
                 "enable_chimes": {
@@ -75,7 +75,7 @@ class ZmwContactmon(ZmwMqttService):
                     "params": {}
                 },
                 "publish_state": {
-                    "description": "Get sensors state. Response on publish_state_reply",
+                    "description": "Get open/closed state of monitored contact sensors. Response on publish_state_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {

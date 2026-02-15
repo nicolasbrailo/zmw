@@ -57,8 +57,8 @@ class ZmwSonosCtrl(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Manage Sonos speakers. Discover speakers, create groups, control group "\
-                           "(redirect Spotify to Sonos, playback: volume, track skip). Commands apply to active group.",
+            "description": "Manage Sonos speakers. Discover network, create groups, control group "\
+                           "(redirect Spotify to Sonos, playback: volume, track skip, play/pause). Commands apply to active group.",
             "meta": self.get_service_meta(),
             "sonos_state": get_all_sonos_state(),
             "commands": {
@@ -71,11 +71,11 @@ class ZmwSonosCtrl(ZmwMqttService):
                     "params": {}
                 },
                 "volume_up": {
-                    "description": "volume+",
+                    "description": "raise volume",
                     "params": {"vol?": "Step percentage, default 5"}
                 },
                 "volume_down": {
-                    "description": "volume-",
+                    "description": "lower volume",
                     "params": {"vol?": "Step percentage, default 5"}
                 },
                 "spotify_hijack": {

@@ -129,16 +129,16 @@ class ZmwSensormon(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Sensor monitoring and history. Supports Zigbee, Shelly, and outside weather. "\
+            "description": "Check if your room is hot or cold: sensor monitoring and history. Supports Zigbee, Shelly, and outside weather. "\
                            "Exposes current values and timeseries for temperature, humidity, power, battery, etc.",
             "meta": self.get_service_meta(),
             "commands": {
                 "get_sensor_values": {
-                    "description": "Current values for sensor. Response on get_sensor_values_reply",
+                    "description": "Read values for one specific sensor by name. Response on get_sensor_values_reply",
                     "params": {"name": "Sensor (eg 'Living_Room', 'Weather')"}
                 },
                 "get_all_sensor_values": {
-                    "description": "Current value of a metric in all sensors that have it. Response on get_all_sensor_values_reply",
+                    "description": "Read a metric (temperature, humidity) across all sensors. Response on get_all_sensor_values_reply",
                     "params": {"metric": "Metric (eg 'temperature', 'humidity'...)"}
                 },
                 "get_known_sensors": {

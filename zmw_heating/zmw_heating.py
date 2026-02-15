@@ -78,7 +78,7 @@ class ZmwHeating(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Manages heating via a boiler with a Zigbee on/off relay. Has boost/off overrides, temperature-based rules, schedule control and Telegram integration",
+            "description": "Manages heating via a boiler with a Zigbee on/off relay. Has a schedule with on/off overrides, temperature-based rules, and Telegram integration",
             "meta": self.get_service_meta(),
             "commands": {
                 "svc_state": {
@@ -94,11 +94,11 @@ class ZmwHeating(ZmwMqttService):
                     "params": {}
                 },
                 "boost": {
-                    "description": "Activate heating for N hours",
-                    "params": {"hours": "Number of hours to boost (1-12)"}
+                    "description": "Turn heating on for N hours",
+                    "params": {"hours?": "Number of hours to boost (1-12)"}
                 },
                 "off_now": {
-                    "description": "Turn heating off immediately",
+                    "description": "Force heating off",
                     "params": {}
                 },
                 "slot_toggle": {

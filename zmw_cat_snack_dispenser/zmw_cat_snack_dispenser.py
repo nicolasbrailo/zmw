@@ -82,7 +82,7 @@ class ZmwCatSnackDispenser(ZmwMqttService):
                     "params": {"source?": "What triggered request", "serving_size?": "Number of portions"}
                 },
                 "get_history": {
-                    "description": "Serving history. Response on get_history_reply",
+                    "description": "Feeding history. Did the cat eat today? Response on get_history_reply",
                     "params": {}
                 },
                 "get_schedule": {

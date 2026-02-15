@@ -95,7 +95,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Speaker announcement service. Supports TTS or audio files. Broadcasts to all known Sonos speakers",
+            "description": "Text-to-speech announcements. Say a message out loud on speakers. Useful for calling people or announcing things. Broadcasts to all known Sonos speakers",
             "meta": self.get_service_meta(),
             "commands": {
                 "ls": {
@@ -103,7 +103,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                     "params": {}
                 },
                 "tts": {
-                    "description": "Apply TTS then play result",
+                    "description": "Say a message out loud on speakers (text-to-speech). Use for announcements and notifications.",
                     "params": {
                         "msg": "Text to announce",
                         "lang?": "Language code",
