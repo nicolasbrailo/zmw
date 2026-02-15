@@ -139,7 +139,7 @@ Dispense food. Response on feed_now_reply
 
 #### `get_history`
 
-Serving history. Response on get_history_reply
+Feeding history. Did the cat eat today? Response on get_history_reply
 
 _No parameters._
 
@@ -238,7 +238,7 @@ When `curfew_hour` is configured, a daily check runs at that time. Any sensor in
 
 #### `skip_chimes`
 
-Temporarily disable chime/sound notifications
+Temporarily disable/silence/mute door chime notifications
 
 | Param | Description |
 |-------|-------------|
@@ -252,7 +252,7 @@ _No parameters._
 
 #### `publish_state`
 
-Get sensors state. Response on publish_state_reply
+Get open/closed state of monitored contact sensors. Response on publish_state_reply
 
 _No parameters._
 
@@ -590,15 +590,15 @@ _No parameters._
 
 #### `boost`
 
-Activate heating for N hours
+Turn heating on for N hours
 
 | Param | Description |
 |-------|-------------|
-| `hours` | Number of hours to boost (1-12) |
+| `hours?` | Number of hours to boost (1-12) |
 
 #### `off_now`
 
-Turn heating off immediately
+Force heating off
 
 _No parameters._
 
@@ -707,7 +707,7 @@ Turn on all lights matching a name prefix at 80% brightness. Response on all_lig
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Prefix to filter lights (eg 'TVRoom') |
+| `prefix?` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `all_lights_off`
 
@@ -715,7 +715,7 @@ Turn off all lights matching a name prefix. Response on all_lights_off_reply
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Prefix to filter lights (eg 'TVRoom') |
+| `prefix?` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `get_mqtt_description`
 
@@ -827,7 +827,7 @@ Cam snapshot. Response published on_snap_ready
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera |
+| `cam_host` | Camera host or alias (cam_alias) |
 
 #### `rec`
 
@@ -835,7 +835,7 @@ Start recording
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera |
+| `cam_host` | Camera host or alias (cam_alias) |
 | `secs` | Duration (seconds) |
 
 #### `ls_cams`
@@ -1026,7 +1026,7 @@ Old samples are automatically purged daily at 02:22 based on the configured `ret
 
 #### `get_sensor_values`
 
-Current values for sensor. Response on get_sensor_values_reply
+Read values for one specific sensor by name. Response on get_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
@@ -1034,7 +1034,7 @@ Current values for sensor. Response on get_sensor_values_reply
 
 #### `get_all_sensor_values`
 
-Current value of a metric in all sensors that have it. Response on get_all_sensor_values_reply
+Read a metric (temperature, humidity) across all sensors. Response on get_all_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
@@ -1276,7 +1276,7 @@ _No parameters._
 
 #### `volume_up`
 
-volume+
+raise volume
 
 | Param | Description |
 |-------|-------------|
@@ -1284,7 +1284,7 @@ volume+
 
 #### `volume_down`
 
-volume-
+lower volume
 
 | Param | Description |
 |-------|-------------|
@@ -1434,7 +1434,7 @@ _No parameters._
 
 #### `tts`
 
-Apply TTS then play result
+Say a message out loud on speakers (text-to-speech). Use for announcements and notifications.
 
 | Param | Description |
 |-------|-------------|

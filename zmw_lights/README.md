@@ -56,7 +56,7 @@ Turn on all lights matching a name prefix at 80% brightness. Response on all_lig
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Prefix to filter lights (eg 'TVRoom') |
+| `prefix?` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `all_lights_off`
 
@@ -64,7 +64,7 @@ Turn off all lights matching a name prefix. Response on all_lights_off_reply
 
 | Param | Description |
 |-------|-------------|
-| `prefix` | Prefix to filter lights (eg 'TVRoom') |
+| `prefix?` | Prefix to filter lights (eg 'TVRoom') |
 
 #### `get_mqtt_description`
 

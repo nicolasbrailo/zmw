@@ -82,15 +82,15 @@ _No parameters._
 
 #### `boost`
 
-Activate heating for N hours
+Turn heating on for N hours
 
 | Param | Description |
 |-------|-------------|
-| `hours` | Number of hours to boost (1-12) |
+| `hours?` | Number of hours to boost (1-12) |
 
 #### `off_now`
 
-Turn heating off immediately
+Force heating off
 
 _No parameters._
 

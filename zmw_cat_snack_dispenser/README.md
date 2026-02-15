@@ -72,7 +72,7 @@ Dispense food. Response on feed_now_reply
 
 #### `get_history`
 
-Serving history. Response on get_history_reply
+Feeding history. Did the cat eat today? Response on get_history_reply
 
 _No parameters._
 

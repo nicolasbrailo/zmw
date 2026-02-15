@@ -47,7 +47,7 @@ _No parameters._
 
 #### `tts`
 
-Apply TTS then play result
+Say a message out loud on speakers (text-to-speech). Use for announcements and notifications.
 
 | Param | Description |
 |-------|-------------|

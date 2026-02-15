@@ -61,7 +61,7 @@ _No parameters._
 
 #### `volume_up`
 
-volume+
+raise volume
 
 | Param | Description |
 |-------|-------------|
@@ -69,7 +69,7 @@ volume+
 
 #### `volume_down`
 
-volume-
+lower volume
 
 | Param | Description |
 |-------|-------------|

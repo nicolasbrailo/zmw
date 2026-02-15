@@ -54,7 +54,7 @@ When `curfew_hour` is configured, a daily check runs at that time. Any sensor in
 
 #### `skip_chimes`
 
-Temporarily disable chime/sound notifications
+Temporarily disable/silence/mute door chime notifications
 
 | Param | Description |
 |-------|-------------|
@@ -68,7 +68,7 @@ _No parameters._
 
 #### `publish_state`
 
-Get sensors state. Response on publish_state_reply
+Get open/closed state of monitored contact sensors. Response on publish_state_reply
 
 _No parameters._
 

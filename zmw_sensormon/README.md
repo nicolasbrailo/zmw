@@ -63,7 +63,7 @@ Old samples are automatically purged daily at 02:22 based on the configured `ret
 
 #### `get_sensor_values`
 
-Current values for sensor. Response on get_sensor_values_reply
+Read values for one specific sensor by name. Response on get_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
@@ -71,7 +71,7 @@ Current values for sensor. Response on get_sensor_values_reply
 
 #### `get_all_sensor_values`
 
-Current value of a metric in all sensors that have it. Response on get_all_sensor_values_reply
+Read a metric (temperature, humidity) across all sensors. Response on get_all_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|
