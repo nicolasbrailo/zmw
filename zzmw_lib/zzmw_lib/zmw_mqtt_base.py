@@ -93,7 +93,10 @@ class ZmwMqttBase(ABC):
         self._topics_with_cb_lock = threading.Lock()
         with self._topics_with_cb_lock:
             for topic in self._topics_with_cb.keys():
-                client.subscribe(f'{topic}/#', qos=1)
+                try:
+                    client.subscribe(f'{topic}/#', qos=1)
+                except ValueError:
+                    log.error("Invalid MQTT subscription filter, skipping: '%s/#'", topic)
 
         # Announce we're up and running
         log.info('Running MQTT listener thread, client mode only')
@@ -116,7 +119,10 @@ class ZmwMqttBase(ABC):
             self._topics_with_cb[topic] = cb
             log.info("MQTT subscribing to '%s'", topic)
             # If not subscribed this is a noop, but it will be repeated when connecting
-            self.client.subscribe(topic)
+            try:
+                self.client.subscribe(topic)
+            except ValueError:
+                log.error("Invalid MQTT subscription filter, skipping: '%s'", topic)
 
     def _on_message(self, _client, _userdata, msg):
         topic = msg.topic
