@@ -1,14 +1,5 @@
 include ../common.mk
 
-playground_deps: pipenv_rebuild_deps_base
-	pipenv install llama-cpp-python --verbose
-playground:
-	pipenv run python3 playground.py 2>&1 | tee playground.log
-render_results:
-	python3 render_results.py
-update_svcs.json:
-	curl http://10.0.0.10:4219/get_service_interfaces | jq > svcs.json
-
 rebuild_deps: pipenv_rebuild_deps_base
 	pipenv install llama-cpp-python --verbose
 

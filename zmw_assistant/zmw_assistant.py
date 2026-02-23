@@ -91,6 +91,7 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
         self._history = collections.deque(maxlen=20)
 
         self._use_grammar = cfg['llm_use_grammar']
+        self._echo = cfg.get('echo', False)
         self._llm = LazyLlama(
             model_path=cfg['llm_model_path'],
             n_ctx=cfg['llm_context_sz'],
@@ -121,15 +122,25 @@ class ZmwAssistant(ZmwMqttServiceMonitor):
             return
         source = payload.get('source', 'stt')
         log.info("STT transcription received: '%s'", text)
+        # Run off the MQTT thread — _llm_exec blocks waiting for a reply
+        # that can only arrive via this same MQTT network loop thread.
+        threading.Thread(
+            target=self._handle_stt, args=(text, source), daemon=True).start()
+
+    def _handle_stt(self, text, source):
         reply, _, _ = self._ask_llm(text)
         log.info("LLM reply: %s", reply)
         exec_result = self._llm_exec(reply, prompt=text)
         if isinstance(exec_result, dict) and exec_result.get('error'):
             self.broadcast('zmw_telegram/send_text', {'msg': exec_result['error']})
-        elif exec_result:
-            self.broadcast('zmw_telegram/send_text', {
-                'msg': json.dumps(exec_result, default=str),
-            })
+        elif exec_result is not None:
+            msg = ''
+            if self._echo:
+                msg = reply + '\n'
+            if exec_result:
+                msg += json.dumps(exec_result, default=str)
+            if msg.strip():
+                self.broadcast('zmw_telegram/send_text', {'msg': msg.strip()})
         self._history.append({
             'prompt': text, 'reply': reply, 'exec_result': exec_result,
             'time': time.time(), 'source': source,

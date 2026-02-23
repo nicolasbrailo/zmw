@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="icon" href="favicon.ico" type="image/x-icon"/>
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon"/>
+<link rel="apple-touch-icon" href="favicon.ico"/>
+<title>Assistant History</title>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="stylesheet" href="/zmw.css" />
+<style>
+.error { color: #e74c3c; }
+.ok { color: #2ecc71; }
+#history, #history thead, #history tbody, #history tr {
+  display: revert;
+}
+#history td, #history th {
+  display: revert;
+  flex: revert;
+  vertical-align: top;
+}
+#history { table-layout: auto; }
+#history td:nth-child(1), #history td:nth-child(2), #history td:nth-child(5) {
+  white-space: nowrap;
+}
+#history td:nth-child(3), #history td:nth-child(4) {
+  white-space: normal;
+}
+#history pre { margin: 0; white-space: pre-wrap; font-size: 85%; }
+</style>
+</head>
+
+<body class="dark">
+  <h1><img src="/favicon.ico" alt="Assistant" /> Assistant History</h1>
+  <table id="history"><thead><tr>
+    <th>Time</th><th>Source</th><th>Prompt</th><th>Reply</th><th>Result</th>
+  </tr></thead><tbody></tbody></table>
+  <p><a href="/">Back</a></p>
+
+<script>
+fetch('/get_history')
+  .then(r => r.json())
+  .then(rows => {
+    const tbody = document.querySelector('#history tbody');
+    rows.reverse();
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      const d = new Date(r.time * 1000);
+      const time = d.toLocaleString();
+
+      let reply = r.reply;
+      try { reply = JSON.stringify(JSON.parse(r.reply), null, 1); } catch(e) {}
+
+      const err = r.exec_result && r.exec_result.error;
+      const resultHtml = err
+        ? `<span class="error">${err}</span>`
+        : '<span class="ok">OK</span>';
+
+      tr.innerHTML = `<td>${time}</td><td>${r.source}</td><td>${r.prompt}</td><td><pre>${reply}</pre></td><td>${resultHtml}</td>`;
+      tbody.appendChild(tr);
+    }
+  });
+</script>
+</body>
+
+</html>

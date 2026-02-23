@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-zzmw-lib = {file = "../zzmw_lib", editable = true}
+zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
 llama-cpp-python = "*"
 
 [dev-packages]
@@ -13,5 +13,5 @@ pytest = "*"
 pytest-cov = "*"
 
 [requires]
-python_version = "3.13"
-python_full_version = "3.13.7"
+python_version = "3.11"
+python_full_version = "3.11.2"

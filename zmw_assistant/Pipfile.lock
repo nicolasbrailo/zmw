@@ -1,12 +1,12 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "d53bbb660bc3c4d2f2f5243382c891be4170ab56895fdef94004e73de451b875"
+            "sha256": "d0dcd2b08cf7a956cce25032d515d03483de8405575bdade883deee7eac44ad1"
         },
         "pipfile-spec": 6,
         "requires": {
-            "python_full_version": "3.13.7",
-            "python_version": "3.13"
+            "python_full_version": "3.11.2",
+            "python_version": "3.11"
         },
         "sources": [
             {
@@ -86,7 +86,6 @@
                 "sha256:34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.8'",
             "version": "==0.3.16"
         },
         "markupsafe": {
@@ -302,7 +301,7 @@
         },
         "zzmw-lib": {
             "editable": true,
-            "file": "../zzmw_lib"
+            "path": "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"
         }
     },
     "develop": {
@@ -471,11 +470,11 @@
         },
         "platformdirs": {
             "hashes": [
-                "sha256:61d5cdcc6065745cdd94f0f878977f8de9437be93de97c1c12f853c9c0cdcbda",
-                "sha256:d03afa3963c806a9bed9d5125c8f4cb2fdaf74a55ab60e5d59b3fde758104d31"
+                "sha256:61d8b967d34791c162d30d60737369cbbd77debad5b981c4bfda1842e71e0d66",
+                "sha256:f310f16e89c4e29117805d8328f7c10876eeff36c94eac879532812110f7d39f"
             ],
             "markers": "python_version >= '3.10'",
-            "version": "==4.5.1"
+            "version": "==4.9.1"
         },
         "pluggy": {
             "hashes": [
@@ -499,7 +498,6 @@
                 "sha256:d9b71674e19b1c36d79265b5887bf8e55278cbe236c9e95d22dc82cf044fdbd2"
             ],
             "index": "pypi",
-            "markers": "python_full_version >= '3.10.0'",
             "version": "==4.0.4"
         },
         "pytest": {
@@ -508,7 +506,6 @@
                 "sha256:75186651a92bd89611d1d9fc20f0b4345fd827c41ccd5c299a868a05d70edf11"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.10'",
             "version": "==9.0.2"
         },
         "pytest-cov": {
@@ -517,7 +514,6 @@
                 "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.9'",
             "version": "==7.0.0"
         },
         "tomlkit": {
