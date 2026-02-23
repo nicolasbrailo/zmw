@@ -13,7 +13,7 @@ class DispensingHistory:
         self._history_len = history_len
         self._feed_history = deque(maxlen=history_len)
         self._last_dispense_request_id = 0
-        self._dispense_ack_timeout = 5
+        self._dispense_ack_timeout = 15
         self._pending_dispense_timeout_job = None
         self._notify_dispense_event = cb_on_dispense
 

@@ -19,7 +19,7 @@ log = build_logger("ZmwCatSnackDispenser")
 
 class ZmwCatSnackDispenser(ZmwMqttService):
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg, svc_topic="zmw_cat_feeder", scheduler=sched, svc_deps=["ZmwTelegram"])
+        super().__init__(cfg, svc_topic="zmw_cat_snack_dispenser", scheduler=sched, svc_deps=["ZmwTelegram"])
         self._z2m_cat_feeder_name = cfg["z2m_cat_feeder"]
         self._schedule_tolerance_secs = cfg["schedule_tolerance_secs"]
 
@@ -135,6 +135,7 @@ class ZmwCatSnackDispenser(ZmwMqttService):
             case "feed_now":
                 source = payload.get('source', 'MQTT') if isinstance(payload, dict) else 'MQTT'
                 serving_size = payload.get('serving_size') if isinstance(payload, dict) else None
+                log.info("Received MQTT request to dispense food")
                 try:
                     self.feed_now(source=source, serving_size=serving_size)
                     self.publish_own_svc_message("feed_now_reply", {"status": "ok"})
