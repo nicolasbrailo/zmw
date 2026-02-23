@@ -106,12 +106,17 @@ class ZmwSpeechToText(ZmwMqttService):
         if not path:
             log.error("Voice message has no path: %s", msg)
             return
+        # Run off MQTT thread — transcription is slow
+        threading.Thread(
+            target=self._transcribe_and_publish,
+            args=(path, 'telegram'), daemon=True).start()
 
+    def _transcribe_and_publish(self, path, source):
         transcription = self._stt.transcribe_file(path)
         if not transcription:
             return
         text, confidence = transcription
-        result = {'source': 'telegram', 'file': path, 'text': text, 'confidence': confidence}
+        result = {'source': source, 'file': path, 'text': text, 'confidence': confidence}
         self._history.append(result)
         self.publish_own_svc_message("transcription", result)
 
@@ -137,18 +142,14 @@ class ZmwSpeechToText(ZmwMqttService):
         if not self._stt:
             log.warning("Ignoring MQTT transcribe request, STT model not loaded")
             return
-        # Get wav path, fallback to whatever Telegram sent us (ogg?)
         path = msg.get('wav_path', msg.get('path'))
         if not path:
             log.error("MQTT transcribe request has no path: %s", msg)
             return
-        transcription = self._stt.transcribe_file(path)
-        if not transcription:
-            return
-        text, confidence = transcription
-        result = {'source': 'mqtt', 'file': path, 'text': text, 'confidence': confidence}
-        self._history.append(result)
-        self.publish_own_svc_message("transcription", result)
+        # Run off MQTT thread — transcription is slow
+        threading.Thread(
+            target=self._transcribe_and_publish,
+            args=(path, 'mqtt'), daemon=True).start()
 
 
 service_runner(ZmwSpeechToText)
