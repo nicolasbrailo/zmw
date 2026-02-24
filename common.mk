@@ -46,12 +46,14 @@ _rebuild_ui_finalize:
 install_svc::
 	../scripts/install_svc.sh .
 
-.PHONY: pipenv_rebuild_deps_base
-pipenv_rebuild_deps_base:
+.PHONY: pipenv_rebuild_deps_base pipenv_rebuild_deps_base_geo
+pipenv_rebuild_deps_base: ZZMW_LIB_EXTRAS =
+pipenv_rebuild_deps_base_geo: ZZMW_LIB_EXTRAS = [geo]
+pipenv_rebuild_deps_base pipenv_rebuild_deps_base_geo:
 	rm -f Pipfile Pipfile.lock
 	pipenv --rm || true
 	pipenv --python python3
-	pipenv install -e "$(shell readlink -f "$(PWD)/../zzmw_lib")"
+	pipenv install -e "$(shell readlink -f "$(PWD)/../zzmw_lib")$(ZZMW_LIB_EXTRAS)"
 	pipenv install --dev pylint
 	pipenv install --dev pytest
 	pipenv install --dev pytest-cov

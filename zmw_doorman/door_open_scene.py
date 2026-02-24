@@ -1,4 +1,4 @@
-from geo_helpers import is_sun_out
+from zzmw_lib.geo_helpers import is_sun_out
 import threading
 import time
 

@@ -4,9 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
+zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib", extras = ["geo"]}
 zz2m = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zz2m"}
-astral = "*"
 
 [dev-packages]
 pylint = "*"

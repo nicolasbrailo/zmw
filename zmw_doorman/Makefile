@@ -1,8 +1,7 @@
 include ../common.mk
 
-rebuild_deps: pipenv_rebuild_deps_base
+rebuild_deps: pipenv_rebuild_deps_base_geo
 	pipenv install -e "$(shell readlink -f "$(PWD)/../zz2m")"
-	pipenv install astral
 
 tst_door_open:
 	mosquitto_pub -h localhost -p 1883 -t "zmw_contactmon/ContactSensor_FrontDoor/contact" \

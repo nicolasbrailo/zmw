@@ -1,12 +1,18 @@
-""" Helpers depending on location (eg to determine sunries) """
+""" Helpers depending on location (eg to determine sunrise) """
 
 from astral.sun import sun as astral_sun
 import astral
 import datetime
 
+def get_sun_times(lat, lon, date=None):
+    """ Returns a dict with sunrise, sunset, dawn, dusk as timezone-aware datetimes for the given date (default: today) """
+    if date is None:
+        date = datetime.date.today()
+    return astral_sun(astral.Observer(lat, lon), date=date)
+
 def is_sun_out(lat, lon, tolerance_mins=45):
     """ Returns true if there is plenty of light outside """
-    day = astral_sun(astral.Observer(lat, lon), date=datetime.date.today())
+    day = get_sun_times(lat, lon)
     tolerance = datetime.timedelta(minutes=tolerance_mins)
     sunrise = day['sunrise'] + tolerance
     sunset = day['sunset'] - tolerance
@@ -16,7 +22,7 @@ def is_sun_out(lat, lon, tolerance_mins=45):
 
 def late_night(latlon, late_night_start_hour):
     """ Returns true if it's dark outside, and also it's late at night """
-    day = astral_sun(astral.Observer(*latlon), date=datetime.date.today())
+    day = get_sun_times(*latlon)
     sunset = day['dusk']
     next_sunrise = day['sunrise'] + datetime.timedelta(hours=24)
     ahora = datetime.datetime.now(day['sunset'].tzinfo)

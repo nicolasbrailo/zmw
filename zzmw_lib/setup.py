@@ -11,6 +11,9 @@ setup(
         "paho-mqtt",
         "systemd-python",
     ],
+    extras_require={
+        "geo": ["astral"],
+    },
 )
 
 

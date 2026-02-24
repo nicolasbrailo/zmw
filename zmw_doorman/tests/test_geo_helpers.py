@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import patch, Mock
 import datetime
 
-from geo_helpers import is_sun_out, late_night
+from zzmw_lib.geo_helpers import is_sun_out, late_night
 
 
 class TestIsSunOut:
@@ -26,8 +26,8 @@ class TestIsSunOut:
             'dusk': datetime.datetime(today.year, today.month, today.day, sunset_hour + 1, sunset_min, tzinfo=tz),
         }
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_is_sun_out_false_within_tolerance_after_sunrise(self, mock_astral_sun, mock_datetime):
         """is_sun_out correctly returns False $tolerance minutes after sunrise"""
         tz = datetime.timezone.utc
@@ -48,8 +48,8 @@ class TestIsSunOut:
         # Should be False because 06:30 < 06:45 (sunrise + tolerance)
         assert result is False
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_is_sun_out_true_after_tolerance_from_sunrise(self, mock_astral_sun, mock_datetime):
         """is_sun_out correctly returns True after tolerance minutes past sunrise"""
         tz = datetime.timezone.utc
@@ -69,8 +69,8 @@ class TestIsSunOut:
         # Should be True because 07:00 > 06:45 (sunrise + tolerance)
         assert result is True
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_is_sun_out_false_within_tolerance_before_sunset(self, mock_astral_sun, mock_datetime):
         """is_sun_out correctly returns False $tolerance minutes before sundown"""
         tz = datetime.timezone.utc
@@ -91,8 +91,8 @@ class TestIsSunOut:
         # Should be False because 19:30 > 19:15 (sunset - tolerance)
         assert result is False
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_is_sun_out_true_before_tolerance_from_sunset(self, mock_astral_sun, mock_datetime):
         """is_sun_out correctly returns True before tolerance minutes from sunset"""
         tz = datetime.timezone.utc
@@ -112,8 +112,8 @@ class TestIsSunOut:
         # Should be True because 19:00 < 19:15 (sunset - tolerance)
         assert result is True
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_is_sun_out_midnight_transition_before_midnight(self, mock_astral_sun, mock_datetime):
         """is_sun_out behaves correctly at 23:59 (just before midnight)"""
         tz = datetime.timezone.utc
@@ -133,8 +133,8 @@ class TestIsSunOut:
         # Should be False because it's after sunset
         assert result is False
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_is_sun_out_midnight_transition_after_midnight(self, mock_astral_sun, mock_datetime):
         """is_sun_out behaves correctly at 00:01 (just after midnight)"""
         tz = datetime.timezone.utc
@@ -175,8 +175,8 @@ class TestLateNight:
             'dusk': datetime.datetime(base_date.year, base_date.month, base_date.day, dusk_hour, dusk_min, tzinfo=tz),
         }
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_true_after_start_hour(self, mock_astral_sun, mock_datetime):
         """late_night correctly returns True if it's after the specified time (eg 23)"""
         tz = datetime.timezone.utc
@@ -197,8 +197,8 @@ class TestLateNight:
         # Should be True because it's after 23:00 and after dusk
         assert result is True
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_true_at_2359(self, mock_astral_sun, mock_datetime):
         """late_night correctly returns True at 23:59 (transition between day and next)"""
         tz = datetime.timezone.utc
@@ -219,8 +219,8 @@ class TestLateNight:
         # Should be True because it's after 23:00 and after dusk
         assert result is True
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_true_at_0001(self, mock_astral_sun, mock_datetime):
         """late_night correctly returns True at 00:01 (transition between day and next)"""
         tz = datetime.timezone.utc
@@ -243,8 +243,8 @@ class TestLateNight:
         # Should be True because 0 <= next_sunrise.hour (6)
         assert result is True
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_remains_true_until_sunrise(self, mock_astral_sun, mock_datetime):
         """late_night remains True until is_sun_out returns True (i.e., until sunrise)"""
         tz = datetime.timezone.utc
@@ -266,8 +266,8 @@ class TestLateNight:
         # Should be True because 5 <= next_sunrise.hour (6)
         assert result is True
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_false_after_sunrise(self, mock_astral_sun, mock_datetime):
         """late_night returns False after sunrise (when sun is out)"""
         tz = datetime.timezone.utc
@@ -288,8 +288,8 @@ class TestLateNight:
         # Should be False because current time < dusk (it's daytime)
         assert result is False
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_false_before_late_night_start_hour(self, mock_astral_sun, mock_datetime):
         """late_night is False when is_sun_out is False, and it's before the late_night_start_hour"""
         tz = datetime.timezone.utc
@@ -310,8 +310,8 @@ class TestLateNight:
         # Should be False because 22 < 23 (late_night_start_hour) and 22 > 6 (next_sunrise.hour)
         assert result is False
 
-    @patch('geo_helpers.datetime')
-    @patch('geo_helpers.astral_sun')
+    @patch('zzmw_lib.geo_helpers.datetime')
+    @patch('zzmw_lib.geo_helpers.astral_sun')
     def test_late_night_false_before_dusk(self, mock_astral_sun, mock_datetime):
         """late_night is False when it's before dusk (even if after sunset)"""
         tz = datetime.timezone.utc
