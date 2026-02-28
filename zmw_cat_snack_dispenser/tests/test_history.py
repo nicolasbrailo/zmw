@@ -162,8 +162,8 @@ class TestRegisterZigbeeDispense:
 
         # Make the entry appear old by patching datetime.now in the dispense call
         entries = history.get_history()
-        # Manually set the time_requested to be old (30 seconds ago, > 5x5=25s)
-        entries[0]['time_requested'] = datetime.now() - timedelta(seconds=30)
+        # Manually set the time_requested to be old
+        entries[0]['time_requested'] = datetime.now() - timedelta(seconds=400)
 
         # Clear the pending job (simulating timeout already fired)
         history._pending_dispense_timeout_job = None
