@@ -356,6 +356,16 @@ def monkeypatch_lights(z2m):
         log.debug("Thing %s is a light, will monkeypatch", light.name)
         _monkeypatch_light(light)
 
+def _monkeypatch_switch(switch):
+    switch.turn_on = lambda: switch.set('state', True)
+    switch.turn_off = lambda: switch.set('state', False)
+
+def monkeypatch_switches(z2m):
+    """ Look for all switches in an instance of z2m and apply on/off monkeypatches """
+    for switch in z2m.get_things_if(lambda t: t.thing_type == 'switch'):
+        log.debug("Thing %s is a switch, will monkeypatch", switch.name)
+        _monkeypatch_switch(switch)
+
 def identify_buttons(z2m):
     """ Identify button/remote devices and set their thing_type to 'button'.
     Buttons in z2m have an 'action' enum feature (click/press/hold events)

@@ -1,17 +1,40 @@
 {
-  "auto_lights_off": {
-    "enable": true,
-    "day_of_week": "mon-fri",
-    "time": "09:00"
-  },
   "vacations_mode": {
     "enable": true,
     "late_afternoon": "17:30",
     "evening": "20:00",
     "night": "23:00"
   },
-  "speaker_announce": [
-    {"time": "08:00", "lang": "en", "msg": "Good morning!", "vol": 40},
-    {"time": "12:00", "lang": "en", "msg": "Time for lunch", "vol": 40}
+  "geo": {"lat": 41.38, "lon": 2.16},
+  "scheduled_jobs": [
+    {
+      "schedule": "09:00",
+      "day_of_week": "mon-fri",
+      "action": "check_and_turn_off_lights"
+    },
+    {
+      "schedule": "08:00",
+      "day_of_week": "every_day",
+      "action": "speaker_announce",
+      "args": {"lang": "en", "msg": "Good morning!", "vol": 40}
+    },
+    {
+      "schedule": "12:00",
+      "day_of_week": "every_day",
+      "action": "speaker_announce",
+      "args": {"lang": "en", "msg": "Time for lunch", "vol": 40}
+    },
+    {
+      "schedule": "10:00",
+      "day_of_week": "sun",
+      "action": "check_low_battery"
+    },
+    {
+      "schedule": "sunset",
+      "day_of_week": "every_day",
+      "offset_minutes": -30,
+      "action": "turn_lights_on",
+      "args": {"names": ["Light1", "Light2"]}
+    }
   ]
 }

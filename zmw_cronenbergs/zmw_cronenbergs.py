@@ -3,18 +3,20 @@ import json
 import os
 import pathlib
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import deque
 
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
+from zzmw_lib.geo_helpers import get_sun_times
 
 from zz2m.z2mproxy import Z2MProxy
 from zz2m.light_helpers import turn_all_lights_off
 from zz2m.www import Z2Mwebservice
 
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 log = build_logger("ZmwCronenbergs")
 
@@ -33,36 +35,18 @@ class ZmwCronenbergs(ZmwMqttService):
 
         self._light_check_history = deque(maxlen=10)
         self._vacations_selected_lights = None
+        self._scheduled_jobs_info = []
+        self._geo = cfg.get('geo', None)
+        self._sun_jobs = []
+        self._sched = sched
 
         # Set up www directory and endpoints
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         self._public_url_base = www.register_www_dir(www_path)
         www.serve_url('/stats', self._get_stats)
-        www.serve_url('/mock_auto_lights_off', self._mock_auto_lights_off)
-        www.serve_url('/test_low_battery_notifs', self._check_low_battery)
         www.serve_url('/test_vacations_mode_late_afternoon', self._vacations_mode_late_afternoon)
         www.serve_url('/test_vacations_mode_evening', self._vacations_mode_evening)
         www.serve_url('/test_vacations_mode_night', self._vacations_mode_night)
-
-        # Schedule automatic lights off if configured
-        if 'auto_lights_off' in cfg and cfg['auto_lights_off']['enable']:
-            day_of_week = cfg['auto_lights_off']['day_of_week']
-            time_parts = cfg['auto_lights_off']['time'].split(':')
-            hour, minute = int(time_parts[0]), int(time_parts[1])
-            log.info(f"Scheduling light check for {day_of_week} at {hour:02d}:{minute:02d}")
-            sched.add_job(
-                self._check_and_turn_off_lights,
-                trigger=CronTrigger(day_of_week=day_of_week, hour=hour, minute=minute, second=0),
-                id='auto_lights_off'
-            )
-
-        # Schedule weekly battery check on Sundays at 10:00
-        log.info("Scheduling battery check for Sundays at 10:00")
-        sched.add_job(
-            self._check_low_battery,
-            trigger=CronTrigger(day_of_week='sun', hour=10, minute=0, second=0),
-            id='low_battery_check'
-        )
 
         self._vacations_mode = 'vacations_mode' in cfg and cfg['vacations_mode']['enable']
         if self._vacations_mode:
@@ -77,16 +61,125 @@ class ZmwCronenbergs(ZmwMqttService):
                     id=f'vacations_mode_{job_name}'
                 )
 
-        self._speaker_announce = cfg.get('speaker_announce', [])
-        for idx, announce in enumerate(self._speaker_announce):
-            time_parts = announce['time'].split(':')
-            hour, minute = int(time_parts[0]), int(time_parts[1])
-            log.info(f"Scheduling speaker announce '{announce['msg']}' at {hour:02d}:{minute:02d}")
+        for idx, job_cfg in enumerate(cfg.get('scheduled_jobs', [])):
+            if job_cfg['schedule'] in {'sunset', 'sunrise', 'dawn', 'dusk'}:
+                self._sun_jobs.append(job_cfg)
+            else:
+                self._schedule_cron_job(idx, job_cfg)
+
+        if len(self._sun_jobs) != 0:
+            log.info("Sun-triggered jobs configured, scheduling daily recalculation at 00:05")
             sched.add_job(
-                lambda lang=announce['lang'], msg=announce['msg'], vol=announce['vol']: self._on_speaker_announce_cron(lang, msg, vol),
-                trigger=CronTrigger(hour=hour, minute=minute, second=0),
-                id=f'speaker_announce_{idx}'
+                self._recalculate_sun_jobs,
+                trigger=CronTrigger(hour=0, minute=5, second=0),
+                id='sun_jobs_recalculate'
             )
+            self._recalculate_sun_jobs()
+
+    def _schedule_cron_job(self, idx, job_cfg):
+        """Schedule a fixed-time cron job."""
+        schedule = job_cfg['schedule']
+        action = job_cfg['action']
+        day_of_week = job_cfg.get('day_of_week', 'every_day')
+        job_id = f'scheduled_{idx}_{action}'
+
+        time_parts = schedule.split(':')
+        hour, minute = int(time_parts[0]), int(time_parts[1])
+
+        method = self._resolve_job_action(job_cfg)
+        if method is None:
+            log.error("Failed to schedule job: %s", job_cfg)
+            return
+
+        dow = None if day_of_week == 'every_day' else day_of_week
+        log.info("Scheduling job '%s' at %02d:%02d (days: %s)", action, hour, minute, day_of_week)
+        self._sched.add_job(
+            method,
+            trigger=CronTrigger(day_of_week=dow, hour=hour, minute=minute, second=0),
+            id=job_id,
+        )
+
+        self._scheduled_jobs_info.append({
+            'name': action,
+            'schedule': f"{schedule} ({day_of_week})",
+        })
+
+    @staticmethod
+    def _matches_day_of_week(day_of_week):
+        """Check if today matches a day_of_week spec (e.g. 'mon', 'mon-fri', 'every_day')."""
+        if day_of_week == 'every_day':
+            return True
+        _DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        today = _DAY_NAMES[datetime.now().weekday()]
+        if '-' in day_of_week:
+            start, end = day_of_week.split('-')
+            start_idx = _DAY_NAMES.index(start)
+            end_idx = _DAY_NAMES.index(end)
+            today_idx = _DAY_NAMES.index(today)
+            return start_idx <= today_idx <= end_idx
+        return today in day_of_week.split(',')
+
+    def _recalculate_sun_jobs(self):
+        """Compute today's sun times and schedule (or reschedule) one-shot sun jobs."""
+        lat, lon = self._geo['lat'], self._geo['lon']
+        sun = get_sun_times(lat, lon)
+        now = datetime.now(sun['sunset'].tzinfo)
+
+        # Remove old sun job info, keep cron job info
+        self._scheduled_jobs_info = [j for j in self._scheduled_jobs_info if 'today_time' not in j]
+
+        for idx, job_cfg in enumerate(self._sun_jobs):
+            event = job_cfg['schedule']
+            offset = job_cfg.get('offset_minutes', 0)
+            action = job_cfg['action']
+            day_of_week = job_cfg.get('day_of_week', 'every_day')
+            job_id = f'sun_job_{idx}_{action}'
+
+            base_time = sun[event]
+            target_time = base_time + timedelta(minutes=offset)
+
+            offset_str = ""
+            if offset > 0:
+                offset_str = f" + {offset}min"
+            elif offset < 0:
+                offset_str = f" - {abs(offset)}min"
+
+            info = {
+                'name': action,
+                'schedule': f"{event}{offset_str} ({day_of_week})",
+                'today_time': target_time.isoformat(),
+            }
+
+            if not self._matches_day_of_week(day_of_week):
+                log.info("Sun job '%s' skipped, today is not %s", action, day_of_week)
+                info['today_time'] = None
+                self._scheduled_jobs_info.append(info)
+                continue
+
+            if target_time.date() != base_time.date():
+                log.warning("Sun job '%s' offset would cross day boundary (%s -> %s), skipping",
+                            action, base_time.strftime('%H:%M'), target_time.strftime('%Y-%m-%d %H:%M'))
+                info['today_time'] = None
+                self._scheduled_jobs_info.append(info)
+                continue
+
+            if target_time > now:
+                method = self._resolve_job_action(job_cfg)
+                if method is None:
+                    info['today_time'] = None
+                else:
+                    log.info("Scheduling sun job '%s' at %s (%s)", action, target_time.strftime('%H:%M'), info['schedule'])
+                    self._sched.add_job(
+                        method,
+                        trigger=DateTrigger(run_date=target_time),
+                        id=job_id,
+                        replace_existing=True,
+                    )
+            else:
+                log.info("Sun job '%s' target time %s already passed, skipping", action, target_time.strftime('%H:%M'))
+                info['today_time'] = None
+
+            self._scheduled_jobs_info.append(info)
 
     def _get_stats(self):
         battery_things = self._z2m.get_things_if(lambda t: 'battery' in t.actions)
@@ -97,7 +190,7 @@ class ZmwCronenbergs(ZmwMqttService):
         stats = {
             "light_check_history": list(self._light_check_history),
             "vacations_mode": self._vacations_mode,
-            "speaker_announce": self._speaker_announce,
+            "scheduled_jobs": self._scheduled_jobs_info,
             "battery_things": battery_data,
         }
         return json.dumps(stats, default=str)
@@ -124,7 +217,7 @@ class ZmwCronenbergs(ZmwMqttService):
                     "payload": {
                         "light_check_history": "light check events",
                         "vacations_mode": "bool, vacation mode enabled",
-                        "speaker_announce": "List of scheduled speaker announcements",
+                        "scheduled_jobs": "List of scheduled jobs and their config",
                         "battery_things": "List of devices and their battery levels",
                     }
                 },
@@ -153,26 +246,36 @@ class ZmwCronenbergs(ZmwMqttService):
             case _:
                 log.warning("Ignoring unknown message '%s'", subtopic)
 
-    def _mock_auto_lights_off(self):
-        self._light_check_history.append({
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'timestamp': datetime.now().isoformat(),
-            'lights_forgotten': True,
-            'lights_left_on': ["Light1", "Light3"],
-        })
-        self._light_check_history.append({
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'timestamp': datetime.now().isoformat(),
-            'lights_forgotten': False,
-            'lights_left_on': [],
-        })
-        self._light_check_history.append({
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'timestamp': datetime.now().isoformat(),
-            'lights_forgotten': True,
-            'lights_left_on': ["Light1", "Light2", "Light3"],
-        })
-        return "OK"
+    def _resolve_job_action(self, job_cfg):
+        """Resolve a job config into a callable. Returns None if action is invalid."""
+        action = job_cfg['action']
+        args = job_cfg.get('args', {})
+
+        if action == 'turn_lights_on':
+            return lambda a=args: self._turn_lights(a['names'], on=True)
+        if action == 'turn_lights_off':
+            return lambda a=args: self._turn_lights(a['names'], on=False)
+        if action == 'speaker_announce':
+            return lambda a=args: self._on_speaker_announce_cron(a['lang'], a['msg'], a['vol'])
+
+        method = getattr(self, f'_{action}', None)
+        if method is None:
+            log.error("Scheduled job action '_%s' not found, skipping", action)
+        return method
+
+    def _turn_lights(self, light_names, on):
+        """Turn a list of lights on or off by name."""
+        for name in light_names:
+            thing = self._z2m.get_thing(name)
+            if thing is None:
+                log.error("Scheduled job: light '%s' not found", name)
+                continue
+            if on:
+                thing.turn_on()
+            else:
+                thing.turn_off()
+            log.info("Scheduled job: turned %s %s", name, "on" if on else "off")
+        self._z2m.broadcast_things(light_names)
 
     def _check_and_turn_off_lights(self):
         """

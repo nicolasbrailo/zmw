@@ -1,6 +1,6 @@
 include ../common.mk
 
-rebuild_deps: pipenv_rebuild_deps_base
+rebuild_deps: pipenv_rebuild_deps_base_geo
 	pipenv install -e "$(shell readlink -f "$(PWD)/../zz2m")"
 
 test_listen:

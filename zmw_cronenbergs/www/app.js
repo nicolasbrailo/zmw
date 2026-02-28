@@ -94,6 +94,47 @@ class CronenbergMon extends React.Component {
     );
   }
 
+  renderScheduledJobs() {
+    const jobs = this.state.stats.scheduled_jobs || [];
+    if (jobs.length === 0) {
+      return null;
+    }
+
+    const hasSunJobs = jobs.some(j => j.today_time !== undefined);
+
+    return (
+      <div>
+        <h4>Scheduled Jobs</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Schedule</th>
+              {hasSunJobs && <th>Today</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map((job, idx) => (
+              <tr key={idx}>
+                <td>{job.name}</td>
+                <td>{job.schedule}</td>
+                {hasSunJobs && (
+                  <td>
+                    {job.today_time === undefined
+                      ? ''
+                      : job.today_time
+                        ? new Date(job.today_time).toLocaleTimeString()
+                        : 'Done / skipped'}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   render() {
     if (!this.state.stats) {
       return ( <div className="app-loading">Loading...</div> );
@@ -102,7 +143,6 @@ class CronenbergMon extends React.Component {
     const summary = this.calculateSummary();
     const history = this.state.stats.light_check_history;
     const vacationsMode = this.state.stats.vacations_mode;
-    const speakerAnnounce = this.state.stats.speaker_announce || [];
 
     return (
       <div id="CronenbergMonitorContainer">
@@ -112,21 +152,7 @@ class CronenbergMon extends React.Component {
         </div>
 
         {this.renderBatterySection()}
-
-        {speakerAnnounce.length > 0 && (
-          <div className="announcements-section">
-            <h4>Scheduled Announcements</h4>
-            <ul className="announcements-list">
-              {speakerAnnounce.map((announce, idx) => (
-                <li key={idx} className="announcement-item">
-                  <span className="announcement-time">{announce.time}</span>
-                  <span className="announcement-msg">{announce.msg}</span>
-                  <span className="announcement-meta">({announce.lang}, vol: {announce.vol})</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {this.renderScheduledJobs()}
 
         {history.length === 0 ? (
           <p>No light checks recorded yet</p>
