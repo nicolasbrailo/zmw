@@ -7,3 +7,6 @@
 [submodule "zigbee2mqtt2web_extras/thirdparty/PyTelegramBot"]
 	path = zigbee2mqtt2web_extras/thirdparty/PyTelegramBot
 	url = git@github.com:nicolasbrailo/PyTelegramBot.git
+[submodule "zext_libs/PyTelegramBot"]
+	path = zext_libs/PyTelegramBot
+	url = https://github.com/nicolasbrailo/PyTelegramBot
