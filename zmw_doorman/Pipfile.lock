@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "b13b43d8d3566d475f0cbc543469d3484a5cf36640e7d8c8f266026d2bbd4f65"
+            "sha256": "da0b2c16f38a0bcdbbccdce62372a65cb2412fb0cc75b4a9965703dd7534564c"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -206,14 +206,11 @@
             "markers": "python_version >= '3.9'",
             "version": "==3.1.6"
         },
-        "zz2m": {
-            "editable": true,
-            "path": "/home/batman/src/BatiCasa/zigbee2mqtt2web/zz2m"
-        },
         "zzmw-lib": {
             "editable": true,
             "extras": [
-                "geo"
+                "geo",
+                "z2m"
             ],
             "path": "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"
         }
@@ -360,11 +357,11 @@
         },
         "isort": {
             "hashes": [
-                "sha256:184916a933041c7cf718787f7e52064f3c06272aff69a5cb4dc46497bd8911d9",
-                "sha256:fddea59202f231e170e52e71e3510b99c373b6e571b55d9c7b31b679c0fed47c"
+                "sha256:171ac4ff559cdc060bcfff550bc8404a486fee0caab245679c2abe7cb253c78d",
+                "sha256:28b89bc70f751b559aeca209e6120393d43fbe2490de0559662be7a9787e3d75"
             ],
             "markers": "python_full_version >= '3.10.0'",
-            "version": "==8.0.0"
+            "version": "==8.0.1"
         },
         "mccabe": {
             "hashes": [

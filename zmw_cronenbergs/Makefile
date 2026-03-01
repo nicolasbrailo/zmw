@@ -1,7 +1,7 @@
+ZZMW_LIB_EXTRAS = [geo,z2m]
 include ../common.mk
 
-rebuild_deps: pipenv_rebuild_deps_base_geo
-	pipenv install -e "$(shell readlink -f "$(PWD)/../zz2m")"
+rebuild_deps: pipenv_rebuild_deps_base
 
 test_listen:
 	mosquitto_sub -v -h 127.0.0.1 -t 'zmw_cronenbergs/#'

@@ -13,6 +13,7 @@ setup(
     ],
     extras_require={
         "geo": ["astral"],
+        "z2m": [],
     },
 )
 

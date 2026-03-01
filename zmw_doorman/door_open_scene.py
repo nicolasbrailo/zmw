@@ -2,7 +2,7 @@ from zzmw_lib.geo_helpers import is_sun_out
 import threading
 import time
 
-from zz2m.z2mproxy import Z2MProxy
+from zzmw_lib.z2m.z2mproxy import Z2MProxy
 from zzmw_lib.logs import build_logger
 
 log = build_logger("DoorOpenScene")

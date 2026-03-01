@@ -34,7 +34,7 @@ ZMW is pretty simple:
 * zzmw_lib/www has all of the web helpers, including css and base app js helpers. An app needs to be started by its html.
 * zzmw_lib/zzmw_lib/*mqtt* has different ZMW service base classes. Pick one for your new service.
 * zzmw_lib/zzmw_lib/service_runner is what launches the service. It will start a flask server and your app in parallel, and handle things like journal logs and basic www styles
-* zz2m is the proxy to zigbee2mqtt
+* zzmw_lib/zzmw_lib/z2m is the proxy to zigbee2mqtt
 
 Start a new service by copying an existing one. Then:
 

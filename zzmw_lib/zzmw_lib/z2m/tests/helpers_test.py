@@ -2,8 +2,8 @@ from setup import get_a_lamp
 
 import json
 import unittest
-from zz2m.thing import parse_from_zigbee2mqtt
-from zz2m.helpers import bind_callbacks_to_z2m_actions
+from zzmw_lib.z2m.thing import parse_from_zigbee2mqtt
+from zzmw_lib.z2m.helpers import bind_callbacks_to_z2m_actions
 
 
 class TestBindCallbacks(unittest.TestCase):

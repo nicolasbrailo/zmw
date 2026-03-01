@@ -3,10 +3,10 @@ import os
 import pathlib
 from flask import request
 
-from zz2m.helpers import bind_callbacks_to_z2m_actions
+from zzmw_lib.z2m.helpers import bind_callbacks_to_z2m_actions
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
-from zz2m.z2mproxy import Z2MProxy
+from zzmw_lib.z2m.z2mproxy import Z2MProxy
 
 log = build_logger("ButtonActionService")
 

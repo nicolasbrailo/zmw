@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.logs import build_logger
-from zz2m.z2mproxy import Z2MProxy
-from zz2m.thing import create_virtual_thing
+from zzmw_lib.z2m.z2mproxy import Z2MProxy
+from zzmw_lib.z2m.thing import create_virtual_thing
 
 from rules import create_rules_from_config
 from schedule_builder import ScheduleBuilder

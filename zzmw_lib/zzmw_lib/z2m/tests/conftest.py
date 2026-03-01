@@ -9,10 +9,7 @@ mock_service_runner.build_logger = lambda name: logging.getLogger(name)
 sys.modules['z2m_services'] = MagicMock()
 sys.modules['z2m_services.service_runner'] = mock_service_runner
 
-# Add the z2m package root to sys.path so tests can import modules
-project_root = Path(__file__).parent.parent.parent.parent
-package_root = Path(__file__).parent.parent.parent
-zmw_lib_root = str(project_root) + '/zzmw_lib'
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(package_root))
+# Add the zzmw_lib package root to sys.path so tests can import modules
+# tests/ is at zzmw_lib/zzmw_lib/z2m/tests/
+zmw_lib_root = Path(__file__).parent.parent.parent.parent  # zzmw_lib/
 sys.path.insert(0, str(zmw_lib_root))

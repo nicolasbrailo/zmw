@@ -4,8 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
-zz2m = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zz2m"}
+zzmw-lib = {editable = true, extras = ["z2m"], path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
 flask-sock = "*"
 
 [dev-packages]

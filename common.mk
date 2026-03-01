@@ -46,10 +46,12 @@ _rebuild_ui_finalize:
 install_svc::
 	../scripts/install_svc.sh .
 
-.PHONY: pipenv_rebuild_deps_base pipenv_rebuild_deps_base_geo
-pipenv_rebuild_deps_base: ZZMW_LIB_EXTRAS =
-pipenv_rebuild_deps_base_geo: ZZMW_LIB_EXTRAS = [geo]
-pipenv_rebuild_deps_base pipenv_rebuild_deps_base_geo:
+# Override ZZMW_LIB_EXTRAS in service Makefiles to add optional features.
+# Example: ZZMW_LIB_EXTRAS = [geo,z2m]
+ZZMW_LIB_EXTRAS ?=
+
+.PHONY: pipenv_rebuild_deps_base
+pipenv_rebuild_deps_base:
 	rm -f Pipfile Pipfile.lock
 	pipenv --rm || true
 	pipenv --python python3

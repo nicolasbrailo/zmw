@@ -6,7 +6,7 @@ import urllib.request
 import urllib.error
 
 from zzmw_lib.logs import build_logger
-from zz2m.thing import create_virtual_thing
+from zzmw_lib.z2m.thing import create_virtual_thing
 from virtual_metrics import get_virtual_metrics, compute_virtual_metrics
 
 log = build_logger("OutsideWeather")

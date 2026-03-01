@@ -11,9 +11,9 @@ from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.geo_helpers import get_sun_times
 
-from zz2m.z2mproxy import Z2MProxy
-from zz2m.light_helpers import turn_all_lights_off
-from zz2m.www import Z2Mwebservice
+from zzmw_lib.z2m.z2mproxy import Z2MProxy
+from zzmw_lib.z2m.light_helpers import turn_all_lights_off
+from zzmw_lib.z2m.www import Z2Mwebservice
 
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger

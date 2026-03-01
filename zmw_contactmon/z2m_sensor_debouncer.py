@@ -2,7 +2,7 @@ from collections import deque
 from datetime import datetime
 
 from zzmw_lib.logs import build_logger
-from zz2m.z2mproxy import Z2MProxy
+from zzmw_lib.z2m.z2mproxy import Z2MProxy
 
 log = build_logger("Z2mContactSensorDebouncer")
 

@@ -11,8 +11,8 @@ from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 
-from zz2m.z2mproxy import Z2MProxy
-from zz2m.www import Z2Mwebservice
+from zzmw_lib.z2m.z2mproxy import Z2MProxy
+from zzmw_lib.z2m.www import Z2Mwebservice
 
 log = build_logger("ZmwLights")
 

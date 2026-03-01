@@ -7,9 +7,9 @@ from setup import get_motion_sensor
 
 import json
 import unittest
-from zz2m.thing import parse_from_zigbee2mqtt
-from zz2m.thing import Zigbee2MqttAction
-from zz2m.thing import Zigbee2MqttActionValue
+from zzmw_lib.z2m.thing import parse_from_zigbee2mqtt
+from zzmw_lib.z2m.thing import Zigbee2MqttAction
+from zzmw_lib.z2m.thing import Zigbee2MqttActionValue
 
 
 class TestThings(unittest.TestCase):

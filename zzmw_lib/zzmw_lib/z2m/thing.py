@@ -6,7 +6,7 @@ import json
 from json import JSONDecodeError
 
 from zzmw_lib.logs import build_logger
-from zz2m.thing_extras import ThingExtras
+from zzmw_lib.z2m.thing_extras import ThingExtras
 
 log = build_logger("Z2M")
 
