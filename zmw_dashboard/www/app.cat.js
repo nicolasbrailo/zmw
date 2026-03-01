@@ -935,12 +935,15 @@ class CatFeeder extends React.Component {
               </thead>
               <tbody>
                 {this.state.feedHistory.map((entry, index) => {
-                  const timeRequested = entry.time_requested
-                    ? new Date(entry.time_requested).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
-                    : '-';
-                  const timeAcknowledged = entry.time_acknowledged
-                    ? new Date(entry.time_acknowledged).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
-                    : '?';
+                  const fmtDate = (d) => {
+                    const dt = new Date(d);
+                    const time = dt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                    const day = dt.getDate();
+                    const mon = dt.toLocaleString([], {month: 'short'});
+                    return `${time} ${day} ${mon}`;
+                  };
+                  const timeRequested = entry.time_requested ? fmtDate(entry.time_requested) : '-';
+                  const timeAcknowledged = entry.time_acknowledged ? fmtDate(entry.time_acknowledged) : '?';
                   const isError = entry.time_acknowledged === null || entry.error !== null;
                   return (
                     <tr key={index} className={isError ? 'warn' : ''}>
