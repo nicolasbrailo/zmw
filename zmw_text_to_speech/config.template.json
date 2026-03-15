@@ -8,6 +8,12 @@
     "defaults": {
       "es": "es_AR-daniela-high",
       "en": "en_GB-cori-medium"
-    }
+    },
+    "COMMENT_length_scale": "Speech speed. 1.0=normal, 0.5=2x fast, 2.0=2x slow.",
+    "length_scale": 1.1,
+    "COMMENT_noise_scale": "Voice expressiveness. 0=robotic/deterministic, 0.667=natural default, 1.0+=more lively but less clean.",
+    "noise_scale": 0.9,
+    "COMMENT_noise_w_scale": "Speech rhythm variation. 0=mechanical timing, 0.8=natural default, 1.0+=exaggerated rhythm.",
+    "noise_w_scale": 0.9
   }
 }

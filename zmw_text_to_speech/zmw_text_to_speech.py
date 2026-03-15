@@ -1,4 +1,6 @@
 import json
+import os
+import pathlib
 import threading
 
 from zzmw_lib.logs import build_logger
@@ -10,18 +12,20 @@ from tts import Tts
 log = build_logger("ZmwTextToSpeech")
 
 
+def _preload_tts():
+    cfg = {}
+    if os.path.exists('config.json'):
+        with open('config.json', 'r') as fp:
+            cfg = json.load(fp)
+    return Tts(cfg.get('tts', {}))
+
+
 class ZmwTextToSpeech(ZmwMqttService):
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_text_to_speech", scheduler=_sched)
-        self._tts = None
-        self._tts_cfg = cfg.get('tts', {})
-        threading.Thread(target=self._load_tts, daemon=True).start()
-
-    def _load_tts(self):
-        try:
-            self._tts = Tts(self._tts_cfg)
-        except Exception:
-            log.error("Failed to load TTS engine. Service will stay running but TTS is disabled.", exc_info=True)
+        self._tts = _preloaded_tts
+        www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
+        self._public_url_base = www.register_www_dir(www_path)
 
     def get_mqtt_description(self):
         return {
@@ -68,23 +72,14 @@ class ZmwTextToSpeech(ZmwMqttService):
             case "tts":
                 self._on_mqtt_synthesize(payload)
             case "get_voices":
-                self._on_get_voices()
+                self.publish_own_svc_message("get_voices_reply", self._tts.get_voices())
             case "get_mqtt_description":
                 self.publish_own_svc_message("get_mqtt_description_reply",
                     self.get_mqtt_description())
             case _:
                 log.warning("Ignoring unknown message '%s'", subtopic)
 
-    def _on_get_voices(self):
-        if not self._tts:
-            log.error("Ignoring get_voices request, TTS engine not loaded")
-            return
-        self.publish_own_svc_message("get_voices_reply", self._tts.get_voices())
-
     def _on_mqtt_synthesize(self, msg):
-        if not self._tts:
-            log.error("Ignoring synthesize request, TTS engine not loaded")
-            return
         text = msg.get('text')
         if not text:
             log.error("Synthesize request has no text: %s", msg)
@@ -105,4 +100,5 @@ class ZmwTextToSpeech(ZmwMqttService):
         self.publish_own_svc_message("tts_reply", result)
 
 
+_preloaded_tts = _preload_tts()
 service_runner(ZmwTextToSpeech)

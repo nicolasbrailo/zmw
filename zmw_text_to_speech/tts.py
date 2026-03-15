@@ -6,6 +6,7 @@ import tempfile
 import time
 import wave
 
+from piper.config import SynthesisConfig
 from piper.voice import PiperVoice
 
 from zzmw_lib.logs import build_logger
@@ -28,6 +29,12 @@ class Tts:
         self._default_language = cfg.get('default_language', 'en')
         self._output_dir = cfg.get('output_dir', tempfile.gettempdir())
         os.makedirs(self._output_dir, exist_ok=True)
+
+        self._syn_config = SynthesisConfig(
+            length_scale=cfg.get('length_scale', 1.0),
+            noise_scale=cfg.get('noise_scale', 0.667),
+            noise_w_scale=cfg.get('noise_w_scale', 0.8),
+        )
 
         model_dir = cfg.get('model_dir', './tts_model')
         defaults = cfg.get('defaults', {})
@@ -124,7 +131,7 @@ class Tts:
         mp3_path = os.path.join(self._output_dir, f"tts_{text_hash}.mp3")
 
         with wave.open(wav_path, 'wb') as wav_file:
-            voice.synthesize_wav(text, wav_file)
+            voice.synthesize_wav(text, wav_file, syn_config=self._syn_config)
 
         subprocess.run(
             ['ffmpeg', '-y', '-i', wav_path, '-q:a', '2', mp3_path],
