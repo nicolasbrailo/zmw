@@ -4,6 +4,8 @@
   "http_port": 4203,
   "tts_assets_cache_path": "/tmp",
   "tts_default_lang": "es",
+  "COMMENT_tts_mode": "TTS backend: auto (use zmw_text_to_speech if available, fallback to google), force_google_tts, force_zmw_tts",
+  "tts_mode": "auto",
 
   "COMMENT1_API": "An API key is needed to do graceful announcements in Sonos. Without an API key, announcements only work if",
   "COMMENT2_API": "no other media is playing at the moment. You should register your own API key at developer.sonos.com.",

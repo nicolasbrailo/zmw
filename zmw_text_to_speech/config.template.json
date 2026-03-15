@@ -1,0 +1,13 @@
+{
+  "tts": {
+    "COMMENT_model_dir": "Directory containing .onnx voice models. All .onnx files are auto-discovered and loaded.",
+    "model_dir": "./tts_model",
+    "COMMENT_default_language": "Default language when no language is specified in a request.",
+    "default_language": "en",
+    "COMMENT_defaults": "Override which voice to use for a language or locale. Keys can be lang (es) or locale (en_US). Values must be valid voice IDs found in model_dir.",
+    "defaults": {
+      "es": "es_AR-daniela-high",
+      "en": "en_GB-cori-medium"
+    }
+  }
+}

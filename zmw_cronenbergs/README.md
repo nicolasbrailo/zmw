@@ -61,7 +61,7 @@ Service stats
 |-------|-------------|
 | `light_check_history` | light check events |
 | `vacations_mode` | bool, vacation mode enabled |
-| `speaker_announce` | List of scheduled speaker announcements |
+| `scheduled_jobs` | List of scheduled jobs and their config |
 | `battery_things` | List of devices and their battery levels |
 
 #### `get_mqtt_description_reply`

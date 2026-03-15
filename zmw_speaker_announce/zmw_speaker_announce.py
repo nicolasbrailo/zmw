@@ -4,6 +4,7 @@ import shutil
 import os
 import pathlib
 import subprocess
+import threading
 from collections import deque
 from datetime import datetime
 
@@ -45,20 +46,32 @@ def save_audio_as_mp3(audio_file, output_dir):
     return mp3_path
 
 
-TTS_LANGUAGES = [
+GOOGLE_TTS_LANGUAGES = [
     {"value": "es-ES", "label": "ES"},
     {"value": "es-419", "label": "es 419"},
     {"value": "en-GB", "label": "EN GB"},
 ]
 
+_ZMW_TTS_TIMEOUT = 5
+_ZMW_TTS_VOICES_TIMEOUT = 2
+
 
 class ZmwSpeakerAnnounce(ZmwMqttService):
     """MQTT proxy for Sonos speaker announcements."""
     def __init__(self, cfg, www, _sched):
-        super().__init__(cfg, "zmw_speaker_announce", scheduler=_sched)
+        super().__init__(cfg, "zmw_speaker_announce", scheduler=_sched,
+                         svc_deps=["ZmwTextToSpeech"])
         self._cfg = cfg
         self._announce_vol = cfg['announce_volume']
         self._announcement_history = deque(maxlen=10)
+
+        # TTS mode: "auto" (default), "force_google_tts", "force_zmw_tts"
+        self._tts_mode = cfg.get('tts_mode', 'auto')
+        self._zmw_tts_voices = None
+
+        # Async MQTT request-reply: (expected_subtopic, threading.Event, [result])
+        self._pending_reply = None
+        self._pending_reply_lock = threading.Lock()
 
         # Save cache path for tts and register it as a www dir, to serve assets
         self._tts_assets_cache_path = cfg['tts_assets_cache_path']
@@ -83,7 +96,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._https.serve_url('/ls_speakers', lambda: json.dumps(sorted(list(get_sonos_by_name()))))
         self._https.serve_url('/announcement_history', lambda: json.dumps(list(self._announcement_history)))
         self._https.serve_url('/svc_config', lambda: json.dumps({'https_server': self._https.server_url}))
-        self._https.serve_url('/tts_languages', lambda: json.dumps(TTS_LANGUAGES))
+        self._https.serve_url('/tts_languages', lambda: json.dumps(self._get_tts_languages()))
 
         # Start the HTTPS server (if certs available)
         self._https.start()
@@ -100,6 +113,112 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             'uri': uri
         }
         self._announcement_history.append(entry)
+
+    # --- ZMW TTS integration ---
+
+    def _use_zmw_tts(self):
+        """Whether zmw_text_to_speech should be attempted for synthesis."""
+        if self._tts_mode == 'force_google_tts':
+            return False
+        if self._tts_mode == 'force_zmw_tts':
+            return True
+        return self._zmw_tts_voices is not None
+
+    def _can_fallback_to_google(self):
+        return self._tts_mode != 'force_zmw_tts'
+
+    def _get_tts_languages(self):
+        if self._use_zmw_tts():
+            return [{"value": v["voice_id"], "label": f"{v['name']} ({v['locale']})"}
+                    for v in self._zmw_tts_voices]
+        return GOOGLE_TTS_LANGUAGES
+
+    def _mqtt_request(self, service, command, payload, reply_subtopic, timeout):
+        """Send MQTT command to a dependency and wait for its reply. Returns payload or None."""
+        event = threading.Event()
+        result = [None]
+        with self._pending_reply_lock:
+            self._pending_reply = (reply_subtopic, event, result)
+        try:
+            self.message_svc(service, command, payload)
+            if event.wait(timeout=timeout):
+                return result[0]
+            return None
+        finally:
+            with self._pending_reply_lock:
+                self._pending_reply = None
+
+    def on_dep_published_message(self, svc_name, subtopic, payload):
+        with self._pending_reply_lock:
+            if self._pending_reply and subtopic == self._pending_reply[0]:
+                self._pending_reply[2][0] = payload
+                self._pending_reply[1].set()
+                return
+
+    def on_all_service_deps_running(self):
+        if self._tts_mode == 'force_google_tts':
+            return
+        # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
+        threading.Thread(target=self._fetch_zmw_tts_voices, daemon=True).start()
+
+    def _fetch_zmw_tts_voices(self, retries=3):
+        """Request voice list from ZmwTextToSpeech, retrying to allow subscription to settle."""
+        import time
+        for attempt in range(retries):
+            result = self._mqtt_request("ZmwTextToSpeech", "get_voices", {},
+                                        "get_voices_reply", timeout=_ZMW_TTS_VOICES_TIMEOUT)
+            if result is not None and len(result) > 0:
+                self._zmw_tts_voices = result
+                log.info("ZMW TTS available with %d voices", len(result))
+                return
+            if attempt < retries - 1:
+                log.info("ZMW TTS get_voices attempt %d/%d failed, retrying...", attempt + 1, retries)
+                time.sleep(2)
+        log.warning("ZMW TTS get_voices returned no voices after %d attempts", retries)
+
+    def _get_tts_asset(self, text, lang_or_voice):
+        """Get a TTS mp3 asset. Returns local filename within the cache dir.
+
+        When zmw_tts is active, lang_or_voice is a voice_id (from web) or language code (from MQTT).
+        Falls back to Google TTS if zmw_tts fails and fallback is allowed.
+        """
+        if self._use_zmw_tts():
+            local_fname = self._request_zmw_tts(text, lang_or_voice)
+            if local_fname:
+                return local_fname
+            if self._can_fallback_to_google():
+                log.warning("ZMW TTS failed for '%s', falling back to Google TTS", text)
+                return get_local_path_tts(self._tts_assets_cache_path, text,
+                                          self._cfg['tts_default_lang'])
+            raise RuntimeError("ZMW TTS failed and no fallback available")
+        return get_local_path_tts(self._tts_assets_cache_path, text, lang_or_voice)
+
+    def _request_zmw_tts(self, text, lang_or_voice):
+        """Send TTS request to ZmwTextToSpeech, copy result to local cache. Returns filename or None."""
+        # If the value looks like a voice_id (contains '-'), use it as speaker;
+        # otherwise treat it as a language code
+        payload = {"text": text}
+        if lang_or_voice and '-' in lang_or_voice:
+            payload["speaker"] = lang_or_voice
+        elif lang_or_voice:
+            payload["language"] = lang_or_voice
+
+        result = self._mqtt_request("ZmwTextToSpeech", "tts", payload,
+                                    "tts_reply", timeout=_ZMW_TTS_TIMEOUT)
+        if not result or 'mp3_path' not in result:
+            log.warning("ZMW TTS request timed out or returned no path")
+            return None
+
+        mp3_path = result['mp3_path']
+        if not os.path.isfile(mp3_path):
+            log.warning("ZMW TTS returned path '%s' but file doesn't exist", mp3_path)
+            return None
+
+        fname = os.path.basename(mp3_path)
+        dest = os.path.join(self._tts_assets_cache_path, fname)
+        if mp3_path != dest:
+            shutil.copy2(mp3_path, dest)
+        return fname
 
     def get_mqtt_description(self):
         return {
@@ -159,7 +278,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if txt is None:
             return abort(400, "Message has no phrase")
 
-        local_path = get_local_path_tts(self._tts_assets_cache_path, txt, lang)
+        local_path = self._get_tts_asset(txt, lang)
         remote_path = f"{self._public_tts_base}/{local_path}"
         self._record_announcement(txt, lang, vol, remote_path)
         sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
@@ -211,8 +330,17 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if 'msg' not in payload:
             log.error("Received request for tts, but payload has no msg")
             return
+        # Run in a thread: _get_tts_asset may block waiting for a ZMW TTS MQTT reply,
+        # and we can't block the MQTT callback thread (would deadlock)
+        threading.Thread(target=self._tts_and_play_worker, args=(payload,), daemon=True).start()
+
+    def _tts_and_play_worker(self, payload):
         lang = payload.get('lang', self._cfg['tts_default_lang'])
-        local_path = get_local_path_tts(self._tts_assets_cache_path, payload['msg'], lang)
+        try:
+            local_path = self._get_tts_asset(payload['msg'], lang)
+        except RuntimeError:
+            log.error("TTS failed for '%s'", payload['msg'], exc_info=True)
+            return
         remote_path = f"{self._public_tts_base}/{local_path}"
         msg = {'local_path': local_path, 'uri': remote_path}
         self.publish_own_svc_message("tts_reply", msg)

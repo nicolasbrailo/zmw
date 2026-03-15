@@ -37,7 +37,13 @@ class TTSAnnounce extends React.Component {
 
   on_app_became_visible() {
     mJsonGet(`${this.props.api_base_path}/ls_speakers`, (data) => this.setState({ speakerList: data }));
-    mJsonGet(`${this.props.api_base_path}/tts_languages`, (data) => this.setState({ ttsLanguages: data }));
+    mJsonGet(`${this.props.api_base_path}/tts_languages`, (data) => {
+      const update = { ttsLanguages: data };
+      if (data && data.length > 0 && !data.find(l => l.value === this.state.ttsLang)) {
+        update.ttsLang = data[0].value;
+      }
+      this.setState(update);
+    });
     mJsonGet(`${this.props.api_base_path}/svc_config`, (data) => this.setState({ httpsServer: data.https_server }));
     this.fetchAnnouncementHistory();
   }

@@ -57,7 +57,7 @@ If a mismatch is detected, the service corrects it automatically. A 1-second bac
 
 ## MQTT
 
-**Topic:** `zmw_cat_feeder`
+**Topic:** `zmw_cat_snack_dispenser`
 
 ### Commands
 
