@@ -129,8 +129,13 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
     def _get_tts_languages(self):
         if self._use_zmw_tts():
-            return [{"value": v["voice_id"], "label": f"{v['name']} ({v['locale']})"}
-                    for v in self._zmw_tts_voices]
+            langs = []
+            for v in self._zmw_tts_voices:
+                entry = {"value": v["voice_id"], "label": f"{v['name']} ({v['locale']})"}
+                if v.get("default_fallback"):
+                    entry["default"] = True
+                langs.append(entry)
+            return langs
         return GOOGLE_TTS_LANGUAGES
 
     def _mqtt_request(self, service, command, payload, reply_subtopic, timeout):
@@ -155,11 +160,11 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                 self._pending_reply[1].set()
                 return
 
-    def on_all_service_deps_running(self):
-        if self._tts_mode == 'force_google_tts':
-            return
-        # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
-        threading.Thread(target=self._fetch_zmw_tts_voices, daemon=True).start()
+    def on_service_came_up(self, service_name):
+        super().on_service_came_up(service_name)
+        if service_name == "ZmwTextToSpeech" and self._tts_mode != 'force_google_tts':
+            # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
+            threading.Thread(target=self._fetch_zmw_tts_voices, daemon=True).start()
 
     def _fetch_zmw_tts_voices(self, retries=3):
         """Request voice list from ZmwTextToSpeech, retrying to allow subscription to settle."""
