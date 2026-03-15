@@ -17,6 +17,7 @@ class TTSAnnounce extends React.Component {
       ttsVolume: 50,
       isRecording: false,
       speakerList: null,
+      ttsLanguages: null,
       announcementHistory: [],
       historyExpanded: false,
       httpsServer: null,
@@ -36,6 +37,7 @@ class TTSAnnounce extends React.Component {
 
   on_app_became_visible() {
     mJsonGet(`${this.props.api_base_path}/ls_speakers`, (data) => this.setState({ speakerList: data }));
+    mJsonGet(`${this.props.api_base_path}/tts_languages`, (data) => this.setState({ ttsLanguages: data }));
     mJsonGet(`${this.props.api_base_path}/svc_config`, (data) => this.setState({ httpsServer: data.https_server }));
     this.fetchAnnouncementHistory();
   }
@@ -157,10 +159,9 @@ class TTSAnnounce extends React.Component {
           <select
             value={this.state.ttsLang}
             onChange={e => this.setState({ ttsLang: e.target.value })}>
-            { /* https://developers.google.com/assistant/console/languages-locales */ }
-            <option value="es-ES">ES</option>
-            <option value="es-419">es 419</option>
-            <option value="en-GB">EN GB</option>
+            {this.state.ttsLanguages && this.state.ttsLanguages.map(lang =>
+              <option key={lang.value} value={lang.value}>{lang.label}</option>
+            )}
           </select>
 
           {!this.canRecordMic ? (

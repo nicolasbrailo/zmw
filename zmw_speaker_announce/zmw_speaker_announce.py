@@ -45,6 +45,13 @@ def save_audio_as_mp3(audio_file, output_dir):
     return mp3_path
 
 
+TTS_LANGUAGES = [
+    {"value": "es-ES", "label": "ES"},
+    {"value": "es-419", "label": "es 419"},
+    {"value": "en-GB", "label": "EN GB"},
+]
+
+
 class ZmwSpeakerAnnounce(ZmwMqttService):
     """MQTT proxy for Sonos speaker announcements."""
     def __init__(self, cfg, www, _sched):
@@ -76,6 +83,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._https.serve_url('/ls_speakers', lambda: json.dumps(sorted(list(get_sonos_by_name()))))
         self._https.serve_url('/announcement_history', lambda: json.dumps(list(self._announcement_history)))
         self._https.serve_url('/svc_config', lambda: json.dumps({'https_server': self._https.server_url}))
+        self._https.serve_url('/tts_languages', lambda: json.dumps(TTS_LANGUAGES))
 
         # Start the HTTPS server (if certs available)
         self._https.start()
