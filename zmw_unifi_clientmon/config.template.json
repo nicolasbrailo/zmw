@@ -1,0 +1,12 @@
+{
+  "unifi_controller": "https://YOUR_CONTROLLER:8443",
+  "unifi_username": "YOUR_USERNAME",
+  "unifi_password": "YOUR_PASSWORD",
+  "poll_interval_secs": 3,
+  "event_history_len": 100,
+  "COMMENT_interesting_devices": "Leave empty to announce on any device join/leave",
+  "interesting_devices": [
+    "My-Phone-Hostname",
+    "aa:bb:cc:dd:ee:ff"
+  ]
+}

@@ -1,0 +1,91 @@
+class UnifiClientmon extends React.Component {
+  static buildProps() {
+    return {
+      key: 'UnifiClientmon',
+    };
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = {
+      clients: null,
+      events: null,
+    };
+    this.fetchData = this.fetchData.bind(this);
+  }
+
+  async componentDidMount() {
+    this.fetchData();
+  }
+
+  on_app_became_visible() {
+    this.fetchData();
+  }
+
+  fetchData() {
+    mJsonGet('/clients', (res) => {
+      this.setState({ clients: res });
+    });
+    mJsonGet('/events', (res) => {
+      this.setState({ events: res });
+    });
+  }
+
+  formatTimestamp(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleString();
+  }
+
+  render() {
+    if (!this.state.clients || !this.state.events) {
+      return ( <div className="app-loading">Loading...</div> );
+    }
+
+    return (
+      <div id="UnifiClientmonContainer">
+        <h3>Connected Interesting Devices</h3>
+        {this.state.clients.length === 0 ? (
+          <p>No interesting devices connected</p>
+        ) : (
+          <table>
+            <thead>
+              <tr><th>Hostname</th><th>MAC</th><th>IP</th></tr>
+            </thead>
+            <tbody>
+              {this.state.clients.map((c, idx) => (
+                <tr key={idx}>
+                  <td>{c.hostname}</td>
+                  <td>{c.mac}</td>
+                  <td>{c.ip}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <h3>Event History</h3>
+        {this.state.events.length === 0 ? (
+          <p>No events yet</p>
+        ) : (
+          <ul>
+            {[...this.state.events].reverse().map((ev, idx) => (
+              <li key={idx}>
+                <span style={{ color: ev.event === 'joined' ? '#4caf50' : '#ff6b6b', fontWeight: 'bold' }}>
+                  {ev.event.toUpperCase()}
+                </span>
+                {' '}
+                <span>{ev.hostname} ({ev.mac}) {ev.ip}</span>
+                {' '}
+                <span style={{ color: '#888', fontSize: '0.9em' }}>
+                  {this.formatTimestamp(ev.time)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+}
+
+z2mStartReactApp('#app_root', UnifiClientmon);
