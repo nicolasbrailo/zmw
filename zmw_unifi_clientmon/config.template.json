@@ -8,5 +8,14 @@
   "interesting_devices": [
     "My-Phone-Hostname",
     "aa:bb:cc:dd:ee:ff"
-  ]
+  ],
+
+  "device_owners_comment": "Map user names to device hostnames or MACs for presence detection",
+  "device_owners": {
+    "User1": ["My-Phone-Hostname"],
+    "User2": ["aa:bb:cc:dd:ee:ff", "AnotherPhone"]
+  },
+
+  "leave_cooldown_secs_comment": "Suppress repeated leave events for a user within this window (flaky WiFi guard)",
+  "leave_cooldown_secs": 60
 }

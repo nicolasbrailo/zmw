@@ -10,6 +10,7 @@ class UnifiClientmon extends React.Component {
     this.state = {
       clients: null,
       events: null,
+      presence: null,
     };
     this.fetchData = this.fetchData.bind(this);
   }
@@ -29,6 +30,9 @@ class UnifiClientmon extends React.Component {
     mJsonGet('/events', (res) => {
       this.setState({ events: res });
     });
+    mJsonGet('/presence', (res) => {
+      this.setState({ presence: res });
+    });
   }
 
   formatTimestamp(isoString) {
@@ -37,12 +41,30 @@ class UnifiClientmon extends React.Component {
   }
 
   render() {
-    if (!this.state.clients || !this.state.events) {
+    if (!this.state.clients || !this.state.events || !this.state.presence) {
       return ( <div className="app-loading">Loading...</div> );
     }
 
+    const presenceEntries = Object.entries(this.state.presence);
+
     return (
       <div id="UnifiClientmonContainer">
+        <h3>User Presence</h3>
+        {presenceEntries.length === 0 ? (
+          <p>No presence data yet</p>
+        ) : (
+          <ul>
+            {presenceEntries.map(([user, isHome]) => (
+              <li key={user}>
+                <span style={{ color: isHome ? '#4caf50' : '#ff6b6b', fontWeight: 'bold' }}>
+                  {isHome ? 'HOME' : 'AWAY'}
+                </span>
+                {' '}{user}
+              </li>
+            ))}
+          </ul>
+        )}
+
         <h3>Connected Interesting Devices</h3>
         {this.state.clients.length === 0 ? (
           <p>No interesting devices connected</p>
