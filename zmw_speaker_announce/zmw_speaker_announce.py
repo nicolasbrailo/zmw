@@ -11,6 +11,7 @@ from datetime import datetime
 from flask import abort, request
 
 from zzmw_lib.logs import build_logger
+from zzmw_lib.mqtt_request_reply import MqttRequestReply
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
@@ -52,7 +53,7 @@ GOOGLE_TTS_LANGUAGES = [
     {"value": "en-GB", "label": "EN GB"},
 ]
 
-_ZMW_TTS_TIMEOUT = 5
+_ZMW_TTS_TIMEOUT = 6
 _ZMW_TTS_VOICES_TIMEOUT = 2
 
 
@@ -69,9 +70,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._tts_mode = cfg.get('tts_mode', 'auto')
         self._zmw_tts_voices = None
 
-        # Async MQTT request-reply: (expected_subtopic, threading.Event, [result])
-        self._pending_reply = None
-        self._pending_reply_lock = threading.Lock()
+        self._rr = MqttRequestReply(self.message_svc)
 
         # Save cache path for tts and register it as a www dir, to serve assets
         self._tts_assets_cache_path = cfg['tts_assets_cache_path']
@@ -138,27 +137,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             return langs
         return GOOGLE_TTS_LANGUAGES
 
-    def _mqtt_request(self, service, command, payload, reply_subtopic, timeout):
-        """Send MQTT command to a dependency and wait for its reply. Returns payload or None."""
-        event = threading.Event()
-        result = [None]
-        with self._pending_reply_lock:
-            self._pending_reply = (reply_subtopic, event, result)
-        try:
-            self.message_svc(service, command, payload)
-            if event.wait(timeout=timeout):
-                return result[0]
-            return None
-        finally:
-            with self._pending_reply_lock:
-                self._pending_reply = None
-
     def on_dep_published_message(self, svc_name, subtopic, payload):
-        with self._pending_reply_lock:
-            if self._pending_reply and subtopic == self._pending_reply[0]:
-                self._pending_reply[2][0] = payload
-                self._pending_reply[1].set()
-                return
+        self._rr.on_reply(subtopic, payload)
 
     def on_service_came_up(self, service_name):
         super().on_service_came_up(service_name)
@@ -170,7 +150,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         """Request voice list from ZmwTextToSpeech, retrying to allow subscription to settle."""
         import time
         for attempt in range(retries):
-            result = self._mqtt_request("ZmwTextToSpeech", "get_voices", {},
+            result = self._rr.request("ZmwTextToSpeech", "get_voices", {},
                                         "get_voices_reply", timeout=_ZMW_TTS_VOICES_TIMEOUT)
             if result is not None and len(result) > 0:
                 self._zmw_tts_voices = result
@@ -208,10 +188,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         elif lang_or_voice:
             payload["language"] = lang_or_voice
 
-        result = self._mqtt_request("ZmwTextToSpeech", "tts", payload,
+        result = self._rr.request("ZmwTextToSpeech", "tts", payload,
                                     "tts_reply", timeout=_ZMW_TTS_TIMEOUT)
         if not result or 'mp3_path' not in result:
-            log.warning("ZMW TTS request timed out or returned no path")
+            log.warning("Can't query ZMW TTS response is '%s'", result)
             return None
 
         mp3_path = result['mp3_path']

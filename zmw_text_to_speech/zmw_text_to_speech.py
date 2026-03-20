@@ -91,6 +91,7 @@ class ZmwTextToSpeech(ZmwMqttService):
             args=(text, language, speaker), daemon=True).start()
 
     def _synthesize_and_publish(self, text, language, speaker):
+        log.info("Received request to TTS '%s'", text)
         mp3_path, voice_id = self._tts.synthesize(text, language=language, speaker=speaker)
         result = {
             'text': text,
@@ -98,6 +99,7 @@ class ZmwTextToSpeech(ZmwMqttService):
             'mp3_path': mp3_path,
         }
         self.publish_own_svc_message("tts_reply", result)
+        log.info("TTS done result='%s'", result)
 
 
 _preloaded_tts = _preload_tts()
