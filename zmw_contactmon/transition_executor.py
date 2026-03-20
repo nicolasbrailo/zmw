@@ -18,6 +18,7 @@ class TransitionExecutor:
         self._skipping_chime = False
         self._scheduler = sched
         self._chime_skip_job = None
+        self._chime_overrides = {}  # (sensor_name, action) -> {"url": url, "job": scheduler_job}
 
         self._chime_skip_default_secs = cfg['chime_skip_default_secs']
         self._chime_skip_min_secs = 5
@@ -94,6 +95,44 @@ class TransitionExecutor:
         self._skip_chime_job_cancel()
         return ""
 
+    def chime_override(self, sensor_name, action, url, timeout=None):
+        """
+        Register a temporary override for sound_asset_announce on a sensor+action.
+        While active, triggers for this sensor+action will play the override URL
+        instead of the configured sound asset.
+        """
+        timeout = timeout or self._chime_skip_default_secs
+        try:
+            timeout = int(timeout)
+        except ValueError:
+            log.warning("chime_override: invalid timeout '%s'", timeout)
+            return abort(400, "Invalid timeout: not a number")
+        if not(self._chime_skip_min_secs < timeout < self._chime_skip_max_secs):
+            log.warning("chime_override: timeout %d not in range [%d, %d]",
+                        timeout, self._chime_skip_min_secs, self._chime_skip_max_secs)
+            return abort(400, "Invalid timeout: not in range")
+
+        key = (sensor_name, action)
+        # Cancel existing override for this key if any
+        if key in self._chime_overrides:
+            old_job = self._chime_overrides[key]["job"]
+            try:
+                self._scheduler.remove_job(old_job.id)
+            except Exception:
+                pass
+
+        run_time = datetime.now() + timedelta(seconds=timeout)
+        job = self._scheduler.add_job(self._remove_chime_override, 'date',
+                                      run_date=run_time, args=[key])
+        self._chime_overrides[key] = {"url": url, "job": job}
+        log.info("chime_override: %s.%s -> %s (timeout %ds)", sensor_name, action, url, timeout)
+        return {'sensor_name': sensor_name, 'action': action, 'url': url, 'timeout': timeout}
+
+    def _remove_chime_override(self, key):
+        if key in self._chime_overrides:
+            log.info("chime_override expired for %s.%s", key[0], key[1])
+            del self._chime_overrides[key]
+
     def on_transition(self, sensor_name, action):
         """ Execute a set of user defined actions for a sensor event. """
         # Z2mContactSensorDebouncer should have validated that this sensor is valid, we can assume
@@ -116,7 +155,7 @@ class TransitionExecutor:
                 case 'tts_announce':
                     self._tts_announce(sensor_name, cfg)
                 case 'sound_asset_announce':
-                    self._sound_asset_announce(sensor_name, cfg)
+                    self._sound_asset_announce(sensor_name, action, cfg)
                 case _:
                     log.error("Requested invalid action %s.%s", sensor_name, act)
 
@@ -141,9 +180,15 @@ class TransitionExecutor:
         log.debug("Sensor %s TTS '%s'", sensor_name, cfg)
         self._svc_mgr.message_svc("ZmwSpeakerAnnounce", "tts", {'msg': cfg['msg'], 'lang': cfg['lang']})
 
-    def _sound_asset_announce(self, sensor_name, cfg):
+    def _sound_asset_announce(self, sensor_name, action, cfg):
         if self._skipping_chime:
             log.info("Skipping announcement: Sensor %s would play '%s'", sensor_name, cfg)
+            return
+        override_key = (sensor_name, action)
+        if override_key in self._chime_overrides:
+            override_url = self._chime_overrides[override_key]["url"]
+            log.info("Sensor %s.%s using chime override: %s", sensor_name, action, override_url)
+            self._svc_mgr.message_svc("ZmwSpeakerAnnounce", "play_asset", {"url": override_url})
             return
         log.debug("Sensor %s plays '%s'", sensor_name, cfg)
         self._svc_mgr.message_svc("ZmwSpeakerAnnounce", "play_asset", cfg)

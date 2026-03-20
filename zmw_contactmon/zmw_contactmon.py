@@ -81,6 +81,15 @@ class ZmwContactmon(ZmwMqttService):
                     "description": "Re-enable chimes immediately",
                     "params": {}
                 },
+                "chime_override": {
+                    "description": "Override sound asset for a sensor+action. Triggers within timeout use this URL instead.",
+                    "params": {
+                        "sensor_name": "Sensor name",
+                        "action": "Transition action (e.g. open, close)",
+                        "url": "URL of sound asset to play",
+                        "timeout?": "Seconds until override expires"
+                    }
+                },
                 "publish_state": {
                     "description": "Get open/closed state of monitored contact sensors. Response on publish_state_reply",
                     "params": {}
@@ -127,6 +136,8 @@ class ZmwContactmon(ZmwMqttService):
             case "enable_chimes":
                 self._exec.enable_chimes()
                 self.publish_own_svc_message("publish_state_reply", self._svc_state())
+            case "chime_override":
+                self._exec.chime_override(msg['sensor_name'], msg['action'], msg['url'], msg.get('timeout'))
             case "publish_state":
                 self.publish_own_svc_message("publish_state_reply", self._svc_state())
             case "get_mqtt_description":

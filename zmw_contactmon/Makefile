@@ -20,3 +20,5 @@ skip_chimes:
 	mosquitto_pub -h localhost -p 1883 -t 'zmw_contactmon/skip_chimes' -m '{"timeout": 42}'
 enable_chimes:
 	mosquitto_pub -h localhost -p 1883 -t 'zmw_contactmon/enable_chimes' -m '{}'
+chime_override:
+	mosquitto_pub -h localhost -p 1883 -t 'zmw_contactmon/chime_override' -m '{"sensor_name": "ContactSensor_FrontDoor", "action": "open", "url": "http://10.0.0.10:4205/beep.mp3", "timeout": 60}'

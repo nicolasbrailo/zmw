@@ -351,3 +351,184 @@ class TestTransitionExecutor:
 
         assert self.executor._chime_skip_job is None
         assert result is False
+
+
+class TestChimeOverride:
+    """Test chime_override functionality"""
+
+    def setup_method(self):
+        self.cfg = {
+            'chime_skip_default_secs': 120,
+            'chime_skip_max_secs': 300
+        }
+        self.scheduler = Mock()
+        self.svc_mgr = Mock()
+        self.actions = {
+            'Sensor1': {
+                'open': {
+                    'telegram': {'msg': 'Door opened'},
+                },
+                'close': {
+                    'sound_asset_announce': {'public_www': 'http://example.com/sound.mp3'}
+                }
+            }
+        }
+        self.executor = TransitionExecutor(
+            self.cfg, self.scheduler, self.svc_mgr, self.actions
+        )
+
+    def test_chime_override_registers(self):
+        """Test chime_override stores override and returns confirmation"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+
+        result = self.executor.chime_override('Sensor1', 'close', 'http://other.com/ding.mp3', 60)
+
+        assert result == {
+            'sensor_name': 'Sensor1', 'action': 'close',
+            'url': 'http://other.com/ding.mp3', 'timeout': 60
+        }
+        assert ('Sensor1', 'close') in self.executor._chime_overrides
+        assert self.executor._chime_overrides[('Sensor1', 'close')]['url'] == 'http://other.com/ding.mp3'
+
+    def test_chime_override_schedules_cleanup_job(self):
+        """Test chime_override schedules a job to remove the override"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+
+        self.executor.chime_override('Sensor1', 'close', 'http://other.com/ding.mp3', 60)
+
+        self.scheduler.add_job.assert_called_once()
+        call_args = self.scheduler.add_job.call_args
+        assert call_args[0][0] == self.executor._remove_chime_override
+        assert call_args[0][1] == 'date'
+        assert call_args[1]['args'] == [('Sensor1', 'close')]
+
+    def test_chime_override_uses_default_timeout(self):
+        """Test chime_override uses default timeout when not specified"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+
+        result = self.executor.chime_override('Sensor1', 'close', 'http://other.com/ding.mp3')
+
+        assert result['timeout'] == 120
+
+    def test_chime_override_invalid_timeout(self):
+        """Test chime_override rejects invalid timeout"""
+        with pytest.raises(Exception):
+            self.executor.chime_override('Sensor1', 'close', 'http://x.com/s.mp3', 'bad')
+
+    def test_chime_override_timeout_too_small(self):
+        """Test chime_override rejects timeout below minimum"""
+        with pytest.raises(Exception):
+            self.executor.chime_override('Sensor1', 'close', 'http://x.com/s.mp3', 3)
+
+    def test_chime_override_timeout_too_large(self):
+        """Test chime_override rejects timeout above maximum"""
+        with pytest.raises(Exception):
+            self.executor.chime_override('Sensor1', 'close', 'http://x.com/s.mp3', 500)
+
+    def test_chime_override_replaces_existing(self):
+        """Test chime_override replaces an existing override for same key"""
+        mock_job1 = Mock()
+        mock_job1.id = 'job1'
+        self.scheduler.add_job.return_value = mock_job1
+        self.executor.chime_override('Sensor1', 'close', 'http://first.com/a.mp3', 60)
+
+        mock_job2 = Mock()
+        mock_job2.id = 'job2'
+        self.scheduler.add_job.return_value = mock_job2
+        self.executor.chime_override('Sensor1', 'close', 'http://second.com/b.mp3', 90)
+
+        # Old job cancelled
+        self.scheduler.remove_job.assert_called_once_with('job1')
+        # New override stored
+        assert self.executor._chime_overrides[('Sensor1', 'close')]['url'] == 'http://second.com/b.mp3'
+
+    def test_sound_asset_uses_override_url(self):
+        """Test on_transition uses override URL instead of configured asset"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+        self.executor.chime_override('Sensor1', 'close', 'http://override.com/chime.mp3', 60)
+
+        self.executor.on_transition('Sensor1', 'close')
+
+        self.svc_mgr.message_svc.assert_called_once_with(
+            'ZmwSpeakerAnnounce', 'play_asset', {'url': 'http://override.com/chime.mp3'}
+        )
+
+    def test_sound_asset_uses_config_without_override(self):
+        """Test on_transition uses configured asset when no override exists"""
+        self.executor.on_transition('Sensor1', 'close')
+
+        self.svc_mgr.message_svc.assert_called_once_with(
+            'ZmwSpeakerAnnounce', 'play_asset',
+            {'public_www': 'http://example.com/sound.mp3'}
+        )
+
+    def test_override_persists_across_multiple_triggers(self):
+        """Test override is used on repeated triggers until it expires"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+        self.executor.chime_override('Sensor1', 'close', 'http://override.com/chime.mp3', 60)
+
+        self.executor.on_transition('Sensor1', 'close')
+        self.executor.on_transition('Sensor1', 'close')
+
+        assert self.svc_mgr.message_svc.call_count == 2
+        for call in self.svc_mgr.message_svc.call_args_list:
+            assert call[0] == ('ZmwSpeakerAnnounce', 'play_asset', {'url': 'http://override.com/chime.mp3'})
+
+    def test_remove_chime_override(self):
+        """Test _remove_chime_override cleans up the override"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+        self.executor.chime_override('Sensor1', 'close', 'http://override.com/chime.mp3', 60)
+
+        self.executor._remove_chime_override(('Sensor1', 'close'))
+
+        assert ('Sensor1', 'close') not in self.executor._chime_overrides
+
+    def test_remove_chime_override_nonexistent_key(self):
+        """Test _remove_chime_override with nonexistent key does not crash"""
+        self.executor._remove_chime_override(('NoSensor', 'nope'))
+
+    def test_override_does_not_affect_other_actions(self):
+        """Test override on one action does not affect other actions for same sensor"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+        self.executor.chime_override('Sensor1', 'open', 'http://override.com/chime.mp3', 60)
+
+        # 'close' should still use configured asset
+        self.executor.on_transition('Sensor1', 'close')
+
+        self.svc_mgr.message_svc.assert_called_once_with(
+            'ZmwSpeakerAnnounce', 'play_asset',
+            {'public_www': 'http://example.com/sound.mp3'}
+        )
+
+    def test_override_skipped_when_chimes_skipped(self):
+        """Test override is not used when chimes are globally skipped"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+        self.executor.chime_override('Sensor1', 'close', 'http://override.com/chime.mp3', 60)
+        self.executor._skipping_chime = True
+
+        self.executor.on_transition('Sensor1', 'close')
+
+        assert self.svc_mgr.message_svc.call_count == 0
+
+    def test_after_override_expires_uses_config(self):
+        """Test that after override is removed, config asset is used again"""
+        mock_job = Mock()
+        self.scheduler.add_job.return_value = mock_job
+        self.executor.chime_override('Sensor1', 'close', 'http://override.com/chime.mp3', 60)
+
+        # Simulate expiry
+        self.executor._remove_chime_override(('Sensor1', 'close'))
+
+        self.executor.on_transition('Sensor1', 'close')
+        self.svc_mgr.message_svc.assert_called_once_with(
+            'ZmwSpeakerAnnounce', 'play_asset',
+            {'public_www': 'http://example.com/sound.mp3'}
+        )
