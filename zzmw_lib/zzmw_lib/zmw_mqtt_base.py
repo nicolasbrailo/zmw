@@ -90,13 +90,13 @@ class ZmwMqttBase(ABC):
 
         client.subscribe(self._global_svc_discovery_ping_topic, qos=1)
 
-        self._topics_with_cb_lock = threading.Lock()
         with self._topics_with_cb_lock:
             for topic in self._topics_with_cb.keys():
+                sub_topic = topic if topic.endswith('/#') else f'{topic}/#'
                 try:
-                    client.subscribe(f'{topic}/#', qos=1)
+                    client.subscribe(sub_topic, qos=1)
                 except ValueError:
-                    log.error("Invalid MQTT subscription filter, skipping: '%s/#'", topic)
+                    log.error("Invalid MQTT subscription filter, skipping: '%s'", sub_topic)
 
         # Announce we're up and running
         log.info('Running MQTT listener thread, client mode only')
