@@ -11,6 +11,7 @@ class UnifiClientmon extends React.Component {
       clients: null,
       events: null,
       presence: null,
+      allDevices: null,
     };
     this.fetchData = this.fetchData.bind(this);
   }
@@ -33,6 +34,9 @@ class UnifiClientmon extends React.Component {
     mJsonGet('/presence', (res) => {
       this.setState({ presence: res });
     });
+    mJsonGet('/all_devices', (res) => {
+      this.setState({ allDevices: res });
+    });
   }
 
   formatTimestamp(isoString) {
@@ -41,11 +45,13 @@ class UnifiClientmon extends React.Component {
   }
 
   render() {
-    if (!this.state.clients || !this.state.events || !this.state.presence) {
+    if (!this.state.clients || !this.state.events || !this.state.presence || !this.state.allDevices) {
       return ( <div className="app-loading">Loading...</div> );
     }
 
     const presenceEntries = Object.entries(this.state.presence);
+    const unknownDevices = this.state.allDevices.filter(d => !d.known);
+    const knownDevices = this.state.allDevices.filter(d => d.known);
 
     return (
       <div id="UnifiClientmonContainer">
@@ -65,25 +71,54 @@ class UnifiClientmon extends React.Component {
           </ul>
         )}
 
-        <h3>Connected Interesting Devices</h3>
-        {this.state.clients.length === 0 ? (
-          <p>No interesting devices connected</p>
-        ) : (
-          <table>
-            <thead>
-              <tr><th>Hostname</th><th>MAC</th><th>IP</th></tr>
-            </thead>
-            <tbody>
-              {this.state.clients.map((c, idx) => (
-                <tr key={idx}>
-                  <td>{c.hostname}</td>
-                  <td>{c.mac}</td>
-                  <td>{c.ip}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {unknownDevices.length > 0 && (
+          <div>
+            <h3 style={{ color: '#ff6b6b' }}>Unknown Devices</h3>
+            <table>
+              <thead>
+                <tr><th>Hostname</th><th>MAC</th><th>IP</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {unknownDevices.map((d, idx) => (
+                  <tr key={idx}>
+                    <td>{d.hostname}</td>
+                    <td>{d.mac}</td>
+                    <td>{d.ip || '-'}</td>
+                    <td>
+                      <span style={{ color: d.online ? '#4caf50' : '#888', fontWeight: 'bold' }}>
+                        {d.online ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
+
+        <h3>All Devices</h3>
+        <table>
+          <thead>
+            <tr><th>Hostname</th><th>MAC</th><th>IP</th><th>Status</th><th>Known</th></tr>
+          </thead>
+          <tbody>
+            {knownDevices.map((d, idx) => (
+              <tr key={idx}>
+                <td>{d.hostname}</td>
+                <td>{d.mac}</td>
+                <td>{d.ip || '-'}</td>
+                <td>
+                  <span style={{ color: d.online ? '#4caf50' : '#888', fontWeight: 'bold' }}>
+                    {d.online ? 'ONLINE' : 'OFFLINE'}
+                  </span>
+                </td>
+                <td>
+                  <span style={{ color: '#4caf50' }}>YES</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         <h3>Event History</h3>
         {this.state.events.length === 0 ? (

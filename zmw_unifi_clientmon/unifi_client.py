@@ -29,6 +29,7 @@ class UnifiClient:
         # {mac: {hostname, mac, ip}} — current and previous snapshots for change detection
         self._previous = None
         self._current = {}
+        self._all_clients = {}
         # If login fails, make sure we fail early, during service startup
         self._login()
 
@@ -71,15 +72,20 @@ class UnifiClient:
         """Return a dict of {mac: {hostname, mac, ip}} for connected interesting devices.
 
         interesting: a set of hostnames and/or MAC addresses to match against.
+        Also updates all_clients with the full unfiltered client list.
         """
         clients = self.get_all_clients()
+        all_parsed = {}
         result = {}
         for c in clients:
             hostname = c.get("hostname") or c.get("name") or "(unknown)"
             mac = c.get("mac", "")
             ip = c.get("ip", "(unknown)")
+            entry = {"hostname": hostname, "mac": mac, "ip": ip}
+            all_parsed[mac] = entry
             if not interesting or hostname in interesting or mac in interesting:
-                result[mac] = {"hostname": hostname, "mac": mac, "ip": ip}
+                result[mac] = entry
+        self._all_clients = all_parsed
         return result
 
     def poll_changes(self, interesting):
@@ -110,3 +116,8 @@ class UnifiClient:
     @property
     def current_clients(self):
         return self._current
+
+    @property
+    def all_clients(self):
+        """All connected clients (unfiltered) from the last poll."""
+        return self._all_clients

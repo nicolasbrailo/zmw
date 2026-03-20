@@ -16,6 +16,7 @@ import requests.exceptions
 
 from unifi_client import UnifiClient, UnsupportedUnifi, AuthError
 from user_device_presence_mon import UserDevicePresenceMon
+from unknown_device_mon import UnknownDeviceMon
 
 log = build_logger("ZmwUnifiClientmon")
 
@@ -38,6 +39,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
             self._on_presence_state_change,
             leave_cooldown_secs=cfg.get('leave_cooldown_secs', 60),
         )
+        self._unknown_device_mon = UnknownDeviceMon()
         self._consecutive_failures = 0
         self._MAX_CONSECUTIVE_FAILURES = 3
 
@@ -46,6 +48,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
         www.serve_url('/clients', lambda: json.dumps(list(self._unifi.current_clients.values()), default=str))
         www.serve_url('/events', lambda: json.dumps(list(self._event_history), default=str))
         www.serve_url('/presence', lambda: json.dumps(self._presence_mon.user_states, default=str))
+        www.serve_url('/all_devices', lambda: json.dumps(self._get_all_devices(), default=str))
 
         _sched.add_job(self._poll_clients, 'interval', seconds=self._poll_interval,
                        next_run_time=datetime.now())
@@ -122,6 +125,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
             return
 
         self._consecutive_failures = 0
+        self._unknown_device_mon.on_poll(self._unifi.all_clients)
 
         if joined is None and left is None:
             # First poll — seed presence state from currently connected clients
@@ -142,6 +146,22 @@ class ZmwUnifiClientmon(ZmwMqttService):
                 log.info("%s: %s (%s) %s", event_type.upper(), info["hostname"], mac, info["ip"])
                 self.publish_own_svc_message(f"client_{event_type}", event)
                 self._presence_mon.on_device_event(event_type, info["hostname"], mac)
+
+    def _get_all_devices(self):
+        online_macs = set(self._unifi.all_clients.keys())
+        known_macs = self._unknown_device_mon.known_macs
+        all_macs = online_macs | known_macs
+        result = []
+        for mac in sorted(all_macs):
+            online_info = self._unifi.all_clients.get(mac)
+            result.append({
+                "hostname": online_info["hostname"] if online_info else mac,
+                "mac": mac,
+                "ip": online_info["ip"] if online_info else None,
+                "online": online_info is not None,
+                "known": mac in known_macs,
+            })
+        return result
 
     def _on_presence_state_change(self, user, new_state, device_id):
         topic = "user_home" if new_state == "home" else "user_away"

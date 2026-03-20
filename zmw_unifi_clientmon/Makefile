@@ -10,5 +10,11 @@ test_ls:
 test_history:
 	mosquitto_pub -t 'zmw_unifi_clientmon/get_history' -m '{}'
 
+test_user_home:
+	mosquitto_pub -t 'zmw_unifi_clientmon/user_home' -m '{"time":"$(shell date -Iseconds)","user":"Nico","device_hostname":"Pixel-9-Pro-XL"}'
+
+test_user_away:
+	mosquitto_pub -t 'zmw_unifi_clientmon/user_away' -m '{"time":"$(shell date -Iseconds)","user":"Nico","device_hostname":"Pixel-9-Pro-XL"}'
+
 sub_svc:
 	mosquitto_sub -h localhost -p 1883 -t 'zmw_unifi_clientmon/#' -v
