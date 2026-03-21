@@ -454,7 +454,7 @@ class TestChimeOverride:
         self.executor.on_transition('Sensor1', 'close')
 
         self.svc_mgr.message_svc.assert_called_once_with(
-            'ZmwSpeakerAnnounce', 'play_asset', {'url': 'http://override.com/chime.mp3'}
+            'ZmwSpeakerAnnounce', 'play_asset', {'public_www': 'http://override.com/chime.mp3'}
         )
 
     def test_sound_asset_uses_config_without_override(self):
@@ -477,7 +477,7 @@ class TestChimeOverride:
 
         assert self.svc_mgr.message_svc.call_count == 2
         for call in self.svc_mgr.message_svc.call_args_list:
-            assert call[0] == ('ZmwSpeakerAnnounce', 'play_asset', {'url': 'http://override.com/chime.mp3'})
+            assert call[0] == ('ZmwSpeakerAnnounce', 'play_asset', {'public_www': 'http://override.com/chime.mp3'})
 
     def test_remove_chime_override(self):
         """Test _remove_chime_override cleans up the override"""

@@ -188,7 +188,7 @@ class TransitionExecutor:
         if override_key in self._chime_overrides:
             override_url = self._chime_overrides[override_key]["url"]
             log.info("Sensor %s.%s using chime override: %s", sensor_name, action, override_url)
-            self._svc_mgr.message_svc("ZmwSpeakerAnnounce", "play_asset", {"url": override_url})
+            self._svc_mgr.message_svc("ZmwSpeakerAnnounce", "play_asset", {"public_www": override_url})
             return
         log.debug("Sensor %s plays '%s'", sensor_name, cfg)
         self._svc_mgr.message_svc("ZmwSpeakerAnnounce", "play_asset", cfg)
