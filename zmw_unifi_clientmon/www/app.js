@@ -12,6 +12,8 @@ class UnifiClientmon extends React.Component {
       events: null,
       presence: null,
       allDevices: null,
+      editingAlias: null, // mac of device being edited
+      aliasInput: '',
     };
     this.fetchData = this.fetchData.bind(this);
   }
@@ -39,9 +41,94 @@ class UnifiClientmon extends React.Component {
     });
   }
 
+  setTrusted(mac, trusted) {
+    fetch('/device_trust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac, trusted }),
+    }).then(() => this.fetchData());
+  }
+
+  startEditAlias(mac, currentAlias) {
+    this.setState({ editingAlias: mac, aliasInput: currentAlias || '' });
+  }
+
+  saveAlias(mac) {
+    fetch('/device_alias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac, alias: this.state.aliasInput }),
+    }).then(() => {
+      this.setState({ editingAlias: null, aliasInput: '' });
+      this.fetchData();
+    });
+  }
+
+  cancelEditAlias() {
+    this.setState({ editingAlias: null, aliasInput: '' });
+  }
+
   formatTimestamp(isoString) {
     const date = new Date(isoString);
     return date.toLocaleString();
+  }
+
+  renderDeviceName(d) {
+    if (d.alias) {
+      return <span>{d.alias} <span style={{ color: '#888', fontSize: '0.85em' }}>({d.hostname})</span></span>;
+    }
+    return d.hostname;
+  }
+
+  renderAliasCell(d) {
+    if (this.state.editingAlias === d.mac) {
+      return (
+        <td>
+          <input
+            type="text"
+            value={this.state.aliasInput}
+            onChange={(e) => this.setState({ aliasInput: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') this.saveAlias(d.mac);
+              if (e.key === 'Escape') this.cancelEditAlias();
+            }}
+            style={{ width: '8em' }}
+            autoFocus
+          />
+          <button onClick={() => this.saveAlias(d.mac)}>Save</button>
+          <button onClick={() => this.cancelEditAlias()}>Cancel</button>
+        </td>
+      );
+    }
+    return (
+      <td>
+        <span
+          onClick={() => this.startEditAlias(d.mac, d.alias)}
+          style={{ cursor: 'pointer', textDecoration: 'underline dotted', color: '#aaa' }}
+          title="Click to edit alias"
+        >
+          {d.alias || '-'}
+        </span>
+      </td>
+    );
+  }
+
+  renderTrustCell(d) {
+    return (
+      <td>
+        <span
+          onClick={() => this.setTrusted(d.mac, !d.trusted)}
+          style={{
+            cursor: 'pointer',
+            color: d.trusted ? '#4caf50' : '#ff6b6b',
+            fontWeight: 'bold',
+          }}
+          title={d.trusted ? 'Click to mark untrusted' : 'Click to mark trusted'}
+        >
+          {d.trusted ? 'TRUSTED' : 'UNTRUSTED'}
+        </span>
+      </td>
+    );
   }
 
   render() {
@@ -50,8 +137,8 @@ class UnifiClientmon extends React.Component {
     }
 
     const presenceEntries = Object.entries(this.state.presence);
-    const unknownDevices = this.state.allDevices.filter(d => !d.known);
-    const knownDevices = this.state.allDevices.filter(d => d.known);
+    const untrustedDevices = this.state.allDevices.filter(d => !d.trusted);
+    const trustedDevices = this.state.allDevices.filter(d => d.trusted);
 
     return (
       <div id="UnifiClientmonContainer">
@@ -71,17 +158,17 @@ class UnifiClientmon extends React.Component {
           </ul>
         )}
 
-        {unknownDevices.length > 0 && (
+        {untrustedDevices.length > 0 && (
           <div>
-            <h3 style={{ color: '#ff6b6b' }}>Unknown Devices</h3>
+            <h3 style={{ color: '#ff6b6b' }}>Untrusted Devices</h3>
             <table>
               <thead>
-                <tr><th>Hostname</th><th>MAC</th><th>IP</th><th>Status</th></tr>
+                <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th></tr>
               </thead>
               <tbody>
-                {unknownDevices.map((d, idx) => (
-                  <tr key={idx}>
-                    <td>{d.hostname}</td>
+                {untrustedDevices.map((d) => (
+                  <tr key={d.mac}>
+                    <td>{this.renderDeviceName(d)}</td>
                     <td>{d.mac}</td>
                     <td>{d.ip || '-'}</td>
                     <td>
@@ -89,6 +176,8 @@ class UnifiClientmon extends React.Component {
                         {d.online ? 'ONLINE' : 'OFFLINE'}
                       </span>
                     </td>
+                    {this.renderTrustCell(d)}
+                    {this.renderAliasCell(d)}
                   </tr>
                 ))}
               </tbody>
@@ -99,12 +188,12 @@ class UnifiClientmon extends React.Component {
         <h3>All Devices</h3>
         <table>
           <thead>
-            <tr><th>Hostname</th><th>MAC</th><th>IP</th><th>Status</th><th>Known</th></tr>
+            <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th></tr>
           </thead>
           <tbody>
-            {knownDevices.map((d, idx) => (
-              <tr key={idx}>
-                <td>{d.hostname}</td>
+            {trustedDevices.map((d) => (
+              <tr key={d.mac}>
+                <td>{this.renderDeviceName(d)}</td>
                 <td>{d.mac}</td>
                 <td>{d.ip || '-'}</td>
                 <td>
@@ -112,9 +201,8 @@ class UnifiClientmon extends React.Component {
                     {d.online ? 'ONLINE' : 'OFFLINE'}
                   </span>
                 </td>
-                <td>
-                  <span style={{ color: '#4caf50' }}>YES</span>
-                </td>
+                {this.renderTrustCell(d)}
+                {this.renderAliasCell(d)}
               </tr>
             ))}
           </tbody>

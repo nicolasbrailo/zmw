@@ -49,6 +49,8 @@ class ZmwUnifiClientmon(ZmwMqttService):
         www.serve_url('/events', lambda: json.dumps(list(self._event_history), default=str))
         www.serve_url('/presence', lambda: json.dumps(self._presence_mon.user_states, default=str))
         www.serve_url('/all_devices', lambda: json.dumps(self._get_all_devices(), default=str))
+        www.serve_url('/device_trust', self._unknown_device_mon.http_set_trusted, methods=['POST'])
+        www.serve_url('/device_alias', self._unknown_device_mon.http_set_alias, methods=['POST'])
 
         _sched.add_job(self._poll_clients, 'interval', seconds=self._poll_interval,
                        next_run_time=datetime.now())
@@ -155,12 +157,15 @@ class ZmwUnifiClientmon(ZmwMqttService):
         result = []
         for mac in sorted(all_macs):
             online_info = self._unifi.all_clients.get(mac)
+            meta = self._unknown_device_mon.get_device_meta(mac)
             result.append({
                 "hostname": online_info["hostname"] if online_info else mac,
                 "mac": mac,
                 "ip": online_info["ip"] if online_info else None,
                 "online": online_info is not None,
                 "known": mac in known_macs,
+                "trusted": meta["trusted"],
+                "alias": meta["alias"],
             })
         return result
 
