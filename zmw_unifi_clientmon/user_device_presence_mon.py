@@ -52,6 +52,14 @@ class UserDevicePresenceMon:
         self._user_devices.setdefault(user, set()).add(device_id)
         self._user_state[user] = True
 
+    def seed_done(self):
+        """Mark any user not seen during seeding as away (without emitting events)."""
+        all_users = set(self._device_to_user.values())
+        for user in all_users:
+            if user not in self._user_state:
+                self._user_state[user] = False
+                log.info("%s seeded as away (no devices connected)", user)
+
     def on_device_event(self, event_type, hostname, mac):
         """Process a device join/leave event.
 

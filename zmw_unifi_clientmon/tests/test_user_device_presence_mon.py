@@ -317,6 +317,37 @@ class TestSeedConnectedDevice:
         cb.assert_called_once_with("Nico", "away", "N-s-S22")
 
 
+class TestSeedDone:
+    """Test that seed_done marks unseeded users as away without callbacks."""
+
+    def test_unseeded_users_marked_away(self):
+        mon, cb = make_mon()
+        mon.seed_connected_device("Pixel-9-Pro-XL", "aa:bb")
+        mon.seed_done()
+        assert mon.user_states == {"Nico": True, "Belen": False}
+        cb.assert_not_called()
+
+    def test_all_users_seeded_no_change(self):
+        mon, cb = make_mon()
+        mon.seed_connected_device("Pixel-9-Pro-XL", "aa:bb")
+        mon.seed_connected_device("Belen-s-S25-Ultra", "cc:dd")
+        mon.seed_done()
+        assert mon.user_states == {"Nico": True, "Belen": True}
+        cb.assert_not_called()
+
+    def test_no_users_seeded_all_away(self):
+        mon, cb = make_mon()
+        mon.seed_done()
+        assert mon.user_states == {"Nico": False, "Belen": False}
+        cb.assert_not_called()
+
+    def test_away_user_joining_after_seed_emits_home(self):
+        mon, cb = make_mon()
+        mon.seed_done()
+        mon.on_device_event("joined", "Belen-s-S25-Ultra", "")
+        cb.assert_called_once_with("Belen", "home", "Belen-s-S25-Ultra")
+
+
 class TestRejoinAfterLeave:
     """Test the full home -> away -> home cycle."""
 

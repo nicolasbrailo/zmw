@@ -131,6 +131,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
             # First poll — seed presence state from currently connected clients
             for mac, info in self._unifi.current_clients.items():
                 self._presence_mon.seed_connected_device(info["hostname"], mac)
+            self._presence_mon.seed_done()
             return
 
         for event_type, clients in (("joined", joined), ("left", left)):
