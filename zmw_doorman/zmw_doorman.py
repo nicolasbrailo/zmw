@@ -21,7 +21,7 @@ class ZmwDoorman(ZmwMqttService):
     def __init__(self, cfg, www, sched):
         super().__init__(cfg, "zmw_doorman", scheduler=sched,
                          svc_deps=['ZmwSpeakerAnnounce', 'ZmwWhatsapp', 'ZmwTelegram',
-                                   'ZmwReolinkCams', 'ZmwContactmon'])
+                                   'ZmwReolinkCams', 'ZmwContactmon', 'ZmwUnifiClientmon'])
         self._cfg = cfg
         # Ensure required config keys exist
         _ = self._cfg["doorbell_announce_volume"]
@@ -32,6 +32,15 @@ class ZmwDoorman(ZmwMqttService):
         self._waiting_on_telegram_snap = None
         self._snap_request_timeout_secs = 5
         self._telegram_cmd_door_snap = 'door_snap'
+
+        self._presence_correlation_window = cfg.get('presence_correlation_window_secs', 60)
+        self._last_user_arrived = {}   # {user: timestamp}
+        self._last_door_open = None    # timestamp or None
+
+        self._user_chime_overrides = {
+            entry["user"].lower(): entry
+            for entry in cfg.get("user_chime_overrides", [])
+        }
 
         self._door_open_scene = DoorOpenScene(cfg, self, sched)
         self._door_stats = DoorStats(sched)
@@ -189,6 +198,11 @@ class ZmwDoorman(ZmwMqttService):
                         self.on_door_motion_timeout()
                     case _:
                         pass
+            case 'ZmwUnifiClientmon':
+                if subtopic == "user_home":
+                    self._on_user_home(msg)
+                elif subtopic == "user_away":
+                    self._on_user_away(msg)
             case _:
                 log.error("Received unexpected message from service %s/%s: %s", service_name, subtopic, msg)
 
@@ -198,9 +212,54 @@ class ZmwDoorman(ZmwMqttService):
                 self._door_open_scene.maybe_start()
                 self._door_stats.record_door_open()
                 self.publish_own_svc_message("on_door_opened", {})
+                self._correlate_door_open()
             else:
                 self._door_stats.record_door_close()
                 self.publish_own_svc_message("on_door_closed", {})
+
+    def _on_user_home(self, msg):
+        user = msg.get("user", None)
+        if not user:
+            return
+        now = time.time()
+        self._last_user_arrived[user] = now
+        door_opened_recently = now - (self._last_door_open or 0) <= self._presence_correlation_window
+        if door_opened_recently:
+            log.info("%s is back and was quick to open the door", user)
+            self._last_door_open = None
+            self._last_user_arrived.pop(user, None)
+            self.message_svc("ZmwSpeakerAnnounce", "tts", {"msg": f"Welcome back, {user}", "lang": "en"})
+        else:
+            log.info("%s arrived home (device: %s)", user, msg.get("device_hostname", "?"))
+            override = self._user_chime_overrides.get(user.lower())
+            if override:
+                url = override["override_url"]
+                if not url.startswith("http"):
+                    if not url.startswith("/"):
+                        url = "/" + url
+                    url = self._public_url_base + url
+                self.message_svc("ZmwContactmon", "chime_override", {
+                    "sensor_name": override["contact_sensor"],
+                    "action": "open",
+                    "url": url,
+                    "timeout": self._presence_correlation_window,
+                })
+                log.info("Chime override set for %s on %s", user, override["contact_sensor"])
+
+    def _on_user_away(self, msg):
+        user = msg.get("user", "unknown")
+        self._last_user_arrived.pop(user, None)
+        log.info("%s left home (device: %s)", user, msg.get("device_hostname", "?"))
+
+    def _correlate_door_open(self):
+        now = time.time()
+        self._last_door_open = now
+        for user, arrived_t in list(self._last_user_arrived.items()):
+            if now - arrived_t <= self._presence_correlation_window:
+                log.info("%s is back home", user)
+                self._last_user_arrived.pop(user, None)
+                self._last_door_open = None
+                return
 
     def on_telegram_cmd(self, cmd, _msg):
         """Handle Telegram commands."""

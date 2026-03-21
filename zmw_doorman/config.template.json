@@ -9,5 +9,16 @@
   "door_open_scene_thing_to_manage": ["EntradaCeiling", "EntradaColor", "CocinaFloorlamp"],
   "doorbell_contact_sensor": "ContactSensor_FrontDoor",
   "doorbell_announce_sound": "/knockknock.mp3",
-  "doorbell_announce_volume": 60
+  "doorbell_announce_volume": 60,
+
+  "presence_correlation_window_secs_comment": "Time window to correlate user arrival with door open events",
+  "presence_correlation_window_secs": 60,
+
+  "user_chime_overrides": [
+    {
+      "user": "Alice",
+      "contact_sensor": "ContactSensor_FrontDoor",
+      "override_url": "/welcome_alice.mp3"
+    }
+  ]
 }
