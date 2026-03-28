@@ -9,6 +9,7 @@ from flask import jsonify
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
+from zzmw_lib.runtime_state_cache import runtime_state_cache_get, runtime_state_cache_set
 
 from visitor_detector import VisitorDetector
 
@@ -26,7 +27,7 @@ class ZmwVisitorDetect(ZmwMqttService):
 
         self._detector = VisitorDetector(
             models_dir=cfg.get("models_dir", "./models"),
-            state_path="./run_state.json",
+            state_path="./known_people.json",
             crops_dir=cfg.get("detection_crops_dir", "./detection_crops"),
             sighting_dedup_gap_secs=cfg.get("sighting_dedup_gap_secs", 1800),
             max_crops=cfg.get("max_crops", 50),
@@ -35,7 +36,7 @@ class ZmwVisitorDetect(ZmwMqttService):
         # Per-person cooldown: {name: last_announced_epoch}
         self._announce_cooldowns = {}
         # Last N detections for web endpoint
-        self._recent_detections = deque(maxlen=20)
+        self._recent_detections = deque(runtime_state_cache_get("recent_detections") or [], maxlen=20)
         # Single-threaded executor so detection doesn't block MQTT loop
         self._detect_executor = ThreadPoolExecutor(max_workers=1)
 
@@ -85,8 +86,10 @@ class ZmwVisitorDetect(ZmwMqttService):
                     return
                 match subtopic:
                     case "on_doorbell_button_pressed":
+                        log.info("Received doorbell event, will schedule visitor detection")
                         self._submit_detection(msg.get("snap_path"), is_doorbell=True)
                     case "on_motion_detected":
+                        log.info("Received motion event, will schedule visitor detection")
                         self._submit_detection(msg.get("path_to_img"), is_doorbell=False)
                     case _:
                         pass
@@ -111,23 +114,41 @@ class ZmwVisitorDetect(ZmwMqttService):
 
     def _run_detection(self, snap_path, is_doorbell):
         result = self._detector.detect(snap_path)
+        if len(result['visitors']) == 0:
+            log.info("Snap %s received, no people detected", snap_path)
+            return
+
+        announce_names = []
+        last_crop = None
+        should_announce = False
 
         for visitor in result['visitors']:
             visitor['snap_path'] = snap_path
+            log.info("%s: %s confidence=%.2f sightings=%s",
+                      visitor['event'], visitor['name'] or 'unknown face',
+                     visitor['person_confidence'], visitor['sightings'])
             self._recent_detections.append(visitor)
+            runtime_state_cache_set("recent_detections", list(self._recent_detections))
             self.publish_own_svc_message("on_detection", visitor)
+            last_crop = visitor['crop_path']
 
-            if not self._should_announce(visitor['name'], visitor['timestamp'], is_doorbell):
-                continue
+            if self._should_announce(visitor['name'], visitor['timestamp'], is_doorbell):
+                should_announce = True
+                announce_names.append(visitor['name'])
 
-            if visitor['event'] == 'new_visitor_recognized':
-                self.message_svc("ZmwTelegram", "send_photo",
-                                 {"path": visitor['crop_path'],
-                                  "msg": f"New visitor recorded: {visitor['name']}"})
+        if not should_announce:
+            return
 
-            elif visitor['event'] == 'visitor_recognized':
-                self.message_svc("ZmwSpeakerAnnounce", "tts",
-                                 {"msg": f"{visitor['name']} is at the door", "lang": "en"})
+        if announce_names:
+            if len(announce_names) == 1:
+                msg = f"{announce_names[0]} is at the door"
+            else:
+                msg = f"{', '.join(announce_names)} are at the door"
+            self.message_svc("ZmwSpeakerAnnounce", "tts", {"msg": msg, "lang": "en"})
+
+        if last_crop:
+            self.message_svc("ZmwTelegram", "send_photo",
+                             {"path": last_crop, "msg": msg if announce_names else "Visitor detected"})
 
     def _should_announce(self, name, now, is_doorbell):
         if name is None:
