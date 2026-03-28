@@ -185,7 +185,6 @@ class ZmwHeating(ZmwMqttService):
                               'descr': 'Heating boost'})
 
     def on_dep_published_message(self, svc_name, subtopic, msg):
-        log.debug("%s.%s: %s", svc_name, subtopic, msg)
         match svc_name:
             case 'ZmwTelegram':
                 if subtopic.startswith("on_command/tengofrio"):

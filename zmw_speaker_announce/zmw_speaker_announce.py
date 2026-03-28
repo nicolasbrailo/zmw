@@ -61,7 +61,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
     """MQTT proxy for Sonos speaker announcements."""
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_speaker_announce", scheduler=_sched,
-                         svc_deps=["ZmwTextToSpeech"])
+                         svc_deps=["ZmwTextToSpeech", "ZmwTelegram"])
         self._cfg = cfg
         self._announce_vol = cfg['announce_volume']
         self._announcement_history = deque(maxlen=10)
@@ -138,6 +138,19 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         return GOOGLE_TTS_LANGUAGES
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
+        if svc_name == 'ZmwTelegram' and subtopic.startswith("on_command/shout"):
+            if 'cmd_args' not in payload:
+                log.warning("ZmwTelegram::shout called with invalid payload: %s", payload)
+                return
+            txt = ' '.join(payload['cmd_args']).strip()
+            if len(txt) == 0:
+                log.warning("ZmwTelegram::shout called with no text: %s", payload)
+                return
+            vol = None
+            local_path = self._get_tts_asset(txt, lang_or_voice=None)
+            remote_path = f"{self._public_tts_base}/{local_path}"
+            self._record_announcement(txt, None, vol, remote_path)
+            sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
         self._rr.on_reply(subtopic, payload)
 
     def on_service_came_up(self, service_name):
@@ -145,6 +158,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if service_name == "ZmwTextToSpeech" and self._tts_mode != 'force_google_tts':
             # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
             threading.Thread(target=self._fetch_zmw_tts_voices, daemon=True).start()
+        if service_name == "ZmwTelegram":
+            self.message_svc("ZmwTelegram",
+                             "register_command", {'cmd': 'shout', 'descr': 'Announce something over speakers'})
 
     def _fetch_zmw_tts_voices(self, retries=3):
         """Request voice list from ZmwTextToSpeech, retrying to allow subscription to settle."""
