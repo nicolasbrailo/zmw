@@ -146,11 +146,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             if len(txt) == 0:
                 log.warning("ZmwTelegram::shout called with no text: %s", payload)
                 return
-            vol = None
-            local_path = self._get_tts_asset(txt, lang_or_voice=None)
-            remote_path = f"{self._public_tts_base}/{local_path}"
-            self._record_announcement(txt, None, vol, remote_path)
-            sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
+            # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
+            threading.Thread(target=self._handle_shout, args=(txt,), daemon=True).start()
         self._rr.on_reply(subtopic, payload)
 
     def on_service_came_up(self, service_name):
@@ -176,6 +173,16 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                 log.info("ZMW TTS get_voices attempt %d/%d failed, retrying...", attempt + 1, retries)
                 time.sleep(2)
         log.warning("ZMW TTS get_voices returned no voices after %d attempts", retries)
+
+    def _handle_shout(self, txt):
+        try:
+            vol = None
+            local_path = self._get_tts_asset(txt, lang_or_voice=None)
+            remote_path = f"{self._public_tts_base}/{local_path}"
+            self._record_announcement(txt, None, vol, remote_path)
+            sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
+        except Exception:
+            log.exception("Failed to handle shout: '%s'", txt)
 
     def _get_tts_asset(self, text, lang_or_voice):
         """Get a TTS mp3 asset. Returns local filename within the cache dir.
@@ -312,11 +319,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                 self.publish_own_svc_message("ls_reply", sorted(list(get_sonos_by_name())))
             case "tts":
                 return self._tts_and_play(payload)
-            case "save_asset":
-                # TODO: I think this is safe to remove, no service uses this
-                self._save_asset_to_www(payload.get('local_path', None))
             case "play_asset":
-                # TODO: I think this is safe to remove, no service uses this
                 self._play_asset(payload)
             case "announcement_history":
                 self.publish_own_svc_message("announcement_history_reply",
