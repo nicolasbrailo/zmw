@@ -1,0 +1,8 @@
+{
+  "doorbell_cam_host": "10.0.0.xxx",
+  "detection_cooldown_secs": 300,
+  "sighting_dedup_gap_secs": 1800,
+  "models_dir": "./models",
+  "detection_crops_dir": "./detection_crops",
+  "max_crops": 200
+}

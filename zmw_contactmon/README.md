@@ -66,6 +66,17 @@ Re-enable chimes immediately
 
 _No parameters._
 
+#### `chime_override`
+
+Override sound asset for a sensor+action. Triggers within timeout use this URL instead.
+
+| Param | Description |
+|-------|-------------|
+| `sensor_name` | Sensor name |
+| `action` | Transition action (e.g. open, close) |
+| `url` | URL of sound asset to play |
+| `timeout?` | Seconds until override expires |
+
 #### `publish_state`
 
 Get open/closed state of monitored contact sensors. Response on publish_state_reply
