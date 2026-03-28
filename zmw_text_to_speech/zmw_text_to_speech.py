@@ -84,7 +84,7 @@ class ZmwTextToSpeech(ZmwMqttService):
         if not text:
             log.error("Synthesize request has no text: %s", msg)
             return
-        language = msg.get('language')
+        language = msg.get('language') or msg.get('lang')
         speaker = msg.get('speaker')
         threading.Thread(
             target=self._synthesize_and_publish,

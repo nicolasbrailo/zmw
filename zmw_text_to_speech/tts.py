@@ -30,11 +30,20 @@ class Tts:
         self._output_dir = cfg.get('output_dir', tempfile.gettempdir())
         os.makedirs(self._output_dir, exist_ok=True)
 
-        self._syn_config = SynthesisConfig(
+        self._default_syn_config = SynthesisConfig(
             length_scale=cfg.get('length_scale', 1.0),
             noise_scale=cfg.get('noise_scale', 0.667),
             noise_w_scale=cfg.get('noise_w_scale', 0.8),
         )
+
+        # Per-speaker synthesis config overrides
+        self._speaker_syn_configs = {}
+        for speaker_id, overrides in cfg.get('speaker_configs', {}).items():
+            self._speaker_syn_configs[speaker_id] = SynthesisConfig(
+                length_scale=overrides.get('length_scale', self._default_syn_config.length_scale),
+                noise_scale=overrides.get('noise_scale', self._default_syn_config.noise_scale),
+                noise_w_scale=overrides.get('noise_w_scale', self._default_syn_config.noise_w_scale),
+            )
 
         model_dir = cfg.get('model_dir', './tts_model')
         defaults = cfg.get('defaults', {})
@@ -123,7 +132,9 @@ class Tts:
     def synthesize(self, text, language=None, speaker=None):
         """Synthesize text to an mp3 file. Returns (mp3_path, voice_id)."""
         voice_id, voice = self.resolve_voice(language, speaker)
-        log.info("Synthesizing (voice=%s): '%s'", voice_id, text[:80])
+        syn_config = self._speaker_syn_configs.get(voice_id, self._default_syn_config)
+        log.info("Synthesizing (voice=%s, length_scale=%.2f): '%s'",
+                 voice_id, syn_config.length_scale, text[:80])
 
         t0 = time.monotonic()
         text_hash = hashlib.md5(f"{text}:{voice_id}".encode()).hexdigest()[:12]
@@ -131,7 +142,7 @@ class Tts:
         mp3_path = os.path.join(self._output_dir, f"tts_{text_hash}.mp3")
 
         with wave.open(wav_path, 'wb') as wav_file:
-            voice.synthesize_wav(text, wav_file, syn_config=self._syn_config)
+            voice.synthesize_wav(text, wav_file, syn_config=syn_config)
 
         subprocess.run(
             ['ffmpeg', '-y', '-i', wav_path, '-q:a', '2', mp3_path],
