@@ -46,12 +46,9 @@ class ZmwVisitorDetect(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "commands": {
-                "get_mqtt_description": {
-                    "description": "Service description",
-                    "params": {}
-                },
-            },
+            "description": "Visitor detection service",
+            "meta": self.get_service_meta(),
+            "commands": {},
             "announcements": {
                 "on_detection": {
                     "description": "Visitor detection event",
@@ -65,10 +62,6 @@ class ZmwVisitorDetect(ZmwMqttService):
                         "snap_path": "Source image path",
                         "crop_path": "Cropped person image path",
                     }
-                },
-                "get_mqtt_description_reply": {
-                    "description": "Service interface",
-                    "payload": {"commands": "...", "announcements": "..."}
                 },
             }
         }
