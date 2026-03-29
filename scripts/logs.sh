@@ -24,4 +24,7 @@ for svc in "${services[@]}"; do
     unit_args+=("-u" "$svc")
 done
 
-journalctl --follow --output=json "${unit_args[@]}" | jq --arg basepath "$ZMW_PROJECT_ROOT" -r -f "$THIS_SCRIPT_DIR/journal_parse.jq"
+# 'werkzeug/_internal.py:97' -> Filter out GET logs from flask
+journalctl --follow --output=json "${unit_args[@]}" | \
+  jq --arg basepath "$ZMW_PROJECT_ROOT" -r -f "$THIS_SCRIPT_DIR/journal_parse.jq" | \
+  egrep -v 'werkzeug/_internal.py:97'
