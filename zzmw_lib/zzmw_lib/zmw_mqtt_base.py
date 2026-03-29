@@ -115,7 +115,7 @@ class ZmwMqttBase(ABC):
     def subscribe_with_cb(self, topic, cb):
         with self._topics_with_cb_lock:
             if topic in self._topics_with_cb:
-                log.warning(f"Topic {topic} already has a callback, will replace it")
+                log.debug(f"Topic {topic} already has a callback, will replace it")
             self._topics_with_cb[topic] = cb
             log.info("MQTT subscribing to '%s'", topic)
             # If not subscribed this is a noop, but it will be repeated when connecting

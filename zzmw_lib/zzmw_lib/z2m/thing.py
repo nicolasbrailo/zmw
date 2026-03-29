@@ -263,6 +263,8 @@ class Zigbee2MqttActionValue:
     meta: dict
     _current: object = None
     _needs_mqtt_propagation: bool = False
+    _warned_oob_min: bool = False
+    _warned_oob_max: bool = False
     # Triggered whenever this action is updated from MQTT
     on_change_from_mqtt: Callable = None
 
@@ -382,18 +384,23 @@ class Zigbee2MqttActionValue:
             if (self.meta['value_min'] is not None) and (
                     num_val < self.meta['value_min']):
                 if from_mqtt:
-                    log.warning('%s received out-of-range value %s (min %s), '
-                                'clamping - %s', self.thing_name, val,
-                                self.meta['value_min'], self.debug_str())
+                    if not self._warned_oob_min:
+                        # If device is sending values out of range, it will likely continue to do so and be spammy
+                        self._warned_oob_min = True
+                        log.warning('%s received out-of-range value %s (min %s), '
+                                    'clamping - %s', self.thing_name, val,
+                                    self.meta['value_min'], self.debug_str())
                     val = self.meta['value_min']
                 else:
                     log_bad_set()
             if (self.meta['value_max'] is not None) and (
                     num_val > self.meta['value_max']):
                 if from_mqtt:
-                    log.warning('%s received out-of-range value %s (max %s), '
-                                'clamping - %s', self.thing_name, val,
-                                self.meta['value_max'], self.debug_str())
+                    if not self._warned_oob_max:
+                        self._warned_oob_max = True
+                        log.warning('%s received out-of-range value %s (max %s), '
+                                    'clamping - %s', self.thing_name, val,
+                                    self.meta['value_max'], self.debug_str())
                     val = self.meta['value_max']
                 else:
                     log_bad_set()
