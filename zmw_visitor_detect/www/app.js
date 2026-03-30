@@ -31,8 +31,7 @@ class VisitorDetect extends React.Component {
       visitor_recognized: 'Known',
       new_visitor_recognized: 'New visitor',
       new_face_detected: 'New face',
-      person_no_face_detected: 'No face',
-      no_people_detected: 'No people',
+      no_faces_detected: 'No faces',
     };
 
     return (
@@ -57,13 +56,14 @@ class VisitorDetect extends React.Component {
                 <th>Name</th>
                 <th>Event</th>
                 <th>Confidence</th>
+                <th>Detector</th>
                 <th>Sightings</th>
                 <th>Time</th>
               </tr>
             </thead>
             <tbody>
               {detections.slice().reverse().map((d, idx) => (
-                <tr key={idx} style={d.event === 'no_people_detected' ? {opacity: 0.5} : {}}>
+                <tr key={idx} style={d.event === 'no_faces_detected' ? {opacity: 0.5} : {}}>
                   <td>
                     {this.cropUrl(d) ? (
                       <img
@@ -84,9 +84,10 @@ class VisitorDetect extends React.Component {
                       />
                     ) : '-'}
                   </td>
-                  <td><strong>{d.name || (d.event === 'no_people_detected' ? '-' : 'Unknown')}</strong></td>
+                  <td><strong>{d.name || (d.event === 'no_faces_detected' ? '-' : 'Unknown')}</strong></td>
                   <td>{eventLabels[d.event] || d.event}</td>
-                  <td>{d.person_confidence ? (d.person_confidence * 100).toFixed(0) + '%' : '-'}</td>
+                  <td>{d.face_confidence ? (d.face_confidence * 100).toFixed(0) + '%' : '-'}</td>
+                  <td>{d.face_detector || '-'}</td>
                   <td>{d.sightings != null ? d.sightings : '-'}</td>
                   <td>{new Date(d.timestamp * 1000).toLocaleString()}</td>
                 </tr>

@@ -54,13 +54,14 @@ class ZmwVisitorDetect(ZmwMqttService):
                     "description": "Visitor detection event",
                     "payload": {
                         "timestamp": "float epoch",
-                        "event": "new_face_detected | new_visitor_recognized | visitor_recognized | person_no_face_detected",
+                        "event": "new_face_detected | new_visitor_recognized | visitor_recognized",
                         "name": "Person name or null",
                         "sightings": "int or null",
-                        "person_confidence": "float",
+                        "face_confidence": "float",
+                        "face_detector": "res10 | res10_clahe | yunet",
                         "bbox": "[x1, y1, x2, y2]",
                         "snap_path": "Source image path",
-                        "crop_path": "Cropped person image path",
+                        "crop_path": "Cropped face image path",
                     }
                 },
             }
@@ -110,11 +111,12 @@ class ZmwVisitorDetect(ZmwMqttService):
         input_image_path = result['input_image_path']
 
         if len(result['visitors']) == 0:
-            log.info("Snap %s received, no people detected", snap_path)
+            log.info("Snap %s received, no faces detected", snap_path)
             self._recent_detections.append({
-                'event': 'no_people_detected',
+                'event': 'no_faces_detected',
                 'name': None,
-                'person_confidence': 0,
+                'face_confidence': 0,
+                'face_detector': None,
                 'sightings': None,
                 'bbox': None,
                 'snap_path': snap_path,
@@ -132,9 +134,10 @@ class ZmwVisitorDetect(ZmwMqttService):
         for visitor in result['visitors']:
             visitor['snap_path'] = snap_path
             visitor['input_image_path'] = input_image_path
-            log.info("%s: %s confidence=%.2f sightings=%s",
+            log.info("%s: %s confidence=%.2f detector=%s sightings=%s",
                       visitor['event'], visitor['name'] or 'unknown face',
-                     visitor['person_confidence'], visitor['sightings'])
+                     visitor['face_confidence'], visitor['face_detector'],
+                     visitor['sightings'])
             self._recent_detections.append(visitor)
             runtime_state_cache_set("recent_detections", list(self._recent_detections))
             self.publish_own_svc_message("on_detection", visitor)
