@@ -18,6 +18,13 @@ _MOBILENET_CLASSES = [
 _PERSON_CLASS_ID = _MOBILENET_CLASSES.index("person")
 
 
+def _compute_embedding(embed_net, face_crop):
+    """Compute 128-d embedding from a face crop."""
+    blob = cv2.dnn.blobFromImage(face_crop, 1.0 / 255, (96, 96), (0, 0, 0), swapRB=True, crop=False)
+    embed_net.setInput(blob)
+    return embed_net.forward().flatten().tolist()
+
+
 def _face_embedding(face_net, embed_net, img, min_confidence):
     """Detect the largest face in img and return its 128-d embedding, or None."""
     h, w = img.shape[:2]
@@ -43,13 +50,45 @@ def _face_embedding(face_net, embed_net, img, min_confidence):
     if best_face is None:
         return None
     x1, y1, x2, y2 = best_face
-    face_crop = img[y1:y2, x1:x2]
-    blob = cv2.dnn.blobFromImage(face_crop, 1.0 / 255, (96, 96), (0, 0, 0), swapRB=True, crop=False)
-    embed_net.setInput(blob)
-    return embed_net.forward().flatten().tolist()
+    return _compute_embedding(embed_net, img[y1:y2, x1:x2])
 
 
-def _detect_visitors(person_net, face_net, embed_net, img, person_confidence=0.5, face_confidence=0.5):
+# TODO: benchmark YuNet vs res10 on doorbell camera images and pick one
+def _face_embedding_yunet(yunet_net, embed_net, img, min_confidence):
+    """Detect the largest face using YuNet and return its 128-d embedding, or None."""
+    h, w = img.shape[:2]
+    yunet_net.setInputSize((w, h))
+    yunet_net.setScoreThreshold(min_confidence)
+    _, faces = yunet_net.detect(img)
+    if faces is None:
+        return None
+    best_face = None
+    best_area = 0
+    for face in faces:
+        x, y, fw, fh = int(face[0]), int(face[1]), int(face[2]), int(face[3])
+        if fw < 10 or fh < 10:
+            continue
+        area = fw * fh
+        if area > best_area:
+            best_area = area
+            best_face = (x, y, fw, fh)
+    if best_face is None:
+        return None
+    x, y, fw, fh = best_face
+    x1, y1 = max(0, x), max(0, y)
+    x2, y2 = min(w, x + fw), min(h, y + fh)
+    return _compute_embedding(embed_net, img[y1:y2, x1:x2])
+
+
+def _apply_clahe(img):
+    """Apply CLAHE contrast enhancement to improve face detection in poor lighting."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    lab[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[:, :, 0])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+def _detect_visitors(person_net, face_net, yunet_net, embed_net, img,
+                     person_confidence=0.5, face_confidence=0.3):
     """Detect persons in img, return list of (bbox, embedding_or_none, person_confidence).
     bbox is (x1, y1, x2, y2). embedding is 128-d list or None if no face found."""
     h, w = img.shape[:2]
@@ -70,9 +109,28 @@ def _detect_visitors(person_net, face_net, embed_net, img, person_confidence=0.5
         x2 = min(w, int(detections[0, 0, i, 5] * w))
         y2 = min(h, int(detections[0, 0, i, 6] * h))
 
-        crop = img[y1:y2, x1:x2]
+        # Pad the person crop by 20% to give the face detector more context
+        pad_h = int((y2 - y1) * 0.2)
+        pad_w = int((x2 - x1) * 0.2)
+        crop = img[max(0, y1 - pad_h):min(h, y2 + pad_h), max(0, x1 - pad_w):min(w, x2 + pad_w)]
         embedding = _face_embedding(face_net, embed_net, crop, face_confidence)
-        results.append(((x1, y1, x2, y2), embedding, confidence))
+        face_detector = 'res10' if embedding is not None else None
+
+        # Fallback 1: CLAHE-enhanced full image with res10
+        if embedding is None:
+            enhanced = _apply_clahe(img)
+            embedding = _face_embedding(face_net, embed_net, enhanced, face_confidence)
+            if embedding is not None:
+                face_detector = 'res10_clahe'
+
+        # Fallback 2: YuNet on full image (better with small/rotated/low-quality faces)
+        # TODO: benchmark YuNet vs res10 on doorbell camera images and pick one
+        if embedding is None:
+            embedding = _face_embedding_yunet(yunet_net, embed_net, img, face_confidence)
+            if embedding is not None:
+                face_detector = 'yunet'
+
+        results.append(((x1, y1, x2, y2), embedding, confidence, face_detector))
 
     return results
 
@@ -108,7 +166,7 @@ class VisitorDetector:
     """
 
     def __init__(self, models_dir, state_path, crops_dir,
-                 person_confidence=0.5, face_confidence=0.5,
+                 person_confidence=0.5, face_confidence=0.3,
                  face_tolerance=0.85, sightings_to_mark_as_known=3,
                  max_embeddings=10, sighting_dedup_gap_secs=1800,
                  max_crops=200):
@@ -126,6 +184,7 @@ class VisitorDetector:
 
         self._person_net = self._load_caffe_net("MobileNetSSD_deploy.prototxt", "MobileNetSSD_deploy.caffemodel")
         self._face_net = self._load_caffe_net("face_deploy.prototxt", "res10_300x300_ssd_iter_140000.caffemodel")
+        self._yunet_net = self._load_yunet("face_detection_yunet_2023mar.onnx")
         self._embed_net = self._load_torch_net("nn4.small2.v1.t7")
 
         # faces: [{"name": str|None, "embeddings": [...], "sightings": int, "last_sighting_time": float}, ...]
@@ -146,6 +205,14 @@ class VisitorDetector:
             if not f.exists():
                 raise FileNotFoundError(f"{model_name}: {f} not found. Run 'make download_models'.")
         net = cv2.dnn.readNetFromCaffe(str(prototxt), str(model))
+        log.info("Loaded %s", model_name)
+        return net
+
+    def _load_yunet(self, model_name):
+        model_path = self._models_dir / model_name
+        if not model_path.exists():
+            raise FileNotFoundError(f"{model_path} not found. Run 'make download_models'.")
+        net = cv2.FaceDetectorYN.create(str(model_path), "", (300, 300))
         log.info("Loaded %s", model_name)
         return net
 
@@ -207,6 +274,11 @@ class VisitorDetector:
         cv2.imwrite(crop_path, crop)
         return crop_path
 
+    def _save_input_image(self, img, timestamp):
+        input_path = str(self._crops_dir / f"{int(timestamp)}_input.jpg")
+        cv2.imwrite(input_path, img)
+        return input_path
+
     def detect(self, image_path):
         img = cv2.imread(str(image_path))
         if img is None:
@@ -214,12 +286,13 @@ class VisitorDetector:
 
         now = time.time()
         visitors = _detect_visitors(
-            self._person_net, self._face_net, self._embed_net, img,
+            self._person_net, self._face_net, self._yunet_net, self._embed_net, img,
             self._person_confidence, self._face_confidence)
 
+        input_image_path = self._save_input_image(img, now)
         results = []
 
-        for bbox, embedding, person_conf in visitors:
+        for bbox, embedding, person_conf, face_detector in visitors:
             if embedding is None:
                 name, event, sightings = None, 'person_no_face_detected', None
             else:
@@ -233,6 +306,7 @@ class VisitorDetector:
                 'event': event,
                 'sightings': sightings,
                 'person_confidence': round(person_conf, 3),
+                'face_detector': face_detector,
                 'bbox': list(bbox),
                 'crop_path': crop_path,
             })
@@ -247,6 +321,7 @@ class VisitorDetector:
         return {
             'timestamp': now,
             'image': str(image_path),
+            'input_image_path': input_image_path,
             'person_count': len(visitors),
             'visitors': results,
         }

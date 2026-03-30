@@ -107,8 +107,22 @@ class ZmwVisitorDetect(ZmwMqttService):
 
     def _run_detection(self, snap_path, is_doorbell):
         result = self._detector.detect(snap_path)
+        input_image_path = result['input_image_path']
+
         if len(result['visitors']) == 0:
             log.info("Snap %s received, no people detected", snap_path)
+            self._recent_detections.append({
+                'event': 'no_people_detected',
+                'name': None,
+                'person_confidence': 0,
+                'sightings': None,
+                'bbox': None,
+                'snap_path': snap_path,
+                'crop_path': None,
+                'input_image_path': input_image_path,
+                'timestamp': result['timestamp'],
+            })
+            runtime_state_cache_set("recent_detections", list(self._recent_detections))
             return
 
         announce_names = []
@@ -117,6 +131,7 @@ class ZmwVisitorDetect(ZmwMqttService):
 
         for visitor in result['visitors']:
             visitor['snap_path'] = snap_path
+            visitor['input_image_path'] = input_image_path
             log.info("%s: %s confidence=%.2f sightings=%s",
                       visitor['event'], visitor['name'] or 'unknown face',
                      visitor['person_confidence'], visitor['sightings'])
