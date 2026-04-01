@@ -58,7 +58,7 @@ class ZmwVisitorDetect(ZmwMqttService):
                         "name": "Person name or null",
                         "sightings": "int or null",
                         "face_confidence": "float",
-                        "face_detector": "res10 | res10_clahe | yunet",
+                        "face_detector": "yunet_sface | yunet_insightface",
                         "bbox": "[x1, y1, x2, y2]",
                         "snap_path": "Source image path",
                         "crop_path": "Cropped face image path",
@@ -155,11 +155,11 @@ class ZmwVisitorDetect(ZmwMqttService):
                 msg = f"{announce_names[0]} is at the door"
             else:
                 msg = f"{', '.join(announce_names)} are at the door"
-            self.message_svc("ZmwSpeakerAnnounce", "tts", {"msg": msg, "lang": "en"})
+            #self.message_svc("ZmwSpeakerAnnounce", "tts", {"msg": msg, "lang": "en"})
 
         if last_crop:
             self.message_svc("ZmwTelegram", "send_photo",
-                             {"path": last_crop, "msg": msg if announce_names else "Visitor detected"})
+                             {"path": os.path.abspath(last_crop), "msg": msg if announce_names else "Visitor detected"})
 
     def _should_announce(self, name, now, is_doorbell):
         if name is None:

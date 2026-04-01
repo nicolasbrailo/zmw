@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import onnxruntime as ort
 import json
 import logging
 import os
@@ -8,45 +9,83 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# Minimum face size in pixels (shortest side). Anything smaller is too low-res for recognition.
+_MIN_FACE_PX = 80
 
-def _compute_embedding(embed_net, face_crop):
-    """Compute 128-d embedding from a face crop."""
-    blob = cv2.dnn.blobFromImage(face_crop, 1.0 / 255, (96, 96), (0, 0, 0), swapRB=True, crop=False)
-    embed_net.setInput(blob)
-    return embed_net.forward().flatten().tolist()
+# Standard reference landmarks for ArcFace 112x112 alignment
+_ARCFACE_REF_LANDMARKS = np.array([
+    [38.2946, 51.6963],  # left eye
+    [73.5318, 51.5014],  # right eye
+    [56.0252, 71.7366],  # nose tip
+    [41.5493, 92.3655],  # left mouth corner
+    [70.7299, 92.2041],  # right mouth corner
+], dtype=np.float32)
 
 
-def _detect_face_res10(face_net, img, min_confidence):
-    """Detect the largest face using res10 SSD. Returns (x1, y1, x2, y2, confidence) or None."""
-    h, w = img.shape[:2]
-    blob = cv2.dnn.blobFromImage(img, 1.0, (300, 300), (104.0, 177.0, 123.0))
-    face_net.setInput(blob)
-    detections = face_net.forward()
-    best_face = None
-    best_area = 0
-    best_conf = 0
-    for i in range(detections.shape[2]):
-        confidence = float(detections[0, 0, i, 2])
-        if confidence < min_confidence:
-            continue
-        x1 = max(0, int(detections[0, 0, i, 3] * w))
-        y1 = max(0, int(detections[0, 0, i, 4] * h))
-        x2 = min(w, int(detections[0, 0, i, 5] * w))
-        y2 = min(h, int(detections[0, 0, i, 6] * h))
-        if x2 - x1 < 10 or y2 - y1 < 10:
-            continue
-        area = (x2 - x1) * (y2 - y1)
-        if area > best_area:
-            best_area = area
-            best_conf = confidence
-            best_face = (x1, y1, x2, y2)
-    if best_face is None:
-        return None
-    return (*best_face, best_conf)
+def _cosine_similarity(a, b):
+    a, b = np.array(a), np.array(b)
+    dot = np.dot(a, b)
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    return float(dot / (norm + 1e-10))
+
+
+def _extract_yunet_landmarks(face_row):
+    """Extract 5 landmark points from YuNet face detection row.
+    YuNet order: right_eye, left_eye, nose, right_mouth, left_mouth."""
+    return np.array([
+        [face_row[4], face_row[5]],
+        [face_row[6], face_row[7]],
+        [face_row[8], face_row[9]],
+        [face_row[10], face_row[11]],
+        [face_row[12], face_row[13]],
+    ], dtype=np.float32)
+
+
+def _is_frontal(landmarks, threshold=0.3):
+    """Check if face is roughly frontal based on nose-to-eye-center offset ratio."""
+    right_eye, left_eye, nose = landmarks[0], landmarks[1], landmarks[2]
+    eye_center_x = (left_eye[0] + right_eye[0]) / 2
+    eye_dist = abs(right_eye[0] - left_eye[0])
+    if eye_dist < 1:
+        return False
+    nose_offset = abs(nose[0] - eye_center_x) / eye_dist
+    return nose_offset < threshold
+
+
+def _align_face_arcface(img, landmarks):
+    """Align face to 112x112 using similarity transform from landmarks to ArcFace reference."""
+    M, _ = cv2.estimateAffinePartial2D(landmarks, _ARCFACE_REF_LANDMARKS)
+    if M is None:
+        h, w = img.shape[:2]
+        cx, cy = w // 2, h // 2
+        half = min(cx, cy, 56)
+        crop = img[max(0, cy - half):cy + half, max(0, cx - half):cx + half]
+        return cv2.resize(crop, (112, 112))
+    return cv2.warpAffine(img, M, (112, 112))
+
+
+def _compute_sface_embedding(sface_net, img, face_row):
+    """Compute SFace 128-d embedding using built-in alignCrop."""
+    aligned = sface_net.alignCrop(img, face_row)
+    return sface_net.feature(aligned).flatten().tolist()
+
+
+def _compute_insightface_embedding(insightface_session, aligned_face):
+    """Compute InsightFace w600k_r50 512-d L2-normalized embedding."""
+    img = cv2.resize(aligned_face, (112, 112)).astype(np.float32)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = (img - 127.5) / 127.5
+    blob = np.transpose(img, (2, 0, 1))[np.newaxis, ...]  # NCHW
+    input_name = insightface_session.get_inputs()[0].name
+    embedding = insightface_session.run(None, {input_name: blob})[0].flatten()
+    norm = np.linalg.norm(embedding)
+    if norm > 0:
+        embedding = embedding / norm
+    return embedding.tolist()
 
 
 def _detect_face_yunet(yunet_net, img, min_confidence):
-    """Detect the largest face using YuNet. Returns (x1, y1, x2, y2, confidence) or None."""
+    """Detect the largest face using YuNet. Returns full face row (with landmarks) or None."""
     h, w = img.shape[:2]
     yunet_net.setInputSize((w, h))
     yunet_net.setScoreThreshold(min_confidence)
@@ -55,74 +94,62 @@ def _detect_face_yunet(yunet_net, img, min_confidence):
         return None
     best_face = None
     best_area = 0
-    best_conf = 0
     for face in faces:
-        x, y, fw, fh = int(face[0]), int(face[1]), int(face[2]), int(face[3])
-        conf = float(face[14])
-        if fw < 10 or fh < 10:
+        fw, fh = int(face[2]), int(face[3])
+        if fw < _MIN_FACE_PX or fh < _MIN_FACE_PX:
             continue
         area = fw * fh
         if area > best_area:
             best_area = area
-            best_conf = conf
-            best_face = (x, y, fw, fh)
-    if best_face is None:
-        return None
-    x, y, fw, fh = best_face
-    x1, y1 = max(0, x), max(0, y)
-    x2, y2 = min(w, x + fw), min(h, y + fh)
-    return (x1, y1, x2, y2, best_conf)
+            best_face = face
+    return best_face
 
 
-def _apply_clahe(img):
-    """Apply CLAHE contrast enhancement to improve face detection in poor lighting."""
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    lab[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(lab[:, :, 0])
-    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+def _detect_faces(yunet_net, sface_net, insightface_session, img, face_confidence=0.3):
+    """Detect faces in img, return list of (bbox, embedding, embed_type, confidence, detector_name).
+    Uses SFace for frontal faces (via YuNet landmarks), InsightFace w600k_r50 for non-frontal."""
 
-
-def _detect_faces(face_net, yunet_net, embed_net, img, face_confidence=0.3):
-    """Detect faces in img, return list of (bbox, embedding, confidence, detector_name).
-    bbox is (x1, y1, x2, y2). embedding is 128-d list."""
-
-    # TODO: currently only detects the single largest face. After benchmarking which
-    # detector works best, return all faces above threshold to support multiple visitors
-
-    # TODO: benchmark YuNet vs res10 on doorbell camera images and pick one
-    detection = _detect_face_yunet(yunet_net, img, face_confidence)
-    detector = 'yunet'
-
-    # Fallback 1: res10 on original image
-    if detection is None:
-        detection = _detect_face_res10(face_net, img, face_confidence)
-        detector = 'res10'
-
-    # Fallback 2: CLAHE-enhanced image with res10
-    if detection is None:
-        enhanced = _apply_clahe(img)
-        detection = _detect_face_res10(face_net, enhanced, face_confidence)
-        detector = 'res10_clahe'
-
-    if detection is None:
+    face_row = _detect_face_yunet(yunet_net, img, face_confidence)
+    if face_row is None:
         return []
 
-    x1, y1, x2, y2, confidence = detection
-    face_crop = img[y1:y2, x1:x2]
-    embedding = _compute_embedding(embed_net, face_crop)
-    return [((x1, y1, x2, y2), embedding, confidence, detector)]
+    x, y, fw, fh = int(face_row[0]), int(face_row[1]), int(face_row[2]), int(face_row[3])
+    h, w = img.shape[:2]
+    x1, y1 = max(0, x), max(0, y)
+    x2, y2 = min(w, x + fw), min(h, y + fh)
+    confidence = float(face_row[14])
+    bbox = (x1, y1, x2, y2)
+
+    landmarks = _extract_yunet_landmarks(face_row)
+    frontal = _is_frontal(landmarks)
+
+    if frontal:
+        embedding = _compute_sface_embedding(sface_net, img, face_row)
+        embed_type = 'sface'
+        detector = 'yunet_sface'
+    else:
+        aligned = _align_face_arcface(img, landmarks)
+        embedding = _compute_insightface_embedding(insightface_session, aligned)
+        embed_type = 'insightface'
+        detector = 'yunet_insightface'
+
+    return [(bbox, embedding, embed_type, confidence, detector)]
 
 
-def _find_closest(faces, embedding, face_tolerance):
-    """Find closest match in faces within tolerance. Returns index or None."""
+def _find_closest(faces, embedding, embed_type, thresholds):
+    """Find closest match using cosine similarity, comparing only same-type embeddings."""
+    threshold = thresholds.get(embed_type, 0.4)
     best_idx = None
-    best_dist = float('inf')
+    best_sim = -1
     for i, entry in enumerate(faces):
-        for known_emb in entry['embeddings']:
-            dist = float(np.linalg.norm(np.array(embedding) - np.array(known_emb)))
-            if dist < best_dist:
-                best_dist = dist
+        for emb_entry in entry['embeddings']:
+            if emb_entry['type'] != embed_type:
+                continue
+            sim = _cosine_similarity(embedding, emb_entry['vec'])
+            if sim > best_sim:
+                best_sim = sim
                 best_idx = i
-    if best_dist < face_tolerance:
+    if best_sim >= threshold:
         return best_idx
     return None
 
@@ -137,13 +164,19 @@ class VisitorDetector:
          a name ("Person N") for the first time
       3. visitor_recognized — previously named visitor seen again
 
+    Embedding strategy:
+      - SFace (128-d) for frontal faces detected by YuNet (fast, accurate when aligned)
+      - InsightFace w600k_r50 (512-d) for non-frontal faces (pose-tolerant, via onnxruntime)
+      - Embeddings are tagged with type; matching only compares same-type embeddings.
+
     State is persisted to state_path as a flat JSON list. Each entry holds a name
-    (None while pending), a rolling window of embeddings, and a sighting count.
+    (None while pending), typed embeddings, and a sighting count.
     """
 
     def __init__(self, models_dir, state_path, crops_dir,
                  face_confidence=0.3,
-                 face_tolerance=0.85, sightings_to_mark_as_known=3,
+                 sface_cosine_threshold=0.363, insightface_cosine_threshold=0.4,
+                 sightings_to_mark_as_known=3,
                  max_embeddings=10, sighting_dedup_gap_secs=1800,
                  max_crops=200):
         self._models_dir = Path(models_dir)
@@ -151,36 +184,36 @@ class VisitorDetector:
         self._crops_dir = Path(crops_dir)
         os.makedirs(self._crops_dir, exist_ok=True)
         self._face_confidence = face_confidence
-        self._face_tolerance = face_tolerance
+        self._cosine_thresholds = {
+            'sface': sface_cosine_threshold,
+            'insightface': insightface_cosine_threshold,
+        }
         self._sightings_to_mark_as_known = sightings_to_mark_as_known
         self._max_embeddings = max_embeddings
         self._sighting_dedup_gap_secs = sighting_dedup_gap_secs
         self._max_crops = max_crops
 
-        self._face_net = self._load_caffe_net("face_deploy.prototxt", "res10_300x300_ssd_iter_140000.caffemodel")
         self._yunet_net = self._load_yunet("face_detection_yunet_2023mar.onnx")
-        self._embed_net = self._load_torch_net("nn4.small2.v1.t7")
+        self._sface_net = self._load_sface("face_recognition_sface_2021dec.onnx")
+        self._insightface_session = self._load_ort_session("w600k_r50.onnx")
 
-        # faces: [{"name": str|None, "embeddings": [...], "sightings": int, "last_sighting_time": float}, ...]
-        # name=None means pending (not yet confirmed)
+        # faces: [{"name": str|None, "embeddings": [{"vec": [...], "type": "sface"|"arcface"}, ...],
+        #          "sightings": int, "last_sighting_time": float}, ...]
         self._faces = []
         if self._state_path.exists():
             with open(self._state_path, 'r') as f:
                 self._faces = json.load(f)
+            migrated = 0
             for entry in self._faces:
                 entry.setdefault('last_sighting_time', 0)
+                # Migrate old nn4 embeddings (flat lists) to new tagged format
+                if entry['embeddings'] and not isinstance(entry['embeddings'][0], dict):
+                    entry['embeddings'] = []
+                    migrated += 1
             known = sum(1 for f in self._faces if f['name'] is not None)
-            log.info("Loaded faces: %d named, %d known but unnamed", known, len(self._faces) - known)
-
-    def _load_caffe_net(self, prototxt_name, model_name):
-        prototxt = self._models_dir / prototxt_name
-        model = self._models_dir / model_name
-        for f in (prototxt, model):
-            if not f.exists():
-                raise FileNotFoundError(f"{model_name}: {f} not found. Run 'make download_models'.")
-        net = cv2.dnn.readNetFromCaffe(str(prototxt), str(model))
-        log.info("Loaded %s", model_name)
-        return net
+            log.info("Loaded faces: %d named, %d pending", known, len(self._faces) - known)
+            if migrated:
+                log.info("Migrated %d entries: discarded old nn4 embeddings", migrated)
 
     def _load_yunet(self, model_name):
         model_path = self._models_dir / model_name
@@ -190,29 +223,35 @@ class VisitorDetector:
         log.info("Loaded %s", model_name)
         return net
 
-    def _load_torch_net(self, model_name):
+    def _load_sface(self, model_name):
         model_path = self._models_dir / model_name
         if not model_path.exists():
             raise FileNotFoundError(f"{model_path} not found. Run 'make download_models'.")
-        net = cv2.dnn.readNetFromTorch(str(model_path))
+        net = cv2.FaceRecognizerSF.create(str(model_path), "")
         log.info("Loaded %s", model_name)
         return net
 
-    def _match_or_track(self, embedding):
-        """Match embedding against known faces. Returns (name, event). Event tracks if the person is
-        known or not. A face detected is marked as new, and once it reaches a threshold it's updated to
-        visitor (ie a known person).
+    def _load_ort_session(self, model_name):
+        model_path = self._models_dir / model_name
+        if not model_path.exists():
+            raise FileNotFoundError(f"{model_path} not found. Run 'make download_models'.")
+        session = ort.InferenceSession(str(model_path), providers=['CPUExecutionProvider'])
+        log.info("Loaded %s", model_name)
+        return session
+
+    def _match_or_track(self, embedding, embed_type):
+        """Match embedding against known faces. Returns (entry, event).
 
         Sighting dedup: sightings only increment if enough time has passed since the last sighting
         (sighting_dedup_gap_secs). This prevents a person standing by the camera from being
         auto-promoted to visitor by rapid-fire motion events."""
         now = time.time()
-        idx = _find_closest(self._faces, embedding, self._face_tolerance)
+        idx = _find_closest(self._faces, embedding, embed_type, self._cosine_thresholds)
 
         if idx is None:
             entry = {
                 'name': None,
-                'embeddings': [embedding],
+                'embeddings': [{'vec': embedding, 'type': embed_type}],
                 'sightings': 1,
                 'last_sighting_time': now,
             }
@@ -225,9 +264,11 @@ class VisitorDetector:
 
         if count_as_sighting:
             entry['sightings'] += 1
-            entry['embeddings'].append(embedding)
-            if len(entry['embeddings']) > self._max_embeddings:
-                entry['embeddings'].pop(0)
+            entry['embeddings'].append({'vec': embedding, 'type': embed_type})
+            # Trim per-type embeddings to max, keeping most recent
+            type_indices = [i for i, e in enumerate(entry['embeddings']) if e['type'] == embed_type]
+            while len(type_indices) > self._max_embeddings:
+                entry['embeddings'].pop(type_indices.pop(0))
         entry['last_sighting_time'] = now
 
         if entry['name'] is not None:
@@ -260,14 +301,14 @@ class VisitorDetector:
 
         now = time.time()
         faces = _detect_faces(
-            self._face_net, self._yunet_net, self._embed_net, img,
+            self._yunet_net, self._sface_net, self._insightface_session, img,
             self._face_confidence)
 
         input_image_path = self._save_input_image(img, now)
         results = []
 
-        for bbox, embedding, confidence, face_detector in faces:
-            entry, event = self._match_or_track(embedding)
+        for bbox, embedding, embed_type, confidence, face_detector in faces:
+            entry, event = self._match_or_track(embedding, embed_type)
             name, sightings = entry['name'], entry['sightings']
 
             crop_path = self._save_crop(img, bbox, name, now)
