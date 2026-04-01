@@ -20,6 +20,7 @@ Of course, it's unlikely you'll record (or find) an hour of audio in this format
 1. `pip install -U openai-whisper [--break-system-packages]`
 1. If needed, pre-preprocess your input (use Audacity to downmix to mono, cut unnecessarily long silences, etc)
 1. Run the [prep dataset script](./prepare_dataset.py)
+1. Run the [validate dataset script](./validate_dataset.py). This does the same as prepare, but on the small snippets. Quite a few will have bad alignment and throw off the training.
 
 The script uses [Whisper](https://github.com/openai/whisper) to transcribe and get timestamps from the big wav file, and then chop it up into smaller ones. You should end up with two CSV files, one for "high confidence" sentences and one for the utterances where the model wasn't quite able to transcribe or find a clean sentence boundary.
 
