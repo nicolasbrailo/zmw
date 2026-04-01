@@ -15,14 +15,19 @@
     "noise_scale": 0.9,
     "COMMENT_noise_w_scale": "Default speech rhythm variation. 0=mechanical timing, 0.8=natural default, 1.0+=exaggerated rhythm.",
     "noise_w_scale": 0.9,
-    "COMMENT_speaker_configs": "Per-speaker synthesis overrides. Keys are voice IDs. Each can override length_scale, noise_scale, noise_w_scale. Unset values inherit from the defaults above.",
+    "COMMENT_speaker_configs": "Per-speaker synthesis overrides. Keys are voice IDs. Each can override length_scale, noise_scale, noise_w_scale. Unset values inherit from the defaults above. Optional 'personality' enables fuzzy TTS for this voice.",
     "speaker_configs": {
       "es_AR-daniela-high": {
         "length_scale": 1.5
       },
       "en_GB-alan-medium": {
-        "length_scale": 1.1
+        "length_scale": 1.1,
+        "personality": "a grumpy but lovable British butler"
       }
-    }
+    },
+    "COMMENT_fuzzy_model_path": "Path to a GGUF model for fuzzy TTS (LLM paraphrasing). Set to null or omit to disable. Download with 'make download_fuzzy_model'.",
+    "fuzzy_model_path": null,
+    "COMMENT_fuzzy_temperature": "Controls randomness of fuzzy paraphrasing. Higher = more varied/creative, lower = more predictable. Default 0.9.",
+    "fuzzy_temperature": 0.9
   }
 }

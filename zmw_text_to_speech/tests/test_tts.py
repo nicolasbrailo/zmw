@@ -134,5 +134,48 @@ class TestTts(unittest.TestCase):
             self.assertEqual(vid, 'en_US-lessac-medium')
 
 
+    @patch('tts.PiperVoice')
+    def test_get_personality_configured(self, mock_piper):
+        from tts import Tts
+        with tempfile.TemporaryDirectory() as td:
+            _fake_model_dir(td, ['en_GB-alan-medium'])
+            tts = Tts({'model_dir': td, 'speaker_configs': {
+                'en_GB-alan-medium': {'personality': 'a grumpy butler'}
+            }})
+            self.assertEqual(tts.get_personality(speaker='en_GB-alan-medium'), 'a grumpy butler')
+
+    @patch('tts.PiperVoice')
+    def test_get_personality_not_configured(self, mock_piper):
+        from tts import Tts
+        with tempfile.TemporaryDirectory() as td:
+            _fake_model_dir(td, ['en_GB-alan-medium'])
+            tts = Tts({'model_dir': td})
+            self.assertIsNone(tts.get_personality(speaker='en_GB-alan-medium'))
+
+    @patch('tts.PiperVoice')
+    def test_get_personality_resolves_language(self, mock_piper):
+        from tts import Tts
+        with tempfile.TemporaryDirectory() as td:
+            _fake_model_dir(td, ['en_GB-alan-medium'])
+            tts = Tts({'model_dir': td, 'default_language': 'en',
+                        'speaker_configs': {
+                            'en_GB-alan-medium': {'personality': 'a grumpy butler'}
+                        }})
+            self.assertEqual(tts.get_personality(language='en'), 'a grumpy butler')
+
+    @patch('tts.PiperVoice')
+    def test_get_voices_includes_personality(self, mock_piper):
+        from tts import Tts
+        with tempfile.TemporaryDirectory() as td:
+            _fake_model_dir(td, ['en_GB-alan-medium', 'en_US-lessac-medium'])
+            tts = Tts({'model_dir': td, 'speaker_configs': {
+                'en_GB-alan-medium': {'personality': 'a grumpy butler'}
+            }})
+            voices = tts.get_voices()
+            by_id = {v['voice_id']: v for v in voices}
+            self.assertEqual(by_id['en_GB-alan-medium']['personality'], 'a grumpy butler')
+            self.assertNotIn('personality', by_id['en_US-lessac-medium'])
+
+
 if __name__ == '__main__':
     unittest.main()

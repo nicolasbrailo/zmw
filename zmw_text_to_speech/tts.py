@@ -36,14 +36,18 @@ class Tts:
             noise_w_scale=cfg.get('noise_w_scale', 0.8),
         )
 
-        # Per-speaker synthesis config overrides
+        # Per-speaker synthesis config overrides and personalities
         self._speaker_syn_configs = {}
+        self._speaker_personalities = {}
         for speaker_id, overrides in cfg.get('speaker_configs', {}).items():
             self._speaker_syn_configs[speaker_id] = SynthesisConfig(
                 length_scale=overrides.get('length_scale', self._default_syn_config.length_scale),
                 noise_scale=overrides.get('noise_scale', self._default_syn_config.noise_scale),
                 noise_w_scale=overrides.get('noise_w_scale', self._default_syn_config.noise_w_scale),
             )
+            if overrides.get('personality'):
+                log.info("Speaker '%s' has a personality: %s", speaker_id, overrides['personality'])
+                self._speaker_personalities[speaker_id] = overrides['personality']
 
         model_dir = cfg.get('model_dir', './tts_model')
         defaults = cfg.get('defaults', {})
@@ -82,6 +86,11 @@ class Tts:
 
         log.info("TTS loaded %d voices, defaults: %s", len(self._voices), self._defaults)
 
+    def get_personality(self, language=None, speaker=None):
+        """Resolve the voice and return its personality string, or None."""
+        voice_id, _ = self.resolve_voice(language, speaker)
+        return self._speaker_personalities.get(voice_id)
+
     def get_voices(self):
         """Return list of available voices with metadata."""
         # Invert defaults: voice_id -> list of keys it's default for
@@ -104,6 +113,9 @@ class Tts:
                 entry['default_for'] = sorted(default_for[voice_id])
             if voice_id == fallback_vid:
                 entry['default_fallback'] = True
+            personality = self._speaker_personalities.get(voice_id)
+            if personality:
+                entry['personality'] = personality
             voices.append(entry)
         return voices
 

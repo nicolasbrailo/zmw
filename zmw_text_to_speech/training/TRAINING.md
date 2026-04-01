@@ -78,7 +78,7 @@ While training, you can run `tensorboard --logdir ./training/lightning_logs`, th
 
 For reference, in a system with an I7 10th gen + RT2080 (8GB) training was done in about 20 minutes, maybe less. In an old i7 6th gen and 16 GB RAM (no GPU) training would complete after the heat death of the universe.
 
-Once done, you can export your model with `python3 -m piper_train.export_onnx /path/to/model.ckpt /path/to/model.onnx` and `cp /path/to/training_dir/config.json /path/to/model.onnx.json`
+Once done, you can export your model with `python3 -m piper.train.export_onnx --checkpoint /path/to/model.ckpt --output /path/to/model.onnx` and `cp /path/to/training_dir/config.json /path/to/model.onnx.json`
 
 
 ## Linklist
