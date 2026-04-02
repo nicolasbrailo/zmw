@@ -140,9 +140,9 @@ class TestTts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             _fake_model_dir(td, ['en_GB-alan-medium'])
             tts = Tts({'model_dir': td, 'speaker_configs': {
-                'en_GB-alan-medium': {'fuzzy': {
-                    'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
-                }}
+                'en_GB-alan-medium': {
+                    'personality': 'You are a grumpy butler. Rephrase in your style.',
+                }
             }})
             system_prompt, examples = tts.get_personality(speaker='en_GB-alan-medium')
             self.assertEqual(system_prompt, 'You are a grumpy butler. Rephrase in your style.')
@@ -154,10 +154,10 @@ class TestTts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             _fake_model_dir(td, ['en_GB-alan-medium'])
             tts = Tts({'model_dir': td, 'speaker_configs': {
-                'en_GB-alan-medium': {'fuzzy': {
-                    'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
+                'en_GB-alan-medium': {
+                    'personality': 'You are a grumpy butler. Rephrase in your style.',
                     'examples': {'Hello': 'Good day, sir.', 'Goodbye': 'Very well, sir.'}
-                }}
+                }
             }})
             system_prompt, examples = tts.get_personality(speaker='en_GB-alan-medium')
             self.assertEqual(system_prompt, 'You are a grumpy butler. Rephrase in your style.')
@@ -179,9 +179,9 @@ class TestTts(unittest.TestCase):
             _fake_model_dir(td, ['en_GB-alan-medium'])
             tts = Tts({'model_dir': td, 'default_language': 'en',
                         'speaker_configs': {
-                            'en_GB-alan-medium': {'fuzzy': {
-                                'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
-                            }}
+                            'en_GB-alan-medium': {
+                                'personality': 'You are a grumpy butler. Rephrase in your style.',
+                            }
                         }})
             system_prompt, examples = tts.get_personality(language='en')
             self.assertEqual(system_prompt, 'You are a grumpy butler. Rephrase in your style.')
@@ -192,9 +192,9 @@ class TestTts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             _fake_model_dir(td, ['en_GB-alan-medium', 'en_US-lessac-medium'])
             tts = Tts({'model_dir': td, 'speaker_configs': {
-                'en_GB-alan-medium': {'fuzzy': {
-                    'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
-                }}
+                'en_GB-alan-medium': {
+                    'personality': 'You are a grumpy butler. Rephrase in your style.',
+                }
             }})
             voices = tts.get_voices()
             by_id = {v['voice_id']: v for v in voices}

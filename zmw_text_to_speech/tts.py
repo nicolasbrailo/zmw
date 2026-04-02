@@ -45,10 +45,9 @@ class Tts:
                 noise_scale=overrides.get('noise_scale', self._default_syn_config.noise_scale),
                 noise_w_scale=overrides.get('noise_w_scale', self._default_syn_config.noise_w_scale),
             )
-            fuzzy_cfg = overrides.get('fuzzy')
-            if fuzzy_cfg and fuzzy_cfg.get('system_prompt'):
-                system_prompt = fuzzy_cfg['system_prompt']
-                examples = list(fuzzy_cfg.get('examples', {}).items())
+            system_prompt = overrides.get('personality')
+            examples = list(overrides.get('examples', {}).items())
+            if system_prompt:
                 log.info("Speaker '%s' has fuzzy config (%d examples)",
                          speaker_id, len(examples))
                 self._speaker_personalities[speaker_id] = (system_prompt, examples)

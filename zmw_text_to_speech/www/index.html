@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="icon" href="favicon.ico" type="image/x-icon"/>
+<link rel="shortcut icon" href="favicon.ico" type="image/x-icon"/>
+<link rel="apple-touch-icon" href="favicon.ico"/>
+<link rel="manifest" href="manifest.json"/>
+<title>Text to Speech</title>
+
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="stylesheet" href="/zmw.css" />
+</head>
+
+<body class="dark">
+  <div id="global_loading" class="app-loading">
+    Loading...
+  </div>
+  <div id="global_error_ui" class="card warn no-error">
+    <div id="global_error_msg"></div>
+    <button id="global_error_ui_ack">OK</button>
+  </div>
+  <div id="app_root">
+  </div>
+</body>
+
+<script src="/app.rel.c0ab62b8.js"></script>
+<script>z2mStartReactApp('#app_root', TextToSpeech)</script>
+</html>

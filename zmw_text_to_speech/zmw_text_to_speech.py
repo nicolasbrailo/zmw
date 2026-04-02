@@ -1,7 +1,11 @@
+import datetime
 import json
 import os
 import pathlib
 import threading
+from collections import deque
+
+from flask import request, send_file
 
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
@@ -26,11 +30,20 @@ def _preload_models():
 
 
 class ZmwTextToSpeech(ZmwMqttService):
+    _MAX_HISTORY = 20
+
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_text_to_speech", scheduler=_sched)
         self._tts, self._fuzzy_tts = _preloaded_models
+        self._history = deque(maxlen=self._MAX_HISTORY)
+        self._history_lock = threading.Lock()
+
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         self._public_url_base = www.register_www_dir(www_path)
+        www.serve_url('/voices', lambda: json.dumps(self._tts.get_voices()))
+        www.serve_url('/tts_history', lambda: json.dumps(list(self._history)))
+        www.serve_url('/synthesize', self._on_http_synthesize, methods=['PUT'])
+        www.serve_url('/tts_download', self._on_http_download)
 
     def get_mqtt_description(self):
         return {
@@ -99,6 +112,36 @@ class ZmwTextToSpeech(ZmwMqttService):
             target=self._synthesize_and_publish,
             args=(text, language, speaker, fuzzy), daemon=True).start()
 
+    def _on_http_synthesize(self):
+        data = request.get_json(force=True)
+        text = data.get('text', '').strip()
+        if not text:
+            return json.dumps({'error': 'No text provided'}), 400
+        speaker = data.get('speaker')
+        fuzzy = bool(data.get('fuzzy', False))
+        threading.Thread(
+            target=self._synthesize_and_publish,
+            args=(text, None, speaker, fuzzy), daemon=True).start()
+        return json.dumps({'status': 'ok'})
+
+    def _on_http_download(self):
+        mp3_path = request.args.get('path', '')
+        if not mp3_path or not os.path.isfile(mp3_path):
+            return json.dumps({'error': 'File not found'}), 404
+        return send_file(mp3_path, mimetype='audio/mpeg')
+
+    def _add_history(self, result):
+        entry = {
+            'timestamp': datetime.datetime.now().isoformat(),
+            'text': result['text'],
+            'original_text': result['original_text'],
+            'voice_id': result['voice_id'],
+            'fuzzy': result['fuzzy'],
+            'mp3_url': f'/tts_download?path={result["mp3_path"]}',
+        }
+        with self._history_lock:
+            self._history.append(entry)
+
     def _synthesize_and_publish(self, text, language, speaker, fuzzy):
         log.info("Received request to TTS '%s'", text)
 
@@ -124,6 +167,7 @@ class ZmwTextToSpeech(ZmwMqttService):
             'mp3_path': mp3_path,
             'fuzzy': fuzzy_applied,
         }
+        self._add_history(result)
         self.publish_own_svc_message("tts_reply", result)
         log.info("TTS done result='%s'", result)
 
