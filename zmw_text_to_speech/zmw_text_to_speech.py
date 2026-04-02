@@ -104,10 +104,11 @@ class ZmwTextToSpeech(ZmwMqttService):
 
         fuzzy_applied = False
         synth_text = text
-        personality = self._tts.get_personality(language, speaker)
-        if fuzzy and personality:
+        fuzzy_cfg = self._tts.get_personality(language, speaker)
+        if fuzzy and fuzzy_cfg:
+            system_prompt, examples = fuzzy_cfg
             log.info("Requested fuzzy TTS, paraphrasing...")
-            paraphrased = self._fuzzy_tts.paraphrase(text, personality)
+            paraphrased = self._fuzzy_tts.paraphrase(text, system_prompt, examples)
             if paraphrased:
                 synth_text = paraphrased
                 log.info("Paraphrased '%s' -> '%s'", text, paraphrased)

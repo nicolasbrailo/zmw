@@ -20,17 +20,19 @@ The `defaults` config allows pinning a preferred voice per language (e.g. always
 
 ## Fuzzy TTS
 
-Fuzzy TTS is an optional mode that paraphrases text through a small LLM before synthesis, producing more natural and varied announcements. Each voice can have a configured `personality` that defines the paraphrasing style (e.g. "a grumpy British butler", "an overly dramatic narrator").
+Fuzzy TTS is an optional mode that paraphrases text through a small LLM before synthesis, producing more natural and varied announcements. Each voice can have a configured `personality` that defines the paraphrasing style, plus few-shot `examples` that teach the model the desired tone.
 
 **How it works:**
 1. Caller sends `fuzzy: true` in the TTS request
-2. The resolved voice's `personality` is looked up from config
-3. If a personality exists, the text is paraphrased by the LLM (Qwen2.5-0.5B-Instruct via llama-cpp-python)
+2. The resolved voice's `personality` and `examples` are looked up from config
+3. If a personality exists, the text is paraphrased by the LLM (Qwen2.5-1.5B-Instruct via llama-cpp-python)
 4. The paraphrased text is synthesized by Piper as usual
+
+Few-shot examples are critical for quality with small models. They are injected as chat turns before the actual input, teaching the model the target style by demonstration rather than description. Keep examples factually accurate — personality should be in the *tone*, not in added/changed meaning.
 
 **Fallback behavior:** Fuzzy mode degrades gracefully. If the model isn't downloaded, isn't loaded yet, or paraphrasing fails, the original text is synthesized without modification. If the resolved voice has no `personality` configured, fuzzy is silently skipped.
 
-**Setup:** Download the LLM model with `make download_fuzzy_model` and set `fuzzy_model_path` in config. Add `personality` to any voice's `speaker_configs` entry.
+**Setup:** Download the LLM model with `make download_fuzzy_model` and set `fuzzy_model_path` in config. Add `personality` and `examples` to any voice's `speaker_configs` entry.
 
 ## Output
 
@@ -65,7 +67,8 @@ Models are available at `https://huggingface.co/rhasspy/piper-voices/tree/main`,
 | `default_language` | Fallback language when no language is specified in a request (e.g. `en`) |
 | `defaults` | Map of language/locale to voice ID overrides (e.g. `{"es": "es_AR-daniela-high"}`) |
 | `fuzzy_model_path` | Path to GGUF model for fuzzy TTS. If empty/missing, fuzzy mode is disabled. |
-| `speaker_configs.*.personality` | Personality description for fuzzy paraphrasing (e.g. `"a grumpy British butler"`) |
+| `speaker_configs.*.fuzzy.system_prompt` | Full system prompt for fuzzy paraphrasing — personality + instructions, in the voice's language |
+| `speaker_configs.*.fuzzy.examples` | Few-shot examples as `{"input": "output"}` dict. Injected as chat turns (not inline) because small models understand the chat format much better. |
 
 ## MQTT
 

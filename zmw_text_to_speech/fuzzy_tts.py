@@ -5,12 +5,18 @@ from zzmw_lib.logs import build_logger
 
 log = build_logger("FuzzyTts")
 
-_SYSTEM_PROMPT = (
-    "Rephrase the following message in your own words. "
-    "You are: {personality}. "
-    "Keep the same meaning and language. "
-    "Reply with ONLY the rephrased text, nothing else."
-)
+
+def _build_messages(system_prompt, examples, text):
+    # Examples are injected as user/assistant chat turns rather than inline in the system
+    # prompt. Small models (1.5B) understand the chat turn format much better — inline
+    # examples get regurgitated verbatim or used as a lookup table instead of learning
+    # the style pattern.
+    messages = [{"role": "system", "content": system_prompt}]
+    for ex_in, ex_out in examples:
+        messages.append({"role": "user", "content": ex_in})
+        messages.append({"role": "assistant", "content": ex_out})
+    messages.append({"role": "user", "content": text})
+    return messages
 
 
 class _LazyLlama:
@@ -47,20 +53,17 @@ class FuzzyTts:
             self._llm = None
             return
         # Higher temperature = more varied/creative paraphrases, lower = more predictable.
-        # 0.9 is a good default for personality-driven style transfer.
         self._temperature = temperature
-        self._llm = _LazyLlama(model_path=model_path, n_ctx=256, verbose=False)
+        self._llm = _LazyLlama(model_path=model_path, n_ctx=512, verbose=False)
 
-    def paraphrase(self, text, personality):
-        """Paraphrase text according to personality. Returns paraphrased string, or None on failure."""
+    def paraphrase(self, text, system_prompt, examples=None):
+        """Paraphrase text according to system_prompt and examples. Returns paraphrased string, or None on failure."""
         if self._llm is None:
             return None
         try:
+            messages = _build_messages(system_prompt, examples or [], text)
             result = self._llm.create_chat_completion(
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT.format(personality=personality)},
-                    {"role": "user", "content": text},
-                ],
+                messages=messages,
                 max_tokens=80,
                 temperature=self._temperature,
             )

@@ -140,9 +140,29 @@ class TestTts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             _fake_model_dir(td, ['en_GB-alan-medium'])
             tts = Tts({'model_dir': td, 'speaker_configs': {
-                'en_GB-alan-medium': {'personality': 'a grumpy butler'}
+                'en_GB-alan-medium': {'fuzzy': {
+                    'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
+                }}
             }})
-            self.assertEqual(tts.get_personality(speaker='en_GB-alan-medium'), 'a grumpy butler')
+            system_prompt, examples = tts.get_personality(speaker='en_GB-alan-medium')
+            self.assertEqual(system_prompt, 'You are a grumpy butler. Rephrase in your style.')
+            self.assertEqual(examples, [])
+
+    @patch('tts.PiperVoice')
+    def test_get_personality_with_examples(self, mock_piper):
+        from tts import Tts
+        with tempfile.TemporaryDirectory() as td:
+            _fake_model_dir(td, ['en_GB-alan-medium'])
+            tts = Tts({'model_dir': td, 'speaker_configs': {
+                'en_GB-alan-medium': {'fuzzy': {
+                    'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
+                    'examples': {'Hello': 'Good day, sir.', 'Goodbye': 'Very well, sir.'}
+                }}
+            }})
+            system_prompt, examples = tts.get_personality(speaker='en_GB-alan-medium')
+            self.assertEqual(system_prompt, 'You are a grumpy butler. Rephrase in your style.')
+            self.assertEqual(len(examples), 2)
+            self.assertIn(('Hello', 'Good day, sir.'), examples)
 
     @patch('tts.PiperVoice')
     def test_get_personality_not_configured(self, mock_piper):
@@ -159,22 +179,27 @@ class TestTts(unittest.TestCase):
             _fake_model_dir(td, ['en_GB-alan-medium'])
             tts = Tts({'model_dir': td, 'default_language': 'en',
                         'speaker_configs': {
-                            'en_GB-alan-medium': {'personality': 'a grumpy butler'}
+                            'en_GB-alan-medium': {'fuzzy': {
+                                'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
+                            }}
                         }})
-            self.assertEqual(tts.get_personality(language='en'), 'a grumpy butler')
+            system_prompt, examples = tts.get_personality(language='en')
+            self.assertEqual(system_prompt, 'You are a grumpy butler. Rephrase in your style.')
 
     @patch('tts.PiperVoice')
-    def test_get_voices_includes_personality(self, mock_piper):
+    def test_get_voices_includes_fuzzy(self, mock_piper):
         from tts import Tts
         with tempfile.TemporaryDirectory() as td:
             _fake_model_dir(td, ['en_GB-alan-medium', 'en_US-lessac-medium'])
             tts = Tts({'model_dir': td, 'speaker_configs': {
-                'en_GB-alan-medium': {'personality': 'a grumpy butler'}
+                'en_GB-alan-medium': {'fuzzy': {
+                    'system_prompt': 'You are a grumpy butler. Rephrase in your style.',
+                }}
             }})
             voices = tts.get_voices()
             by_id = {v['voice_id']: v for v in voices}
-            self.assertEqual(by_id['en_GB-alan-medium']['personality'], 'a grumpy butler')
-            self.assertNotIn('personality', by_id['en_US-lessac-medium'])
+            self.assertTrue(by_id['en_GB-alan-medium']['fuzzy'])
+            self.assertNotIn('fuzzy', by_id['en_US-lessac-medium'])
 
 
 if __name__ == '__main__':

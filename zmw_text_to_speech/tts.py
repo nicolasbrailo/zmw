@@ -45,9 +45,13 @@ class Tts:
                 noise_scale=overrides.get('noise_scale', self._default_syn_config.noise_scale),
                 noise_w_scale=overrides.get('noise_w_scale', self._default_syn_config.noise_w_scale),
             )
-            if overrides.get('personality'):
-                log.info("Speaker '%s' has a personality: %s", speaker_id, overrides['personality'])
-                self._speaker_personalities[speaker_id] = overrides['personality']
+            fuzzy_cfg = overrides.get('fuzzy')
+            if fuzzy_cfg and fuzzy_cfg.get('system_prompt'):
+                system_prompt = fuzzy_cfg['system_prompt']
+                examples = list(fuzzy_cfg.get('examples', {}).items())
+                log.info("Speaker '%s' has fuzzy config (%d examples)",
+                         speaker_id, len(examples))
+                self._speaker_personalities[speaker_id] = (system_prompt, examples)
 
         model_dir = cfg.get('model_dir', './tts_model')
         defaults = cfg.get('defaults', {})
@@ -87,7 +91,7 @@ class Tts:
         log.info("TTS loaded %d voices, defaults: %s", len(self._voices), self._defaults)
 
     def get_personality(self, language=None, speaker=None):
-        """Resolve the voice and return its personality string, or None."""
+        """Resolve the voice and return (system_prompt, examples) tuple, or None."""
         voice_id, _ = self.resolve_voice(language, speaker)
         return self._speaker_personalities.get(voice_id)
 
@@ -113,9 +117,8 @@ class Tts:
                 entry['default_for'] = sorted(default_for[voice_id])
             if voice_id == fallback_vid:
                 entry['default_fallback'] = True
-            personality = self._speaker_personalities.get(voice_id)
-            if personality:
-                entry['personality'] = personality
+            if voice_id in self._speaker_personalities:
+                entry['fuzzy'] = True
             voices.append(entry)
         return voices
 
