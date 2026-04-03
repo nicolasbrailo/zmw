@@ -6,7 +6,7 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 
 ## Modes
 
-- **TTS**: Send a text phrase to be converted to speech and played on all speakers. Multiple languages are supported via the configured TTS engine.
+- **TTS**: Send a text phrase to be converted to speech and played on all speakers. Multiple languages are supported via the configured TTS engine. Supports "fuzzy" mode (default) which paraphrases text through a voice personality before synthesis — use the "Fast announce" button in the web UI to skip paraphrasing.
 - **Asset playback**: Play a pre-existing audio file by name (from the asset cache), by local file path (copied to cache first), or by public URL.
 - **User recording**: Record audio from your device microphone via the web UI, then broadcast it. Requires HTTPS (browsers block microphone access without SSL). The server uses a self-signed certificate, so a browser security warning is expected.
 
@@ -22,7 +22,7 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 ## WWW
 
 - `/` - Web UI for TTS input and microphone recording (served from `www/` directory, available over both HTTP and HTTPS)
-- `/announce_tts?phrase=X&lang=X&vol=N` - Trigger a TTS announcement
+- `/announce_tts?phrase=X&lang=X&vol=N&fuzzy=true` - Trigger a TTS announcement (fuzzy defaults to true)
 - `/announce_user_recording` - Upload and announce a recorded audio file (PUT/POST, `audio_data` multipart field)
 - `/ls_speakers` - JSON array of discovered Sonos speaker names (sorted)
 - `/announcement_history` - JSON array of the 10 most recent announcements
@@ -54,6 +54,7 @@ Say a message out loud on speakers (text-to-speech). Use for announcements and n
 | `msg` | Text to announce |
 | `lang?` | Language code |
 | `vol?` | Volume 0-100 |
+| `fuzzy?` | Paraphrase text using voice personality before synthesis (default: true) |
 
 #### `announcement_history`
 
@@ -88,7 +89,7 @@ Published when a TTS announcement completes. Contains generated asset paths
 
 Announcement history
 
-Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI', 'fuzzy_text?': 'Paraphrased text if fuzzy was applied'}]`
 
 #### `get_mqtt_description_reply`
 

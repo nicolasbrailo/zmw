@@ -15,6 +15,7 @@ class TTSAnnounce extends React.Component {
       ttsPhrase: "",
       ttsLang: "es-ES",
       ttsVolume: 50,
+      fuzzyTts: true,
       isRecording: false,
       speakerList: null,
       ttsLanguages: null,
@@ -36,7 +37,11 @@ class TTSAnnounce extends React.Component {
   }
 
   on_app_became_visible() {
-    mJsonGet(`${this.props.api_base_path}/ls_speakers`, (data) => this.setState({ speakerList: data }));
+    mJsonGet(`${this.props.api_base_path}/ls_speakers`, (data) => {
+      const enabled = {};
+      if (data) data.forEach(s => enabled[s] = true);
+      this.setState({ speakerList: data, enabledSpeakers: enabled });
+    });
     mJsonGet(`${this.props.api_base_path}/tts_languages`, (data) => {
       const update = { ttsLanguages: data };
       if (data && data.length > 0) {
@@ -45,7 +50,14 @@ class TTSAnnounce extends React.Component {
       }
       this.setState(update);
     });
-    mJsonGet(`${this.props.api_base_path}/svc_config`, (data) => this.setState({ httpsServer: data.https_server }));
+    mJsonGet(`${this.props.api_base_path}/svc_config`, (data) => {
+      const fuzzyAvailable = data.fuzzy_available !== false;
+      const update = { httpsServer: data.https_server, fuzzyAvailable };
+      if (!fuzzyAvailable) {
+        update.fuzzyTts = false;
+      }
+      this.setState(update);
+    });
     this.fetchAnnouncementHistory();
   }
 
@@ -53,12 +65,10 @@ class TTSAnnounce extends React.Component {
     mJsonGet(`${this.props.api_base_path}/announcement_history`, (data) => this.setState({ announcementHistory: data }));
   }
 
-  onTTSRequested() {
+  _doAnnounce(fuzzy) {
     const phrase = this.state.ttsPhrase.trim() || prompt("What is so important?");
     if (!phrase) return;
     this.setState({ ttsPhrase: phrase });
-
-    console.log(`announce {"lang": "${this.state.ttsLang}", "phrase": "${phrase}"}`);
 
     const newEntry = {
       timestamp: new Date().toISOString(),
@@ -72,14 +82,19 @@ class TTSAnnounce extends React.Component {
       announcementHistory: [...prev.announcementHistory, newEntry].slice(-10)
     }));
 
-    console.log(`${this.props.api_base_path}/announce_tts?lang=${this.state.ttsLang}&phrase=${phrase}&vol=${this.state.ttsVolume}`)
-    mJsonGet(
-      `${this.props.api_base_path}/announce_tts?lang=${this.state.ttsLang}&phrase=${phrase}&vol=${this.state.ttsVolume}`,
-      () => {
-        console.log("Sent TTS request");
+    const selectedSpeakers = this.state.enabledSpeakers
+      ? Object.keys(this.state.enabledSpeakers).filter(s => this.state.enabledSpeakers[s])
+      : [];
+    const speakersParam = selectedSpeakers.length > 0 ? `&speakers=${encodeURIComponent(selectedSpeakers.join(','))}` : '';
+    const url = `${this.props.api_base_path}/announce_tts?lang=${this.state.ttsLang}&phrase=${phrase}&vol=${this.state.ttsVolume}&fuzzy=${fuzzy}${speakersParam}`;
+    mJsonGet(url, () => {
         this.setState({ ttsPhrase: "" });
         this.fetchAnnouncementHistory();
       });
+  }
+
+  onTTSRequested() {
+    this._doAnnounce(this.state.fuzzyTts);
   }
 
   async onMicRecRequested() {
@@ -160,7 +175,7 @@ class TTSAnnounce extends React.Component {
 
         <div className="ctrl-box-with-range">
           <button onClick={this.onTTSRequested}>
-            Announce!
+            Shout
           </button>
 
           <select
@@ -193,6 +208,16 @@ class TTSAnnounce extends React.Component {
             )
           )}
 
+          <label>
+            <input
+              type="checkbox"
+              checked={this.state.fuzzyTts}
+              disabled={this.state.fuzzyAvailable === false}
+              onChange={e => this.setState({ fuzzyTts: e.target.checked })}
+            />
+            Fuzzy TTS
+          </label>
+
           <label>Vol</label>
           <input
             type="range"
@@ -207,8 +232,27 @@ class TTSAnnounce extends React.Component {
         {this.state.speakerList && (
           <small>
             Will announce in: <ul className="compact-list">
-              {this.state.speakerList.map(x => <li key={x}>{x}</li>) }
+              {this.state.speakerList.map(x => (
+                <li key={x}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!!(this.state.enabledSpeakers && this.state.enabledSpeakers[x])}
+                      onChange={e => this.setState(prev => ({
+                        enabledSpeakers: {...prev.enabledSpeakers, [x]: e.target.checked}
+                      }))}
+                    />
+                    {x}
+                  </label>
+                </li>
+              ))}
             </ul>
+            <button onClick={() => this.setState(prev => {
+              const allEnabled = prev.speakerList.every(s => prev.enabledSpeakers[s]);
+              const updated = {};
+              prev.speakerList.forEach(s => updated[s] = !allEnabled);
+              return { enabledSpeakers: updated };
+            })}>Toggle all</button>
           </small>
         )}
 
@@ -231,7 +275,10 @@ class TTSAnnounce extends React.Component {
                 {this.state.announcementHistory.slice().reverse().map((item, idx) => (
                   <tr key={idx}>
                     <td>{new Date(item.timestamp).toLocaleString()}</td>
-                    <td>{item.phrase}</td>
+                    <td>
+                      {item.phrase}
+                      {item.fuzzy_text && <div><small><em>{item.fuzzy_text}</em></small></div>}
+                    </td>
                     <td>{item.lang || "default"}</td>
                     <td>{item.volume}</td>
                     <td><a href={item.uri}>🔊</a></td>

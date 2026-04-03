@@ -85,14 +85,20 @@ async def _async_sonos_announce_one(api_cfg, ip_addr, soco_uid, alert_uri, volum
     return True
 
 
-async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None):
+async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None, speakers=None):
     tasks = []
+    announced_names = []
 
     if 'speaker_ip_list' in api_cfg:
         log.info("Skip Sonos discovery, using static IP list %s", api_cfg['speaker_ip_list'])
         for ip in api_cfg['speaker_ip_list']:
             try:
                 dev = soco.SoCo(ip)
+                name = dev.player_name
+                if speakers and name not in speakers:
+                    log.debug("Skipping speaker %s (not in requested list)", name)
+                    continue
+                announced_names.append(name)
                 tasks.append(_async_sonos_announce_one(api_cfg, dev.ip_address, dev.uid, alert_uri, volume))
             except _SONOS_EXC:
                 log.warning("Failed to connect to speaker at %s, skipping", ip, exc_info=True)
@@ -106,24 +112,38 @@ async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None):
             log.error("Sonos discovery broken, can't announce")
             return False
         for spk in spks:
+            try:
+                name = spk.player_name
+            except _SONOS_EXC:
+                log.warning("Failed to get name for speaker %s, skipping", spk.ip_address, exc_info=True)
+                continue
+            if speakers and name not in speakers:
+                log.debug("Skipping speaker %s (not in requested list)", name)
+                continue
+            announced_names.append(name)
             tasks.append(_async_sonos_announce_one(api_cfg, spk.ip_address, spk.uid, alert_uri, volume))
 
     if not tasks:
         log.error("No speakers available for announcement")
         return False
 
+    if speakers:
+        missing = set(speakers) - set(announced_names)
+        if missing:
+            log.error("Requested speakers not found: %s", sorted(missing))
+
     await asyncio.gather(*tasks)
     return True
 
 
-def sonos_announce_ws(api_cfg, alert_uri, volume=None):
+def sonos_announce_ws(api_cfg, alert_uri, volume=None, speakers=None):
     """ Send an announcement to all zones, in a fancy way: should lower the volume of current media,
     play announce and then restore. Requires an API key """
     # Ensure we have the right cfg keys before launching an announcement
     api_cfg['api_key']  # pylint: disable=pointless-statement
     api_cfg['api_key_name']  # pylint: disable=pointless-statement
     api_cfg['key_app_id']  # pylint: disable=pointless-statement
-    return asyncio.run(_async_sonos_announce_all(api_cfg, alert_uri, volume))
+    return asyncio.run(_async_sonos_announce_all(api_cfg, alert_uri, volume, speakers=speakers))
 
 def _sonos_announce_local_prep_zones(volume, force_play):
     try:
@@ -196,7 +216,7 @@ def _sonos_announce_local_prep_zones(volume, force_play):
 
 def sonos_announce_local(alert_uri, volume, timeout, force_play):
     """ Send an announcement to all zones, using local only APIs. Use as a fallback for
-    sonos_announce_ws """
+    sonos_announce_ws. Speaker filtering is not supported here to keep the fallback simple. """
     log.info('Preparing announcement %s volume %s timeout %s', alert_uri, volume, timeout)
     announce_zones = _sonos_announce_local_prep_zones(volume, force_play)
     if len(announce_zones) == 0:
@@ -252,17 +272,18 @@ def sonos_announce_local(alert_uri, volume, timeout, force_play):
             log.error('Failed to restore state on %s', zone.player_name, exc_info=True)
 
 
-def sonos_announce(alert_uri, volume=None, ws_api_cfg=None):
+def sonos_announce(alert_uri, volume=None, ws_api_cfg=None, speakers=None):
     """ Make an announcement over all discoverable speakers. If ws_api_cfg isn't false, it will
     use a 'smart' announce method (lower volume of current media, announce, restore). This requires
     an external API key. If this method isn't available, it will fallback to announce only on
-    speakers without active media. """
+    speakers without active media (and speaker selection won't be applied). """
     if ws_api_cfg is not None:
         try:
-            if sonos_announce_ws(ws_api_cfg, alert_uri, volume):
+            if sonos_announce_ws(ws_api_cfg, alert_uri, volume, speakers=speakers):
                 return
         except (KeyError, aiohttp.ClientError, OSError, asyncio.TimeoutError):
             log.error('Failed to Sonos announce', exc_info=True)
 
+    # Fallback to local announce — speaker filtering not supported to keep fallback simple
     log.error('Smart Sonos announce failed, fallback to local announce')
     sonos_announce_local(alert_uri, volume, timeout=10, force_play=False)

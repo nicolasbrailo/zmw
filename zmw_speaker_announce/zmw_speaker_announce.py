@@ -53,7 +53,7 @@ GOOGLE_TTS_LANGUAGES = [
     {"value": "en-GB", "label": "EN GB"},
 ]
 
-_ZMW_TTS_TIMEOUT = 6
+_ZMW_TTS_TIMEOUT = 10
 _ZMW_TTS_VOICES_TIMEOUT = 2
 
 
@@ -94,7 +94,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._https.serve_url('/announce_tts', self._www_announce_tts)
         self._https.serve_url('/ls_speakers', lambda: json.dumps(sorted(list(get_sonos_by_name()))))
         self._https.serve_url('/announcement_history', lambda: json.dumps(list(self._announcement_history)))
-        self._https.serve_url('/svc_config', lambda: json.dumps({'https_server': self._https.server_url}))
+        self._https.serve_url('/svc_config', lambda: json.dumps({
+            'https_server': self._https.server_url,
+            'fuzzy_available': self._use_zmw_tts(),
+        }))
         self._https.serve_url('/tts_languages', lambda: json.dumps(self._get_tts_languages()))
 
         # Start the HTTPS server (if certs available)
@@ -103,14 +106,16 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             log.info("HTTPS server available at: %s", self._https.server_url)
 
 
-    def _record_announcement(self, phrase, lang, volume, uri):
+    def _record_announcement(self, phrase, lang, volume, uri, fuzzy_text=None):
         entry = {
             'timestamp': datetime.now().isoformat(),
             'phrase': phrase,
             'lang': lang,
             'volume': volume,
-            'uri': uri
+            'uri': uri,
         }
+        if fuzzy_text:
+            entry['fuzzy_text'] = fuzzy_text
         self._announcement_history.append(entry)
 
     # --- ZMW TTS integration ---
@@ -177,35 +182,36 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
     def _handle_shout(self, txt):
         try:
             vol = None
-            local_path = self._get_tts_asset(txt, lang_or_voice=None)
+            local_path, tts_result = self._get_tts_asset(txt, lang_or_voice=None, fuzzy=True)
             remote_path = f"{self._public_tts_base}/{local_path}"
-            self._record_announcement(txt, None, vol, remote_path)
+            fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
+            self._record_announcement(txt, None, vol, remote_path, fuzzy_text=fuzzy_text)
             sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
         except Exception:
             log.exception("Failed to handle shout: '%s'", txt)
 
-    def _get_tts_asset(self, text, lang_or_voice):
-        """Get a TTS mp3 asset. Returns local filename within the cache dir.
+    def _get_tts_asset(self, text, lang_or_voice, fuzzy=True):
+        """Get a TTS mp3 asset. Returns (local_filename, tts_result_dict).
 
         When zmw_tts is active, lang_or_voice is a voice_id (from web) or language code (from MQTT).
         Falls back to Google TTS if zmw_tts fails and fallback is allowed.
         """
         if self._use_zmw_tts():
-            local_fname = self._request_zmw_tts(text, lang_or_voice)
+            local_fname, tts_result = self._request_zmw_tts(text, lang_or_voice, fuzzy=fuzzy)
             if local_fname:
-                return local_fname
+                return local_fname, tts_result
             if self._can_fallback_to_google():
                 log.warning("ZMW TTS failed for '%s', falling back to Google TTS", text)
                 return get_local_path_tts(self._tts_assets_cache_path, text,
-                                          self._cfg['tts_default_lang'])
+                                          self._cfg['tts_default_lang']), None
             raise RuntimeError("ZMW TTS failed and no fallback available")
-        return get_local_path_tts(self._tts_assets_cache_path, text, lang_or_voice)
+        return get_local_path_tts(self._tts_assets_cache_path, text, lang_or_voice), None
 
-    def _request_zmw_tts(self, text, lang_or_voice):
-        """Send TTS request to ZmwTextToSpeech, copy result to local cache. Returns filename or None."""
+    def _request_zmw_tts(self, text, lang_or_voice, fuzzy=True):
+        """Send TTS request to ZmwTextToSpeech, copy result to local cache. Returns (filename, result) or (None, None)."""
         # If the value looks like a voice_id (contains '-'), use it as speaker;
         # otherwise treat it as a language code
-        payload = {"text": text}
+        payload = {"text": text, "fuzzy": fuzzy}
         if lang_or_voice and '-' in lang_or_voice:
             payload["speaker"] = lang_or_voice
         elif lang_or_voice:
@@ -215,18 +221,18 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                                     "tts_reply", timeout=_ZMW_TTS_TIMEOUT)
         if not result or 'mp3_path' not in result:
             log.warning("Can't query ZMW TTS response is '%s'", result)
-            return None
+            return None, None
 
         mp3_path = result['mp3_path']
         if not os.path.isfile(mp3_path):
             log.warning("ZMW TTS returned path '%s' but file doesn't exist", mp3_path)
-            return None
+            return None, None
 
         fname = os.path.basename(mp3_path)
         dest = os.path.join(self._tts_assets_cache_path, fname)
         if mp3_path != dest:
             shutil.copy2(mp3_path, dest)
-        return fname
+        return fname, result
 
     def get_mqtt_description(self):
         return {
@@ -243,7 +249,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                     "params": {
                         "msg": "Text to announce",
                         "lang?": "Language code",
-                        "vol?": "Volume 0-100"
+                        "vol?": "Volume 0-100",
+                        "fuzzy?": "Paraphrase text using voice personality before synthesis (default: true)",
                     }
                 },
                 "announcement_history": {
@@ -283,13 +290,22 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         lang = request.args.get('lang', self._cfg['tts_default_lang'])
         vol = self._get_payload_vol(request.args)
         txt = request.args.get('phrase')
+        fuzzy = request.args.get('fuzzy', 'true').lower() not in ('false', '0', 'no')
+        speakers_param = request.args.get('speakers', '')
+        speakers = [s.strip() for s in speakers_param.split(',') if s.strip()] if speakers_param else None
         if txt is None:
             return abort(400, "Message has no phrase")
 
-        local_path = self._get_tts_asset(txt, lang)
+        if speakers:
+            log.info("Requested annoucement '%s' for speakers %s", txt, speakers)
+        else:
+            log.info("Requested annoucement '%s' in all speakers", txt)
+
+        local_path, tts_result = self._get_tts_asset(txt, lang, fuzzy=fuzzy)
         remote_path = f"{self._public_tts_base}/{local_path}"
-        self._record_announcement(txt, lang, vol, remote_path)
-        sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
+        fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
+        self._record_announcement(txt, lang, vol, remote_path, fuzzy_text=fuzzy_text)
+        sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg, speakers=speakers)
         return {}
 
     def _announce_user_recording(self):
@@ -340,8 +356,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
     def _tts_and_play_worker(self, payload):
         lang = payload.get('lang', self._cfg['tts_default_lang'])
+        fuzzy = bool(payload.get('fuzzy', True))
         try:
-            local_path = self._get_tts_asset(payload['msg'], lang)
+            local_path, tts_result = self._get_tts_asset(payload['msg'], lang, fuzzy=fuzzy)
         except RuntimeError:
             log.error("TTS failed for '%s'", payload['msg'], exc_info=True)
             return
@@ -349,7 +366,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         msg = {'local_path': local_path, 'uri': remote_path}
         self.publish_own_svc_message("tts_reply", msg)
         vol = self._get_payload_vol(payload)
-        self._record_announcement(payload['msg'], lang, vol, remote_path)
+        fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
+        self._record_announcement(payload['msg'], lang, vol, remote_path, fuzzy_text=fuzzy_text)
         sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
 
     def _save_asset_to_www(self, local_path):
