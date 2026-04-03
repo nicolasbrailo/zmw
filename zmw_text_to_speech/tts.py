@@ -36,8 +36,9 @@ class Tts:
             noise_w_scale=cfg.get('noise_w_scale', 0.8),
         )
 
-        # Per-speaker synthesis config overrides and personalities
+        # Per-speaker synthesis config overrides, names, and personalities
         self._speaker_syn_configs = {}
+        self._speaker_names = {}
         self._speaker_personalities = {}
         for speaker_id, overrides in cfg.get('speaker_configs', {}).items():
             self._speaker_syn_configs[speaker_id] = SynthesisConfig(
@@ -45,6 +46,8 @@ class Tts:
                 noise_scale=overrides.get('noise_scale', self._default_syn_config.noise_scale),
                 noise_w_scale=overrides.get('noise_w_scale', self._default_syn_config.noise_w_scale),
             )
+            if overrides.get('name'):
+                self._speaker_names[speaker_id] = overrides['name']
             system_prompt = overrides.get('personality')
             examples = list(overrides.get('examples', {}).items())
             if system_prompt:
@@ -107,7 +110,7 @@ class Tts:
         for voice_id, (lang, locale, name, quality) in sorted(self._voice_info.items()):
             entry = {
                 'voice_id': voice_id,
-                'name': name.title(),
+                'name': self._speaker_names.get(voice_id, name.title()),
                 'locale': locale,
                 'lang': lang,
                 'quality': quality,
