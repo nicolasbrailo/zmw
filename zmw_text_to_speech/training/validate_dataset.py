@@ -1,156 +1,336 @@
 #!/usr/bin/env python3
-"""Validate a dataset produced by prepare_dataset.py.
+# Usage: pip install flask && python validate_dataset.py
+# Then open http://localhost:5000 in your browser.
+"""Dataset validation web app for reviewing wav samples and their transcriptions."""
 
-Loads metadata.csv, re-transcribes each WAV clip with Whisper, and compares
-the result to the stored transcript. Entries whose transcriptions don't match
-are moved to the low_confidence/ subdirectory.
-
-Usage:
-  python validate_dataset.py dataset_dir [--model medium] [--language en]
-                                         [--threshold 0.8]
-"""
-
-import argparse
-import logging
+import csv
+import json
 import os
 import shutil
-import sys
-import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from difflib import SequenceMatcher
+
+from flask import Flask, jsonify, request, send_from_directory
+
+app = Flask(__name__)
+
+DATASET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset")
+METADATA_CSV = os.path.join(DATASET_DIR, "metadata.csv")
+WAVS_DIR = os.path.join(DATASET_DIR, "wavs")
+STATE_FILE = os.path.join(DATASET_DIR, "validation_state.json")
+BAD_DIR = os.path.join(DATASET_DIR, "samples_bad")
+BAD_CSV = os.path.join(BAD_DIR, "metadata.csv")
 
 
-def load_metadata(csv_path):
-    """Load metadata.csv and return list of (filename, text) tuples."""
+def load_metadata():
     entries = []
-    with open(csv_path, "r", encoding="utf-8") as f:
-        for lineno, line in enumerate(f, 1):
+    with open(METADATA_CSV, "r") as f:
+        for line in f:
             line = line.strip()
             if not line:
                 continue
             parts = line.split("|", 1)
-            if len(parts) < 2:
-                print(f"Error: metadata.csv line {lineno}: bad format",
-                      file=sys.stderr)
-                sys.exit(1)
-            entries.append((parts[0], parts[1]))
+            if len(parts) == 2:
+                entries.append({"file": parts[0], "text": parts[1]})
     return entries
 
 
-def normalize(text):
-    """Lowercase, strip punctuation and extra whitespace for comparison."""
-    import re
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s]", "", text)
-    text = re.sub(r"\s+", " ", text)
-    return text
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    return {}
 
 
-def similarity(a, b):
-    """Return 0-1 similarity ratio between two strings."""
-    return SequenceMatcher(None, normalize(a), normalize(b)).ratio()
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Validate dataset by re-transcribing clips and checking against metadata"
-    )
-    parser.add_argument("dataset_dir", help="Path to dataset directory (contains metadata.csv and wavs/)")
-    parser.add_argument("--language", default=None,
-                        help="Language code for Whisper (auto-detected if omitted)")
-    parser.add_argument("--model", default="medium",
-                        help="Whisper model size (default: medium)")
-    parser.add_argument("--threshold", type=float, default=0.8,
-                        help="Similarity threshold 0-1 to consider a match (default: 0.8)")
-    parser.add_argument("--workers", type=int, default=1,
-                        help="Number of parallel transcription workers (default: 1)")
+@app.route("/")
+def index():
+    return HTML_PAGE
 
-    args = parser.parse_args()
 
-    csv_path = os.path.join(args.dataset_dir, "metadata.csv")
-    if not os.path.isfile(csv_path):
-        print(f"Error: '{csv_path}' not found", file=sys.stderr)
-        sys.exit(1)
+@app.route("/api/entries")
+def api_entries():
+    entries = load_metadata()
+    state = load_state()
+    for e in entries:
+        e["status"] = state.get(e["file"], "pending")
+    return jsonify(entries)
 
-    entries = load_metadata(csv_path)
-    if not entries:
-        print("metadata.csv is empty — nothing to validate.")
-        return
 
-    print(f"Loaded {len(entries)} entries from metadata.csv")
+@app.route("/api/mark", methods=["POST"])
+def api_mark():
+    data = request.json
+    file_key = data["file"]
+    status = data["status"]  # "good" or "bad"
+    state = load_state()
+    state[file_key] = status
+    save_state(state)
+    return jsonify({"ok": True})
 
-    # Suppress Whisper's logging and FP16 warnings
-    logging.getLogger("whisper").setLevel(logging.ERROR)
-    warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
 
-    import whisper
-    print(f"Loading Whisper model '{args.model}'...")
-    model = whisper.load_model(args.model)
+@app.route("/api/update_text", methods=["POST"])
+def api_update_text():
+    """Update the transcription for a given entry in metadata.csv."""
+    data = request.json
+    file_key = data["file"]
+    new_text = data["text"]
+    entries = load_metadata()
+    for e in entries:
+        if e["file"] == file_key:
+            e["text"] = new_text
+            break
+    with open(METADATA_CSV, "w") as f:
+        for e in entries:
+            f.write(f"{e['file']}|{e['text']}\n")
+    return jsonify({"ok": True})
 
-    good = []
-    bad = []
 
-    def transcribe_entry(filename, expected_text):
-        wav_path = os.path.join(args.dataset_dir, filename + ".wav")
-        if not os.path.isfile(wav_path):
-            return filename, expected_text, None, "[file missing]"
-        result = model.transcribe(wav_path, language=args.language, verbose=None)
-        actual_text = result["text"].strip()
-        score = similarity(expected_text, actual_text)
-        return filename, expected_text, score, actual_text
+@app.route("/api/apply", methods=["POST"])
+def api_apply():
+    """Move bad samples to samples_bad/ and update both CSVs."""
+    state = load_state()
+    entries = load_metadata()
 
-    done = 0
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {
-            pool.submit(transcribe_entry, fn, txt): i
-            for i, (fn, txt) in enumerate(entries)
-        }
-        for future in as_completed(futures):
-            filename, expected_text, score, actual_text = future.result()
-            done += 1
+    os.makedirs(BAD_DIR, exist_ok=True)
 
-            if score is None:
-                print(f"  MISSING: {filename}", file=sys.stderr)
-                bad.append((filename, expected_text, actual_text))
-            elif score >= args.threshold:
-                good.append((filename, expected_text))
-            else:
-                bad.append((filename, expected_text, actual_text))
-                print(f"  MISMATCH ({score:.0%}): {filename}")
-                print(f"    expected: {expected_text}")
-                print(f"    got:      {actual_text}")
+    good_lines = []
+    bad_lines = []
+    for e in entries:
+        if state.get(e["file"]) == "bad":
+            bad_lines.append(e)
+            # Move the wav file
+            basename = os.path.basename(e["file"])
+            src = os.path.join(DATASET_DIR, e["file"] + ".wav")
+            if os.path.exists(src):
+                shutil.move(src, os.path.join(BAD_DIR, basename + ".wav"))
+        else:
+            good_lines.append(e)
 
-            if done % 20 == 0 or done == len(entries):
-                print(f"  Validated {done}/{len(entries)}")
+    # Rewrite the original metadata.csv with only good/pending entries
+    with open(METADATA_CSV, "w") as f:
+        for e in good_lines:
+            f.write(f"{e['file']}|{e['text']}\n")
 
-    if not bad:
-        print(f"\nAll {len(good)} entries match. Dataset is clean.")
-        return
+    # Write the bad metadata.csv
+    with open(BAD_CSV, "w") as f:
+        for e in bad_lines:
+            basename = os.path.basename(e["file"])
+            f.write(f"{basename}|{e['text']}\n")
 
-    # Rewrite metadata.csv with only good entries
-    with open(csv_path, "w", encoding="utf-8") as f:
-        for filename, text in good:
-            f.write(f"{filename}|{text}\n")
+    # Clean bad entries from state
+    for e in bad_lines:
+        state.pop(e["file"], None)
+    save_state(state)
 
-    # Move bad entries to low_confidence
-    low_dir = os.path.join(args.dataset_dir, "low_confidence")
-    low_wavs = os.path.join(low_dir, "wavs")
-    os.makedirs(low_wavs, exist_ok=True)
+    return jsonify({"ok": True, "moved": len(bad_lines), "remaining": len(good_lines)})
 
-    low_csv_path = os.path.join(low_dir, "metadata.csv")
-    with open(low_csv_path, "a", encoding="utf-8") as f:
-        for filename, expected_text, actual_text in bad:
-            src = os.path.join(args.dataset_dir, filename + ".wav")
-            if os.path.isfile(src):
-                dst = os.path.join(low_dir, filename + ".wav")
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.move(src, dst)
-            f.write(f"{filename}|{expected_text}\n")
 
-    print(f"\nDone! {len(good)} good, {len(bad)} moved to low_confidence/")
-    print(f"  Updated {csv_path} ({len(good)} entries)")
-    print(f"  Appended {len(bad)} entries to {low_csv_path}")
+@app.route("/wavs/<path:filename>")
+def serve_wav(filename):
+    return send_from_directory(WAVS_DIR, filename)
 
+
+HTML_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dataset Validator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 10px; color: #fff; }
+  .stats { text-align: center; margin-bottom: 15px; font-size: 14px; color: #aaa; }
+  .stats span { margin: 0 10px; font-weight: bold; }
+  .stats .good { color: #4caf50; }
+  .stats .bad { color: #f44336; }
+  .stats .pending { color: #ff9800; }
+  .apply-bar { text-align: center; margin: 15px 0; }
+  .apply-bar button {
+    background: #e91e63; color: #fff; border: none; padding: 10px 24px;
+    border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;
+  }
+  .apply-bar button:hover { background: #c2185b; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th { background: #16213e; padding: 10px; text-align: left; position: sticky; top: 0; z-index: 1; }
+  td { padding: 8px 10px; border-bottom: 1px solid #2a2a4a; vertical-align: middle; }
+  tr.good { background: #1b3d1b; }
+  tr.bad { background: #3d1b1b; }
+  tr.pending { background: transparent; }
+  .file-col { width: 120px; font-family: monospace; font-size: 13px; }
+  .text-col { font-size: 14px; }
+  .actions { white-space: nowrap; width: 260px; }
+  .actions button {
+    border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer;
+    font-size: 13px; margin-right: 4px; color: #fff;
+  }
+  .btn-play { background: #1e88e5; }
+  .btn-play:hover { background: #1565c0; }
+  .btn-good { background: #388e3c; }
+  .btn-good:hover { background: #2e7d32; }
+  .btn-bad { background: #d32f2f; }
+  .btn-bad:hover { background: #b71c1c; }
+  .btn-undo { background: #757575; }
+  .btn-undo:hover { background: #616161; }
+  .btn-save { background: #f57c00; }
+  .btn-save:hover { background: #e65100; }
+  .text-col .text-display { cursor: pointer; }
+  .text-col .text-display:hover { outline: 1px dashed #888; outline-offset: 2px; }
+  .text-col .edit-area { width: 100%; padding: 4px 6px; font-size: 14px; font-family: inherit;
+    background: #0d1b2a; color: #e0e0e0; border: 1px solid #1e88e5; border-radius: 4px; resize: vertical; min-height: 40px; }
+  .edit-row { display: flex; gap: 6px; align-items: start; }
+  .edit-row .edit-area { flex: 1; }
+  .filter-bar { text-align: center; margin-bottom: 10px; }
+  .filter-bar button {
+    border: 1px solid #555; background: transparent; color: #ccc;
+    padding: 5px 14px; margin: 0 3px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  .filter-bar button.active { background: #333; color: #fff; border-color: #888; }
+</style>
+</head>
+<body>
+<h1>Dataset Validator</h1>
+<div class="stats">
+  <span class="good">Good: <span id="cnt-good">0</span></span>
+  <span class="bad">Bad: <span id="cnt-bad">0</span></span>
+  <span class="pending">Pending: <span id="cnt-pending">0</span></span>
+  <span>Total: <span id="cnt-total">0</span></span>
+</div>
+<div class="apply-bar">
+  <button onclick="applyChanges()">Apply Changes &mdash; Move Bad Samples</button>
+</div>
+<div class="filter-bar">
+  <button class="active" onclick="setFilter('all', this)">All</button>
+  <button onclick="setFilter('pending', this)">Pending</button>
+  <button onclick="setFilter('good', this)">Good</button>
+  <button onclick="setFilter('bad', this)">Bad</button>
+</div>
+<table>
+  <thead><tr><th class="file-col">File</th><th class="text-col">Transcription</th><th class="actions">Actions</th></tr></thead>
+  <tbody id="tbody"></tbody>
+</table>
+<div class="apply-bar" style="margin-top:15px;">
+  <button onclick="applyChanges()">Apply Changes &mdash; Move Bad Samples</button>
+</div>
+
+<script>
+let entries = [];
+let currentAudio = null;
+let currentFilter = 'all';
+
+async function load() {
+  const res = await fetch('/api/entries');
+  entries = await res.json();
+  render();
+}
+
+function updateStats() {
+  const good = entries.filter(e => e.status === 'good').length;
+  const bad = entries.filter(e => e.status === 'bad').length;
+  const pending = entries.filter(e => e.status === 'pending').length;
+  document.getElementById('cnt-good').textContent = good;
+  document.getElementById('cnt-bad').textContent = bad;
+  document.getElementById('cnt-pending').textContent = pending;
+  document.getElementById('cnt-total').textContent = entries.length;
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-bar button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  render();
+}
+
+function render() {
+  updateStats();
+  const tbody = document.getElementById('tbody');
+  const filtered = currentFilter === 'all' ? entries : entries.filter(e => e.status === currentFilter);
+  tbody.innerHTML = filtered.map((e, i) => {
+    const idx = entries.indexOf(e);
+    const basename = e.file.replace('wavs/', '');
+    return `<tr class="${e.status}">
+      <td class="file-col">${basename}</td>
+      <td class="text-col"><span class="text-display" ondblclick="startEdit(${idx}, this)">${escHtml(e.text)}</span></td>
+      <td class="actions">
+        <button class="btn-play" onclick="playAudio('${basename}.wav', this)">&#9654; Play</button>
+        <button class="btn-good" onclick="mark(${idx}, 'good')">&#10003; Good</button>
+        <button class="btn-bad" onclick="mark(${idx}, 'bad')">&#10007; Bad</button>
+        ${e.status !== 'pending' ? `<button class="btn-undo" onclick="mark(${idx}, 'pending')">Undo</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function playAudio(file, btn) {
+  if (currentAudio) { currentAudio.pause(); }
+  currentAudio = new Audio('/wavs/' + file);
+  currentAudio.play();
+}
+
+async function mark(idx, status) {
+  entries[idx].status = status;
+  render();
+  await fetch('/api/mark', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({file: entries[idx].file, status})
+  });
+}
+
+function startEdit(idx, span) {
+  const td = span.parentElement;
+  const text = entries[idx].text;
+  td.innerHTML = `<div class="edit-row">
+    <textarea class="edit-area" id="edit-${idx}">${escHtml(text)}</textarea>
+    <button class="btn-save" onclick="saveEdit(${idx})">Save</button>
+    <button class="btn-undo" onclick="cancelEdit(${idx})">Cancel</button>
+  </div>`;
+  const ta = document.getElementById('edit-' + idx);
+  ta.focus();
+  ta.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); saveEdit(idx); }
+    if (ev.key === 'Escape') { cancelEdit(idx); }
+  });
+}
+
+function cancelEdit(idx) {
+  render();
+}
+
+async function saveEdit(idx) {
+  const ta = document.getElementById('edit-' + idx);
+  const newText = ta.value.trim();
+  if (newText === entries[idx].text) { render(); return; }
+  entries[idx].text = newText;
+  render();
+  await fetch('/api/update_text', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({file: entries[idx].file, text: newText})
+  });
+}
+
+async function applyChanges() {
+  const badCount = entries.filter(e => e.status === 'bad').length;
+  if (badCount === 0) { alert('No samples marked as bad.'); return; }
+  if (!confirm(`Move ${badCount} bad sample(s) to samples_bad/ and update CSVs?`)) return;
+  const res = await fetch('/api/apply', {method: 'POST'});
+  const data = await res.json();
+  alert(`Moved ${data.moved} bad samples. ${data.remaining} entries remaining.`);
+  load();
+}
+
+load();
+</script>
+</body>
+</html>
+"""
 
 if __name__ == "__main__":
-    main()
+    print("Starting dataset validator at http://localhost:5000")
+    app.run(debug=True, port=5000)
