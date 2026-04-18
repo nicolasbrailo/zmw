@@ -101,6 +101,59 @@ class ShellyPlugMonitor:
         self._known_shellies[sensor_name].update(payload)
 
 
+class HomeboardMonitor:
+    """Monitors Homeboard occupancy and slideshow_active messages and records them to sensor history."""
+    METRICS = ['occupied', 'distance_cm', 'slideshow_active']
+
+    def __init__(self, sensors):
+        self._sensors = sensors
+        self._known_homeboards = set()
+
+    def _ensure_registered(self, name):
+        if name in self._known_homeboards:
+            return True
+        try:
+            self._sensors.register_sensor(name, self.METRICS)
+            self._known_homeboards.add(name)
+            log.info("New homeboard discovered: %s", name)
+            return True
+        except ValueError:
+            log.error("Homeboard '%s' can't be registered as sensor", name, exc_info=True)
+            return False
+
+    def on_message(self, topic, payload):
+        """Handle incoming Homeboard MQTT messages and update sensor history."""
+        parts = topic.split('/')
+        if len(parts) != 2:
+            # Commands and reply topics (e.g. 'next', 'get_mqtt_description_reply') don't match
+            return
+        name, action = parts
+
+        if action == 'occupancy':
+            if not isinstance(payload, dict):
+                log.warning("Expected dict for occupancy '%s', got %s: %s",
+                            name, type(payload).__name__, payload)
+                return
+            values = {}
+            if 'occupied' in payload:
+                values['occupied'] = 1 if payload['occupied'] else 0
+            if 'distance_cm' in payload:
+                values['distance_cm'] = payload['distance_cm']
+            if not values:
+                return
+            if not self._ensure_registered(name):
+                return
+            self._sensors.save_reading(name, values)
+        elif action == 'slideshow_active':
+            if not isinstance(payload, bool):
+                log.warning("Expected bool for slideshow_active '%s', got %s: %s",
+                            name, type(payload).__name__, payload)
+                return
+            if not self._ensure_registered(name):
+                return
+            self._sensors.save_reading(name, {'slideshow_active': 1 if payload else 0})
+
+
 class ZmwSensormon(ZmwMqttService):
     """MQTT service for monitoring sensor data and maintaining history."""
     def __init__(self, cfg, www, sched):
@@ -118,6 +171,9 @@ class ZmwSensormon(ZmwMqttService):
 
         self._shelly_monitor = ShellyPlugMonitor(self._sensors)
         self.subscribe_with_cb('zmw_shelly_plug', self._shelly_monitor.on_message)
+
+        self._homeboard_monitor = HomeboardMonitor(self._sensors)
+        self.subscribe_with_cb('zmw_homeboard', self._homeboard_monitor.on_message)
 
         self._outside_weather = OutsideWeatherSensor(
             self._sensors, self._z2m, sched,
