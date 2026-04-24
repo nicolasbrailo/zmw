@@ -9,107 +9,31 @@ class Homeboard extends React.Component {
     super(props);
     this.state = {
       homeboards: [],
-      selected: null,
       loading: true,
-      transitionSecs: 30,
-      embedQr: false,
-      width: 1024,
-      height: 768,
-      displayedPhoto: null,
     };
-    this.onNext = this.onNext.bind(this);
-    this.onPrev = this.onPrev.bind(this);
-    this.onForceOn = this.onForceOn.bind(this);
-    this.onForceOff = this.onForceOff.bind(this);
-    this.onSubmitTransition = this.onSubmitTransition.bind(this);
-    this.onSubmitEmbedQr = this.onSubmitEmbedQr.bind(this);
-    this.onSubmitTargetSize = this.onSubmitTargetSize.bind(this);
-    this.onSelect = this.onSelect.bind(this);
     this.refresh = this.refresh.bind(this);
-    this.refreshPhoto = this.refreshPhoto.bind(this);
-    this._photoTimer = null;
+    this._timer = null;
   }
 
   componentDidMount() {
     this.on_app_became_visible();
-    this._photoTimer = setInterval(this.refreshPhoto, 10000);
+    this._timer = setInterval(this.refresh, 5000);
   }
 
   componentWillUnmount() {
-    if (this._photoTimer) clearInterval(this._photoTimer);
-  }
-
-  componentDidUpdate(_prevProps, prevState) {
-    if (prevState.selected !== this.state.selected) {
-      this.refreshPhoto();
-    }
+    if (this._timer) clearInterval(this._timer);
   }
 
   on_app_became_visible() {
     this.refresh();
-    this.refreshPhoto();
   }
 
   refresh() {
-    mJsonGet('/list', (data) => {
+    mJsonGet('/get_homeboards_state', (data) => {
       const homeboards = (data && data.homeboards) || [];
-      this.setState((prev) => {
-        let selected = prev.selected;
-        const ids = homeboards.map((h) => h.id);
-        if (selected && !ids.includes(selected)) selected = null;
-        if (!selected && ids.length > 0) selected = ids[0];
-        return { homeboards, selected, loading: false };
-      });
+      this.setState({ homeboards, loading: false });
     }, () => {
       this.setState({ loading: false });
-    });
-  }
-
-  refreshPhoto() {
-    const hb = this.state.selected;
-    const selectedHb = (this.state.homeboards || []).find((h) => h.id === hb);
-    if (!hb || !selectedHb || selectedHb.state !== 'online' || !selectedHb.slideshow_active) {
-      this.setState({ displayedPhoto: null });
-      return;
-    }
-    const url = `/displayed_photo?homeboard_id=${encodeURIComponent(hb)}`;
-    mJsonGet(url, (data) => {
-      this.setState({ displayedPhoto: (data && data.displayed_photo) || null });
-    }, () => {});
-  }
-
-  onSelect(e) {
-    this.setState({ selected: e.target.value });
-  }
-
-  _send(url, extra) {
-    const hb = this.state.selected;
-    if (!hb) return;
-    const body = { homeboard_id: hb, ...(extra || {}) };
-    mJsonPut(url, body, () => {
-      setTimeout(this.refreshPhoto, 500);
-    }, () => {
-      this.setState({});
-    });
-  }
-
-  onPrev() { this._send('/prev'); }
-  onNext() { this._send('/next'); }
-  onForceOn() { this._send('/force_on'); }
-  onForceOff() { this._send('/force_off'); }
-
-  onSubmitTransition() {
-    this._send('/set_transition_time_secs', { secs: Number(this.state.transitionSecs) });
-  }
-
-  onSubmitEmbedQr() {
-    this._send('/set_embed_qr', { enabled: !!this.state.embedQr });
-  }
-
-  onSubmitTargetSize() {
-    this._send('/set_target_size', {
-      width: Number(this.state.width),
-      height: Number(this.state.height),
     });
   }
 
@@ -131,8 +55,7 @@ class Homeboard extends React.Component {
     );
   }
 
-  renderDisplayedPhoto() {
-    const photo = this.state.displayedPhoto;
+  renderDisplayedPhoto(photo) {
     if (!photo) {
       return (<p>No photo info available.</p>);
     }
@@ -151,7 +74,16 @@ class Homeboard extends React.Component {
       <div>
         <dl>
           {photo.albumname && (<><dt>Album</dt><dd>{photo.albumname}</dd></>)}
-          {photo.filename && (<><dt>File</dt><dd><a href={photo.src_url}>{photo.filename}</a></dd></>)}
+          {photo.filename && (
+            <>
+              <dt>File</dt>
+              <dd>
+                {photo.src_url
+                  ? (<a href={photo.src_url} target="_blank" rel="noreferrer">{photo.filename}</a>)
+                  : photo.filename}
+              </dd>
+            </>
+          )}
           {taken && (<><dt>Taken</dt><dd>{taken}</dd></>)}
           {camera && (<><dt>Camera</dt><dd>{camera}</dd></>)}
           {size && (<><dt>Size</dt><dd>{size}</dd></>)}
@@ -174,8 +106,29 @@ class Homeboard extends React.Component {
     );
   }
 
+  renderHomeboard(hb) {
+    const online = hb.state === 'online';
+    const slideshowActive = !!hb.slideshow_active;
+    return (
+      <div key={hb.id} className={online ? 'card' : 'card warn'}>
+        <h3>{hb.id}</h3>
+        <div>
+          Bridge: <strong>{hb.state}</strong>
+          {online && (<> — Slideshow: <strong>{slideshowActive ? 'Active' : 'Not active'}</strong></>)}
+        </div>
+        {this.renderOccupancy(hb.occupancy)}
+        {hb.displayed_photo && (
+          <>
+            <h4>Now showing</h4>
+            {this.renderDisplayedPhoto(hb.displayed_photo)}
+          </>
+        )}
+      </div>
+    );
+  }
+
   render() {
-    const { homeboards, selected, loading, transitionSecs, embedQr, width, height } = this.state;
+    const { homeboards, loading } = this.state;
     if (loading) {
       return (<div>Loading...</div>);
     }
@@ -187,104 +140,10 @@ class Homeboard extends React.Component {
         </div>
       );
     }
-    const selectedHb = homeboards.find((h) => h.id === selected);
-    const isOnline = !!selectedHb && selectedHb.state === 'online';
-    const slideshowActive = !!(selectedHb && selectedHb.slideshow_active);
-    const disabled = !isOnline;
     return (
       <div>
-        <div>
-          <label>
-            Homeboard:
-            <select value={selected || ''} onChange={this.onSelect}>
-              {homeboards.map((hb) => (
-                <option key={hb.id} value={hb.id}>
-                  {hb.id} ({hb.state})
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={this.refresh}>Refresh</button>
-        </div>
-
-        {!isOnline && (
-          <div className="card warn">
-            <p><strong>{selected}</strong> is offline.</p>
-          </div>
-        )}
-
-        {isOnline && (
-          <>
-            <div>
-              Slideshow: <strong>({slideshowActive ? 'Active' : 'Not active'})</strong>
-            </div>
-
-            {this.renderOccupancy(selectedHb && selectedHb.occupancy)}
-
-            <div>
-              <button onClick={this.onPrev} disabled={disabled}>Prev</button>
-              <button onClick={this.onNext} disabled={disabled}>Next</button>
-              <button onClick={this.onForceOn} disabled={disabled}>Force On</button>
-              <button onClick={this.onForceOff} disabled={disabled}>Force Off</button>
-            </div>
-
-            {slideshowActive && (
-              <div className="card">
-                <h3>Now showing</h3>
-                {this.renderDisplayedPhoto()}
-              </div>
-            )}
-
-            <details>
-              <summary>Config</summary>
-
-              <div>
-                <label>
-                  Transition time (secs):
-                  <input
-                    type="number"
-                    min="0"
-                    value={transitionSecs}
-                    onChange={(e) => this.setState({ transitionSecs: e.target.value })}
-                  />
-                </label>
-                <button onClick={this.onSubmitTransition} disabled={disabled}>Apply</button>
-              </div>
-
-              <div>
-                <label>
-                  Embed QR:
-                  <input
-                    type="checkbox"
-                    checked={embedQr}
-                    onChange={(e) => this.setState({ embedQr: e.target.checked })}
-                  />
-                </label>
-                <button onClick={this.onSubmitEmbedQr} disabled={disabled}>Apply</button>
-              </div>
-
-              <div>
-                <label>
-                  Target size:
-                  <input
-                    type="number"
-                    min="1"
-                    value={width}
-                    onChange={(e) => this.setState({ width: e.target.value })}
-                  />
-                  x
-                  <input
-                    type="number"
-                    min="1"
-                    value={height}
-                    onChange={(e) => this.setState({ height: e.target.value })}
-                  />
-                </label>
-                <button onClick={this.onSubmitTargetSize} disabled={disabled}>Apply</button>
-              </div>
-            </details>
-          </>
-        )}
+        <div>{homeboards.length} homeboard(s) known</div>
+        {homeboards.map((hb) => this.renderHomeboard(hb))}
       </div>
     );
   }

@@ -5,7 +5,7 @@ name = "pypi"
 
 [packages]
 zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
-paho-mqtt = "*"
+homeboard-remote-control = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zext_libs/wwwslide/HomeboardRemoteControl"}
 
 [dev-packages]
 pylint = "*"
