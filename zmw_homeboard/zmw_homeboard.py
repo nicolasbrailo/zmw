@@ -6,6 +6,7 @@ from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
 from homeboard_remote_control import RemoteControlCore
+from weather_overlay import WeatherOverlay
 
 log = build_logger("ZmwHomeboard")
 
@@ -24,6 +25,8 @@ class ZmwHomeboard(ZmwMqttService):
 
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_homeboard", scheduler=_sched)
+
+        self._weather = WeatherOverlay()
 
         self._core = RemoteControlCore(
             cfg['homeboard']['mqtt_ip'],
@@ -91,6 +94,25 @@ class ZmwHomeboard(ZmwMqttService):
                         "height": "Height in pixels (positive integer)",
                     }
                 },
+                "announce": {
+                    "description": "Show an announcement text in the Homeboards",
+                    "params": {
+                        "homeboard_id": "Name of the target homeboard",
+                        "timeout_secs": "How long it should be displayed (0 means forever)",
+                        "msg": "Text to display",
+                    }
+                },
+                "set_svg_overlay": {
+                    "description": "Show an svg overlay in the Homeboards",
+                    "params": {
+                        "homeboard_id": "Name of the target homeboard",
+                        "timeout_secs": "How long it should be displayed (0 means forever)",
+                        "svg_file_path": "Path to the SVG file in the local filesystem",
+                    }
+                },
+                "update_weather": {
+                    "description": "Push a new weather update to the Homeboards as an SVG",
+                },
             },
             "announcements": {
             }
@@ -135,11 +157,17 @@ class ZmwHomeboard(ZmwMqttService):
                     ok = False
                 else:
                     ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
+        elif subtopic == "update_weather":
+            ok = self._push_weather_update(hb_id, payload.get('timeout_secs', 15))
         else:
             return
 
         if not ok:
             log.warning("Failed to execute '%s' for payload: %s", subtopic, payload)
+
+    def _push_weather_update(self, hb_id=None, timeout_secs=15):
+        svg = self._weather.generate_svg()
+        return self._core.set_svg_overlay(hb_id, timeout_secs, svg)
 
 
 service_runner(ZmwHomeboard)
