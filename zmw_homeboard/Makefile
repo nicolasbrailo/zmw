@@ -3,6 +3,7 @@ include ../common.mk
 rebuild_deps: pipenv_rebuild_deps_base
 	pipenv install -e "$(shell readlink -f "$(PWD)/../zext_libs/wwwslide/HomeboardRemoteControl")"
 	pipenv install picosvg
+	pipenv install fonttools
 
 clean_icons:
 	pipenv run python clean_icons.py
@@ -25,4 +26,5 @@ test_announce:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/announce' -m '{"homeboard_id": "$(HB)", "msg": "Hello from ZMW"}'
 
 test_weather:
-	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/update_weather' -m '{"homeboard_id": "$(HB)"}'
+	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/update_weather' -m '{}'
+

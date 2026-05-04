@@ -2,5 +2,10 @@
   "homeboard": {
     "mqtt_ip": "10.0.0.10",
     "mqtt_port": "4500"
+  },
+  "weather": {
+    "lat": 51.5428743,
+    "lon": -0.1289942,
+    "tz": "auto"
   }
 }

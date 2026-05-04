@@ -7,6 +7,7 @@ name = "pypi"
 zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
 homeboard-remote-control = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zext_libs/wwwslide/HomeboardRemoteControl"}
 picosvg = "*"
+fonttools = "*"
 
 [dev-packages]
 pylint = "*"

@@ -26,7 +26,12 @@ class ZmwHomeboard(ZmwMqttService):
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_homeboard", scheduler=_sched)
 
-        self._weather = WeatherOverlay()
+        self._weather = WeatherOverlay(
+            "weather_icons",
+            lat=float(cfg['weather']['lat']),
+            lon=float(cfg['weather']['lon']),
+            tz=cfg['weather'].get('tz', 'auto'),
+        )
 
         self._core = RemoteControlCore(
             cfg['homeboard']['mqtt_ip'],
@@ -41,6 +46,38 @@ class ZmwHomeboard(ZmwMqttService):
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         www.register_www_dir(www_path)
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
+
+        _sched.add_job(self._scheduled_weather_update,
+                       trigger='cron', hour='7-22', minute=0)
+        _sched.add_job(self._scheduled_weather_clear,
+                       trigger='cron', hour=23, minute=0)
+
+    def _scheduled_weather_update(self):
+        try:
+            svg = self._weather.generate_svg()
+        except Exception:
+            log.exception("Scheduled weather update: generate_svg raised")
+            return
+        self._broadcast_svg_overlay(svg, action="update")
+
+    def _scheduled_weather_clear(self):
+        self._broadcast_svg_overlay('', action="clear")
+
+    def _broadcast_svg_overlay(self, svg, action):
+        targets = [hb["id"] for hb in self._core.list_homeboards()]
+        if not targets:
+            log.info("SVG overlay bcast %s: no homeboards discovered yet", action)
+            return True
+        for hb_id in targets:
+            try:
+                log.info("%s SVG overlay for %s", action, hb_id)
+                ok = self._core.set_svg_overlay(hb_id, timeout_secs=0, svg=svg)
+            except Exception:
+                log.exception("Scheduled weather %s raised for %s", action, hb_id)
+                continue
+            if not ok:
+                log.warning("Scheduled weather %s failed for %s", action, hb_id)
+        return True
 
     def _get_homeboards_state(self):
         return {"homeboards": self._core.list_homeboards()}
@@ -167,7 +204,11 @@ class ZmwHomeboard(ZmwMqttService):
 
     def _push_weather_update(self, hb_id=None, timeout_secs=15):
         svg = self._weather.generate_svg()
-        return self._core.set_svg_overlay(hb_id, timeout_secs, svg)
+        if hb_id:
+            log.info("Pushing weather overlay update for homeboard '%s'", hb_id)
+            return self._core.set_svg_overlay(hb_id, timeout_secs, svg)
+        else:
+            return self._broadcast_svg_overlay(svg, action="update")
 
 
 service_runner(ZmwHomeboard)
