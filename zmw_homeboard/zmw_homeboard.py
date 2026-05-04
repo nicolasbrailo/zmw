@@ -114,13 +114,24 @@ class ZmwHomeboard(ZmwMqttService):
         elif subtopic == "force_off":
             ok = self._core.force_off(hb_id)
         elif subtopic == "set_transition_time_secs":
-            ok = self._core.set_transition_time_secs(hb_id, payload.get('secs'))
+            ok = self._core.set_transition_time_secs(hb_id, payload.get('secs', 30))
         elif subtopic == "set_embed_qr":
-            ok = self._core.set_embed_qr(hb_id, payload.get('enabled'))
+            ok = self._core.set_embed_qr(hb_id, payload.get('enabled', False))
         elif subtopic == "set_target_size":
-            ok = self._core.set_target_size(hb_id, payload.get('width'), payload.get('height'))
+            ok = self._core.set_target_size(hb_id, payload.get('width', 1920), payload.get('height', 1080))
+        elif subtopic == "announce":
+            ok = self._core.announce(hb_id, payload.get('timeout_secs', 15), payload.get('msg'))
+        elif subtopic == "set_svg_overlay":
+            svg_path = payload.get('svg_file_path')
+            try:
+                with open(svg_path, 'r', encoding='utf-8') as f:
+                    svg = f.read()
+            except OSError as e:
+                log.warning("Cannot read SVG file '%s': %s", svg_path, e)
+                ok = False
+            else:
+                ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
         else:
-            log.warning("Ignoring unknown message '%s'", subtopic)
             return
 
         if not ok:
