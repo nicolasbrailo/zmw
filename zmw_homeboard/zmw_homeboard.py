@@ -123,14 +123,18 @@ class ZmwHomeboard(ZmwMqttService):
             ok = self._core.announce(hb_id, payload.get('timeout_secs', 15), payload.get('msg'))
         elif subtopic == "set_svg_overlay":
             svg_path = payload.get('svg_file_path')
-            try:
-                with open(svg_path, 'r', encoding='utf-8') as f:
-                    svg = f.read()
-            except OSError as e:
-                log.warning("Cannot read SVG file '%s': %s", svg_path, e)
-                ok = False
+            if not svg_path:
+                # Requested to clear overlay
+                ok = self._core.set_svg_overlay(hb_id, timeout_secs=0, svg='')
             else:
-                ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
+                try:
+                    with open(svg_path, 'r', encoding='utf-8') as f:
+                        svg = f.read()
+                except OSError as e:
+                    log.warning("Cannot read SVG file '%s': %s", svg_path, e)
+                    ok = False
+                else:
+                    ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
         else:
             return
 
