@@ -13,9 +13,14 @@ Each block has a weather category from:
 
 import json
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
+
+from zzmw_lib.logs import build_logger
+
+log = build_logger("WeatherReport")
 
 
 API_URL = "https://api.open-meteo.com/v1/forecast"
@@ -126,7 +131,7 @@ def _block_from_hours(hours):
     }
 
 
-def build_weather_report(lat, lon, tz, now=None):
+def _build_weather_report_impl(lat, lon, tz, now=None):
     """Build the structured report. `now` is overridable for tests."""
     data = _fetch(lat, lon, tz)
     hourly = _parse_hourly(data)
@@ -195,6 +200,13 @@ def build_weather_report(lat, lon, tz, now=None):
         "location": {"lat": lat, "lon": lon},
         "blocks": blocks,
     }
+
+def build_weather_report(lat, lon, tz, now=None):
+    try:
+        return _build_weather_report_impl(lat, lon, tz, now)
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        log.info("Network error, couldn't fetch weather report: %s", e)
+        return None
 
 
 def format_report(report):

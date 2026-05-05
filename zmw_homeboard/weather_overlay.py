@@ -52,6 +52,8 @@ class WeatherOverlay:
         })
 
         report = build_weather_report(self._lat, self._lon, self._tz)
+        if report is None:
+            return None
         blocks = report["blocks"]
 
         row_h = self.ICON_SIZE + self.ROW_GAP

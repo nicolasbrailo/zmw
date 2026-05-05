@@ -1,5 +1,6 @@
 import os
 import pathlib
+from datetime import datetime, timedelta
 
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
@@ -26,6 +27,7 @@ class ZmwHomeboard(ZmwMqttService):
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_homeboard", scheduler=_sched)
 
+        self._sched = _sched
         self._weather = WeatherOverlay(
             "weather_icons",
             lat=float(cfg['weather']['lat']),
@@ -53,14 +55,22 @@ class ZmwHomeboard(ZmwMqttService):
                        trigger='cron', hour=23, minute=0)
 
     def _scheduled_weather_update(self):
+        log.info("Starting scheduled weather update")
         try:
             svg = self._weather.generate_svg()
         except Exception:
             log.exception("Scheduled weather update: generate_svg raised")
             return
+        if svg is None:
+            log.info("Scheduled weather update: no SVG (network error?), retrying in 60s")
+            self._sched.add_job(self._scheduled_weather_update,
+                                trigger='date',
+                                run_date=datetime.now() + timedelta(seconds=60))
+            return
         self._broadcast_svg_overlay(svg, action="update")
 
     def _scheduled_weather_clear(self):
+        log.info("Scheduled weather update: clear overlay for the day")
         self._broadcast_svg_overlay('', action="clear")
 
     def _broadcast_svg_overlay(self, svg, action):
@@ -204,6 +214,9 @@ class ZmwHomeboard(ZmwMqttService):
 
     def _push_weather_update(self, hb_id=None, timeout_secs=15):
         svg = self._weather.generate_svg()
+        if svg is None:
+            log.warning("Weather overlay update: no SVG available (network error?)")
+            return False
         if hb_id:
             log.info("Pushing weather overlay update for homeboard '%s'", hb_id)
             return self._core.set_svg_overlay(hb_id, timeout_secs, svg)
