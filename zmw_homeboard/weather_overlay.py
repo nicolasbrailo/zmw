@@ -13,9 +13,6 @@ _SVG_NS = "http://www.w3.org/2000/svg"
 
 
 class WeatherOverlay:
-    CANVAS_W = 1920
-    CANVAS_H = 1080
-
     # Panel layout
     PANEL_W = 340
     PANEL_MARGIN = 20
@@ -43,12 +40,28 @@ class WeatherOverlay:
         self._lon = lon
         self._tz = tz
 
-    def generate_svg(self):
+    def generate_svg(self, hostinfo):
+        log.info("Render weather SVG for %s", hostinfo)
+        canvas_w = hostinfo.get('resolution_w', 1920)
+        canvas_h = hostinfo.get('resolution_h', 1080)
+        rotation = hostinfo.get('rotation', 0) % 360
+        v_align = hostinfo.get('v_align', 'center')
+        h_align = hostinfo.get('h_align', 'center')
+
+        # The picture is rotated in software: at 90/270 the visible canvas
+        # axes are swapped relative to the physical resolution. We lay the
+        # panel out in this "logical" frame, then a single wrapper transform
+        # maps it back onto the physical SVG.
+        if rotation in (90, 270):
+            logical_w, logical_h = canvas_h, canvas_w
+        else:
+            logical_w, logical_h = canvas_w, canvas_h
+
         ET.register_namespace("", _SVG_NS)
         out = ET.Element(f"{{{_SVG_NS}}}svg", {
-            "width": str(self.CANVAS_W),
-            "height": str(self.CANVAS_H),
-            "viewBox": f"0 0 {self.CANVAS_W} {self.CANVAS_H}",
+            "width": str(canvas_w),
+            "height": str(canvas_h),
+            "viewBox": f"0 0 {canvas_w} {canvas_h}",
         })
 
         report = build_weather_report(self._lat, self._lon, self._tz)
@@ -58,10 +71,23 @@ class WeatherOverlay:
 
         row_h = self.ICON_SIZE + self.ROW_GAP
         panel_h = self.PANEL_PAD * 2 + max(0, len(blocks) * row_h - self.ROW_GAP)
-        panel_x = self.CANVAS_W - self.PANEL_W - self.PANEL_MARGIN
-        panel_y = self.PANEL_MARGIN
 
-        ET.SubElement(out, f"{{{_SVG_NS}}}rect", {
+        # Place panel on the side opposite the picture's weight, so it sits
+        # over the empty area instead of covering the photo.
+        if h_align == 'left':
+            panel_x = logical_w - self.PANEL_W - self.PANEL_MARGIN
+        else:
+            panel_x = self.PANEL_MARGIN
+        if v_align == 'top':
+            panel_y = logical_h - panel_h - self.PANEL_MARGIN
+        else:
+            panel_y = self.PANEL_MARGIN
+
+        transform = self._rotation_transform(rotation, canvas_w, canvas_h)
+        content = ET.SubElement(out, f"{{{_SVG_NS}}}g", {"transform": transform}) \
+            if transform else out
+
+        ET.SubElement(content, f"{{{_SVG_NS}}}rect", {
             "x": f"{panel_x}",
             "y": f"{panel_y}",
             "width": f"{self.PANEL_W}",
@@ -78,10 +104,22 @@ class WeatherOverlay:
         row_x = panel_x + self.PANEL_PAD
         row_y = panel_y + self.PANEL_PAD
         for block in blocks:
-            self._render_row(out, row_x, row_y, block)
+            self._render_row(content, row_x, row_y, block)
             row_y += row_h
 
         return ET.tostring(out, encoding="unicode")
+
+    @staticmethod
+    def _rotation_transform(rotation, canvas_w, canvas_h):
+        # Map the logical (pre-rotation) frame onto the physical SVG canvas.
+        # Rotation is interpreted as clockwise, matching the picture renderer.
+        if rotation == 90:
+            return f"translate({canvas_w},0) rotate(90)"
+        if rotation == 180:
+            return f"translate({canvas_w},{canvas_h}) rotate(180)"
+        if rotation == 270:
+            return f"translate(0,{canvas_h}) rotate(270)"
+        return None
 
     def _render_row(self, out, x, y, block):
         self._render_icon(out, block["category"], x, y)

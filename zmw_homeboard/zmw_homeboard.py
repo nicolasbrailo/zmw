@@ -42,6 +42,7 @@ class ZmwHomeboard(ZmwMqttService):
                 self.publish_own_svc_message(f'{prefix}/occupancy', data),
             on_slideshow_active=lambda prefix, active:
                 self.publish_own_svc_message(f'{prefix}/slideshow_active', active),
+            on_host_info=self._on_hb_host_info,
         )
         self._core.start()
 
@@ -49,29 +50,43 @@ class ZmwHomeboard(ZmwMqttService):
         www.register_www_dir(www_path)
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
 
-        _sched.add_job(self._scheduled_weather_update,
+        _sched.add_job(self._weather_update,
                        trigger='cron', hour='7-22', minute=0)
         _sched.add_job(self._scheduled_weather_clear,
                        trigger='cron', hour=23, minute=0)
 
-    def _scheduled_weather_update(self):
-        log.info("Starting scheduled weather update")
-        try:
-            svg = self._weather.generate_svg()
-        except Exception:
-            log.exception("Scheduled weather update: generate_svg raised")
-            return
-        if svg is None:
-            log.info("Scheduled weather update: no SVG (network error?), retrying in 60s")
-            self._sched.add_job(self._scheduled_weather_update,
-                                trigger='date',
-                                run_date=datetime.now() + timedelta(seconds=60))
-            return
-        self._broadcast_svg_overlay(svg, action="update")
+    def _weather_update(self, scheduled=True):
+        targets = self._core.list_homeboards()
+        log.info("Starting weather update for %s homeboards", len(targets))
+        for hb in targets:
+            try:
+                # TODO: If 23-7 (make this config) then clear overlay
+                svg = self._weather.generate_svg(hb.get('host_info', {}))
+            except Exception:
+                log.exception(f"Weather update: generate_svg raised for Homeboard {hb['id']}")
+                continue
+            if svg is None and scheduled:
+                log.info("Scheduled weather update failed: no SVG (network error?), retrying in 60s")
+                self._sched.add_job(self._weather_update,
+                                    trigger='date',
+                                    run_date=datetime.now() + timedelta(seconds=60))
+                return
+            self._core.set_svg_overlay(hb['id'], timeout_secs=60*60, svg=svg)
+            log.info("Set SVG overlay for %s", hb['id'])
 
     def _scheduled_weather_clear(self):
-        log.info("Scheduled weather update: clear overlay for the day")
-        self._broadcast_svg_overlay('', action="clear")
+        targets = self._core.list_homeboards()
+        log.info("Starting scheduled weather overlay cleanup for %s homeboards", len(targets))
+        for hb in targets:
+            self._broadcast_svg_overlay('', action="clear")
+            self._core.set_svg_overlay(hb_id, timeout_secs=0, svg=svg)
+        return True
+
+    def _on_hb_host_info(self, hb_id, _data):
+        log.info("Config for '%s' was updating, forcing overlay recompute", hb_id)
+        # Force recompute for every HB. Slightly wasteful, but unless we have 12s of HBs it's OK
+        # Weather report is the slow part, and it should be memoized
+        self._weather_update(scheduled=False)
 
     def _broadcast_svg_overlay(self, svg, action):
         targets = [hb["id"] for hb in self._core.list_homeboards()]
@@ -81,7 +96,6 @@ class ZmwHomeboard(ZmwMqttService):
         for hb_id in targets:
             try:
                 log.info("%s SVG overlay for %s", action, hb_id)
-                ok = self._core.set_svg_overlay(hb_id, timeout_secs=0, svg=svg)
             except Exception:
                 log.exception("Scheduled weather %s raised for %s", action, hb_id)
                 continue
@@ -174,7 +188,10 @@ class ZmwHomeboard(ZmwMqttService):
 
         hb_id = payload.get('homeboard_id')
 
-        if subtopic == "next":
+        if subtopic == "list":
+            self.publish_own_svc_message(f'list_reply', self._core.list_homeboards())
+            ok = True
+        elif subtopic == "next":
             ok = self._core.next(hb_id)
         elif subtopic == "prev":
             ok = self._core.prev(hb_id)
@@ -205,23 +222,13 @@ class ZmwHomeboard(ZmwMqttService):
                 else:
                     ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
         elif subtopic == "update_weather":
-            ok = self._push_weather_update(hb_id, payload.get('timeout_secs', 15))
+            self._weather_update(scheduled=False)
+            ok = True
         else:
             return
 
         if not ok:
             log.warning("Failed to execute '%s' for payload: %s", subtopic, payload)
-
-    def _push_weather_update(self, hb_id=None, timeout_secs=15):
-        svg = self._weather.generate_svg()
-        if svg is None:
-            log.warning("Weather overlay update: no SVG available (network error?)")
-            return False
-        if hb_id:
-            log.info("Pushing weather overlay update for homeboard '%s'", hb_id)
-            return self._core.set_svg_overlay(hb_id, timeout_secs, svg)
-        else:
-            return self._broadcast_svg_overlay(svg, action="update")
 
 
 service_runner(ZmwHomeboard)

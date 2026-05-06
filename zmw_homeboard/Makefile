@@ -2,6 +2,7 @@ include ../common.mk
 
 rebuild_deps: pipenv_rebuild_deps_base
 	pipenv install -e "$(shell readlink -f "$(PWD)/../zext_libs/wwwslide/HomeboardRemoteControl")"
+	pipenv install -e "$(shell readlink -f "$(PWD)/../zext_libs/pymethodecache")"
 	pipenv install picosvg
 	pipenv install fonttools
 
@@ -12,6 +13,9 @@ test_listen:
 	mosquitto_sub -h 127.0.0.1 -t 'zmw_homeboard/#'
 
 HB ?= homeboarad-dev-pi4
+
+test_ls:
+	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/list' -m '{}'
 
 test_next:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/next' -m '{"homeboard_id": "$(HB)"}'
