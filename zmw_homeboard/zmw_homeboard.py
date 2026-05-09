@@ -1,5 +1,6 @@
 import os
 import pathlib
+import time
 from datetime import datetime, timedelta
 
 from zzmw_lib.logs import build_logger
@@ -7,9 +8,26 @@ from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
 from homeboard_remote_control import RemoteControlCore
+
+from announce_overlay import AnnounceOverlay
+from overlay import Overlay
+from qr_overlay import QrOverlay
 from weather_overlay import WeatherOverlay
 
 log = build_logger("ZmwHomeboard")
+
+# Refresh cadence and the timeout we push to the homeboard. If the service
+# dies between cron ticks the overlay self-clears.
+_OVERLAY_REFRESH_SECS = 60 * 60
+
+# Hours during which the weather panel is shown.
+_WEATHER_HOURS = range(7, 23)        # 07:00 – 22:59
+# Hours during which the overlay stays cleared unless an announcement is
+# active. The 23:00 cron does the initial clear; recomputes during these
+# hours produce an empty overlay so any extra trigger doesn't bring it back.
+_OVERLAY_OFF_HOURS = set(range(0, 7)) | {23}
+
+_QR_URL_TEMPLATE = "{rc_url}/remote_control?hb_id={hb_id}"
 
 
 class ZmwHomeboard(ZmwMqttService):
@@ -19,9 +37,8 @@ class ZmwHomeboard(ZmwMqttService):
     Uses homeboard_remote_control.RemoteControlCore to talk to homeboards.
     Republishes selected homeboard state onto the ZMW bus so other ZMW
     services can consume it. Accepts ZMW-bus commands and forwards them to
-    the target homeboard. Serves a read-only status page showing the last
-    state each homeboard announced; the user-facing remote control UI lives
-    in wwwslide.
+    the target homeboard. Composes per-homeboard SVG overlays (weather +
+    QR + announcements) and pushes them via set_svg_overlay.
     """
 
     def __init__(self, cfg, www, _sched):
@@ -34,6 +51,11 @@ class ZmwHomeboard(ZmwMqttService):
             lon=float(cfg['weather']['lon']),
             tz=cfg['weather'].get('tz', 'auto'),
         )
+        self._qr = QrOverlay()
+        self._announce = AnnounceOverlay()
+
+        # hb_id -> (text, expires_at_ts). Only kept while the announce is live.
+        self._announce_state = {}
 
         self._core = RemoteControlCore(
             cfg['homeboard']['mqtt_ip'],
@@ -50,58 +72,151 @@ class ZmwHomeboard(ZmwMqttService):
         www.register_www_dir(www_path)
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
 
-        _sched.add_job(self._weather_update,
+        _sched.add_job(self._recompute_all_overlays,
                        trigger='cron', hour='7-22', minute=0)
-        _sched.add_job(self._scheduled_weather_clear,
+        _sched.add_job(self._clear_all_overlays,
                        trigger='cron', hour=23, minute=0)
 
-    def _weather_update(self, scheduled=True):
+    def _now_hour(self):
+        return datetime.now().hour
+
+    def _is_overlay_off(self):
+        return self._now_hour() in _OVERLAY_OFF_HOURS
+
+    def _is_weather_hour(self):
+        return self._now_hour() in _WEATHER_HOURS
+
+    def _get_announce(self, hb_id):
+        state = self._announce_state.get(hb_id)
+        if not state:
+            return None, None
+        text, expires_at = state
+        if expires_at is not None and time.time() >= expires_at:
+            del self._announce_state[hb_id]
+            return None, None
+        return text, expires_at
+
+    def _build_overlay_for(self, hb):
+        """Build (overlay, weather_failed) for one homeboard."""
+        overlay = Overlay(hb.get('host_info', {}))
+        weather_failed = False
+
+        text, _expires = self._get_announce(hb['id'])
+
+        # Off hours: only show the overlay when there's an active announce.
+        if self._is_overlay_off() and not text:
+            return overlay, weather_failed
+
+        if self._is_weather_hour():
+            try:
+                weather_frag = self._weather.build_fragment()
+            except Exception:
+                log.exception("Weather build_fragment raised for %s", hb['id'])
+                weather_frag = None
+            if weather_frag is None:
+                weather_failed = True
+            overlay.add(weather_frag)
+
+        try:
+            qr_frag = self._qr.build_fragment(_QR_URL_TEMPLATE.format(rc_url=self._core.get_remote_control_url(), hb_id=hb['id']))
+            overlay.add(qr_frag)
+        except Exception:
+            log.exception("QR build_fragment raised for %s", hb['id'])
+
+        if text:
+            try:
+                logical_w, _ = overlay.logical_size
+                announce_frag = self._announce.build_fragment(
+                    text, canvas_width=logical_w)
+                overlay.add(announce_frag)
+            except Exception:
+                log.exception("Announce build_fragment raised for %s", hb['id'])
+
+        return overlay, weather_failed
+
+    def _push_overlay_for(self, hb):
+        """Compose + push the overlay for one homeboard. Returns weather_failed."""
+        overlay, weather_failed = self._build_overlay_for(hb)
+        svg = overlay.compose() or ''
+
+        # Push timeout = min over fragment lifetimes so that if the service
+        # dies, the homeboard naturally drops the overlay. Announce expiry
+        # tightens the timeout when an announce is active.
+        timeout = _OVERLAY_REFRESH_SECS
+        _text, expires_at = self._get_announce(hb['id'])
+        if expires_at is not None:
+            remaining = max(1, int(expires_at - time.time()))
+            timeout = min(timeout, remaining)
+
+        self._core.set_svg_overlay(hb['id'], timeout_secs=timeout, svg=svg)
+        log.info("Pushed overlay for %s (timeout=%ss, weather_ok=%s)",
+                 hb['id'], timeout, not weather_failed)
+        return weather_failed
+
+    def _recompute_overlay_for(self, hb_id):
+        for hb in self._core.list_homeboards():
+            if hb['id'] == hb_id:
+                try:
+                    self._push_overlay_for(hb)
+                except Exception:
+                    log.exception("Overlay push raised for %s", hb_id)
+                return
+        log.warning("Cannot recompute overlay for unknown homeboard '%s'", hb_id)
+
+    def _recompute_all_overlays(self, scheduled=True):
+        if self._is_overlay_off():
+            log.info("Overlay off-hours; skipping recompute")
+            return
+
         targets = self._core.list_homeboards()
-        log.info("Starting weather update for %s homeboards", len(targets))
+        log.info("Recomputing overlays for %s homeboards", len(targets))
+        any_weather_failed = False
         for hb in targets:
             try:
-                # TODO: If 23-7 (make this config) then clear overlay
-                svg = self._weather.generate_svg(hb.get('host_info', {}))
+                if self._push_overlay_for(hb):
+                    any_weather_failed = True
             except Exception:
-                log.exception(f"Weather update: generate_svg raised for Homeboard {hb['id']}")
-                continue
-            if svg is None and scheduled:
-                log.info("Scheduled weather update failed: no SVG (network error?), retrying in 60s")
-                self._sched.add_job(self._weather_update,
-                                    trigger='date',
-                                    run_date=datetime.now() + timedelta(seconds=60))
-                return
-            self._core.set_svg_overlay(hb['id'], timeout_secs=60*60, svg=svg)
-            log.info("Set SVG overlay for %s", hb['id'])
+                log.exception("Overlay push raised for %s", hb['id'])
 
-    def _scheduled_weather_clear(self):
+        if any_weather_failed and scheduled and self._is_weather_hour():
+            log.info("Weather failed (network?), retrying recompute in 60s")
+            self._sched.add_job(self._recompute_all_overlays,
+                                args=[False],
+                                trigger='date',
+                                run_date=datetime.now() + timedelta(seconds=60))
+
+    def _clear_all_overlays(self):
         targets = self._core.list_homeboards()
-        log.info("Starting scheduled weather overlay cleanup for %s homeboards", len(targets))
+        log.info("Clearing overlays for %s homeboards", len(targets))
         for hb in targets:
-            self._broadcast_svg_overlay('', action="clear")
-            self._core.set_svg_overlay(hb_id, timeout_secs=0, svg=svg)
+            try:
+                self._core.set_svg_overlay(hb['id'], timeout_secs=0, svg='')
+            except Exception:
+                log.exception("Clear overlay raised for %s", hb['id'])
+
+    def _set_announce(self, hb_id, text, timeout_secs):
+        text = (text or '').strip()
+        if not text:
+            self._announce_state.pop(hb_id, None)
+            self._recompute_overlay_for(hb_id)
+            return True
+
+        timeout_secs = max(1, int(timeout_secs))
+        self._announce_state[hb_id] = (text, time.time() + timeout_secs)
+        # Recompute when the announce expires so the overlay gets re-pushed
+        # without it (and without waiting for the next cron tick).
+        self._sched.add_job(self._recompute_overlay_for,
+                            args=[hb_id],
+                            trigger='date',
+                            run_date=datetime.now() + timedelta(seconds=timeout_secs))
+        self._recompute_overlay_for(hb_id)
         return True
 
     def _on_hb_host_info(self, hb_id, _data):
-        log.info("Config for '%s' was updating, forcing overlay recompute", hb_id)
-        # Force recompute for every HB. Slightly wasteful, but unless we have 12s of HBs it's OK
-        # Weather report is the slow part, and it should be memoized
-        self._weather_update(scheduled=False)
-
-    def _broadcast_svg_overlay(self, svg, action):
-        targets = [hb["id"] for hb in self._core.list_homeboards()]
-        if not targets:
-            log.info("SVG overlay bcast %s: no homeboards discovered yet", action)
-            return True
-        for hb_id in targets:
-            try:
-                log.info("%s SVG overlay for %s", action, hb_id)
-            except Exception:
-                log.exception("Scheduled weather %s raised for %s", action, hb_id)
-                continue
-            if not ok:
-                log.warning("Scheduled weather %s failed for %s", action, hb_id)
-        return True
+        log.info("Config for '%s' changed, recomputing overlay", hb_id)
+        # Recompute everyone: weather is the slow part and is memoized, so
+        # this is cheap unless we have many homeboards.
+        self._recompute_all_overlays(scheduled=False)
 
     def _get_homeboards_state(self):
         return {"homeboards": self._core.list_homeboards()}
@@ -156,11 +271,11 @@ class ZmwHomeboard(ZmwMqttService):
                     }
                 },
                 "announce": {
-                    "description": "Show an announcement text in the Homeboards",
+                    "description": "Show an announcement text in the Homeboard overlay (empty msg clears)",
                     "params": {
                         "homeboard_id": "Name of the target homeboard",
-                        "timeout_secs": "How long it should be displayed (0 means forever)",
-                        "msg": "Text to display",
+                        "timeout_secs": "How long to display, in seconds",
+                        "msg": "Text to display; empty clears the current announce",
                     }
                 },
                 "set_svg_overlay": {
@@ -172,7 +287,7 @@ class ZmwHomeboard(ZmwMqttService):
                     }
                 },
                 "update_weather": {
-                    "description": "Push a new weather update to the Homeboards as an SVG",
+                    "description": "Recompute and push the overlay for all homeboards",
                 },
             },
             "announcements": {
@@ -206,7 +321,9 @@ class ZmwHomeboard(ZmwMqttService):
         elif subtopic == "set_target_size":
             ok = self._core.set_target_size(hb_id, payload.get('width', 1920), payload.get('height', 1080))
         elif subtopic == "announce":
-            ok = self._core.announce(hb_id, payload.get('timeout_secs', 15), payload.get('msg'))
+            ok = self._set_announce(hb_id,
+                                    payload.get('msg', ''),
+                                    payload.get('timeout_secs', 60))
         elif subtopic == "set_svg_overlay":
             svg_path = payload.get('svg_file_path')
             if not svg_path:
@@ -222,7 +339,7 @@ class ZmwHomeboard(ZmwMqttService):
                 else:
                     ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
         elif subtopic == "update_weather":
-            self._weather_update(scheduled=False)
+            self._recompute_all_overlays(scheduled=False)
             ok = True
         else:
             return

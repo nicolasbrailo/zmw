@@ -1,11 +1,12 @@
-from icons import Icons
-from text_to_path import render_text
-from weather_report import build_weather_report
-
 import copy
 import xml.etree.ElementTree as ET
 
 from zzmw_lib.logs import build_logger
+
+from icons import Icons
+from overlay import Fragment, panel_rect, PANEL_PAD
+from text_to_path import render_text
+from weather_report import build_weather_report
 
 log = build_logger("WeatherOverlay")
 
@@ -13,21 +14,11 @@ _SVG_NS = "http://www.w3.org/2000/svg"
 
 
 class WeatherOverlay:
-    # Panel layout
     PANEL_W = 340
-    PANEL_MARGIN = 20
-    PANEL_PAD = 12
-    PANEL_RADIUS = 24
-    PANEL_FILL = "rgb(255,255,255)"
-    PANEL_FILL_OPACITY = "0.78"
-    PANEL_STROKE = "rgb(40,40,40)"
-    PANEL_STROKE_OPACITY = "0.25"
 
-    # Row layout
     ICON_SIZE = 90
     ROW_GAP = 8
 
-    # Text
     TEXT_COLOR = "#1a1a1a"
     TEXT_COLOR_MUTED = "#444"
     FONT_SIZE_LABEL = 26
@@ -40,86 +31,28 @@ class WeatherOverlay:
         self._lon = lon
         self._tz = tz
 
-    def generate_svg(self, hostinfo):
-        log.info("Render weather SVG for %s", hostinfo)
-        canvas_w = hostinfo.get('resolution_w', 1920)
-        canvas_h = hostinfo.get('resolution_h', 1080)
-        rotation = hostinfo.get('rotation', 0) % 360
-        v_align = hostinfo.get('v_align', 'center')
-        h_align = hostinfo.get('h_align', 'center')
-
-        # The picture is rotated in software: at 90/270 the visible canvas
-        # axes are swapped relative to the physical resolution. We lay the
-        # panel out in this "logical" frame, then a single wrapper transform
-        # maps it back onto the physical SVG.
-        if rotation in (90, 270):
-            logical_w, logical_h = canvas_h, canvas_w
-        else:
-            logical_w, logical_h = canvas_w, canvas_h
-
-        ET.register_namespace("", _SVG_NS)
-        out = ET.Element(f"{{{_SVG_NS}}}svg", {
-            "width": str(canvas_w),
-            "height": str(canvas_h),
-            "viewBox": f"0 0 {canvas_w} {canvas_h}",
-        })
-
+    def build_fragment(self):
+        """Render the weather panel as a Fragment, or None on fetch failure."""
         report = build_weather_report(self._lat, self._lon, self._tz)
         if report is None:
             return None
         blocks = report["blocks"]
+        if not blocks:
+            return None
 
         row_h = self.ICON_SIZE + self.ROW_GAP
-        panel_h = self.PANEL_PAD * 2 + max(0, len(blocks) * row_h - self.ROW_GAP)
+        panel_h = PANEL_PAD * 2 + max(0, len(blocks) * row_h - self.ROW_GAP)
 
-        # Place panel on the side opposite the picture's weight, so it sits
-        # over the empty area instead of covering the photo.
-        if h_align == 'left':
-            panel_x = logical_w - self.PANEL_W - self.PANEL_MARGIN
-        else:
-            panel_x = self.PANEL_MARGIN
-        if v_align == 'top':
-            panel_y = logical_h - panel_h - self.PANEL_MARGIN
-        else:
-            panel_y = self.PANEL_MARGIN
+        g = ET.Element(f"{{{_SVG_NS}}}g")
+        g.append(panel_rect(self.PANEL_W, panel_h))
 
-        transform = self._rotation_transform(rotation, canvas_w, canvas_h)
-        content = ET.SubElement(out, f"{{{_SVG_NS}}}g", {"transform": transform}) \
-            if transform else out
-
-        ET.SubElement(content, f"{{{_SVG_NS}}}rect", {
-            "x": f"{panel_x}",
-            "y": f"{panel_y}",
-            "width": f"{self.PANEL_W}",
-            "height": f"{panel_h}",
-            "rx": f"{self.PANEL_RADIUS}",
-            "ry": f"{self.PANEL_RADIUS}",
-            "fill": self.PANEL_FILL,
-            "fill-opacity": self.PANEL_FILL_OPACITY,
-            "stroke": self.PANEL_STROKE,
-            "stroke-opacity": self.PANEL_STROKE_OPACITY,
-            "stroke-width": "2",
-        })
-
-        row_x = panel_x + self.PANEL_PAD
-        row_y = panel_y + self.PANEL_PAD
+        row_x = PANEL_PAD
+        row_y = PANEL_PAD
         for block in blocks:
-            self._render_row(content, row_x, row_y, block)
+            self._render_row(g, row_x, row_y, block)
             row_y += row_h
 
-        return ET.tostring(out, encoding="unicode")
-
-    @staticmethod
-    def _rotation_transform(rotation, canvas_w, canvas_h):
-        # Map the logical (pre-rotation) frame onto the physical SVG canvas.
-        # Rotation is interpreted as clockwise, matching the picture renderer.
-        if rotation == 90:
-            return f"translate({canvas_w},0) rotate(90)"
-        if rotation == 180:
-            return f"translate({canvas_w},{canvas_h}) rotate(180)"
-        if rotation == 270:
-            return f"translate(0,{canvas_h}) rotate(270)"
-        return None
+        return Fragment(element=g, width=self.PANEL_W, height=panel_h)
 
     def _render_row(self, out, x, y, block):
         self._render_icon(out, block["category"], x, y)

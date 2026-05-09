@@ -8,6 +8,7 @@ zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/z
 homeboard-remote-control = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zext_libs/wwwslide/HomeboardRemoteControl"}
 picosvg = "*"
 fonttools = "*"
+qrcode = "*"
 
 [dev-packages]
 pylint = "*"

@@ -34,6 +34,9 @@ def cache_func(cache_file, ttl_seconds=None):
 
             # Compute the result and cache it with the current timestamp
             result = func(*args)
+            if result is None:
+                # Don't cache failures — let the next call retry.
+                return result
             cache[args] = (result, current_time)
 
             # Persist the cache to the file
@@ -146,6 +149,11 @@ def _aggregate(cats):
     return max(cats, key=lambda c: _SEVERITY.index(c) if c in _SEVERITY else -1)
 
 
+_FETCH_TIMEOUT_SECS = 30
+_FETCH_RETRIES = 3
+_FETCH_RETRY_BACKOFF_SECS = 2
+
+
 def _fetch(lat, lon, tz):
     params = {
         "latitude": lat,
@@ -157,8 +165,18 @@ def _fetch(lat, lon, tz):
         "forecast_days": 2,
     }
     url = f"{API_URL}?{urllib.parse.urlencode(params)}"
-    with urllib.request.urlopen(url, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    last_err = None
+    for attempt in range(1, _FETCH_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=_FETCH_TIMEOUT_SECS) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            last_err = e
+            if attempt < _FETCH_RETRIES:
+                log.info("Weather fetch attempt %d/%d failed (%s); retrying",
+                         attempt, _FETCH_RETRIES, e)
+                time.sleep(_FETCH_RETRY_BACKOFF_SECS)
+    raise last_err
 
 
 def _parse_hourly(data):

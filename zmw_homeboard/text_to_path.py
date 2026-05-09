@@ -56,6 +56,20 @@ def _load_font(weight):
     )
 
 
+def measure_text(text, font_size, weight="regular"):
+    """Return the rendered width (px) of `text` without emitting any SVG."""
+    font, cmap, _glyph_set, upem = _load_font(weight)
+    scale = font_size / upem
+    cum = 0
+    for ch in text:
+        glyph_name = cmap.get(ord(ch)) or cmap.get(ord("?"))
+        if glyph_name is None:
+            continue
+        advance, _lsb = font["hmtx"][glyph_name]
+        cum += advance
+    return cum * scale
+
+
 def render_text(parent, text, x, y, font_size, fill="#000", weight="regular"):
     """Append a <g> of glyph <path>s to `parent`.
 
