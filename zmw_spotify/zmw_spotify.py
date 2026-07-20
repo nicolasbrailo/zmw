@@ -24,6 +24,17 @@ logging.getLogger('spotipy.client').setLevel(logging.CRITICAL)
 # A token is valid for an hour, so we refresh every 45 minutes
 _SPOTIFY_SECS_BETWEEN_TOK_REFRESH = 60 * 45
 
+
+class SpotifyAuthExpired(RuntimeError):
+    """The cached refresh token is dead, a user needs to sign in again.
+
+    Since 2026-07-20 Spotify expires refresh tokens after six months. When that
+    happens the token endpoint replies invalid_grant, and the only way out is to
+    discard the cached token and send the user through the sign in flow again.
+    Retrying a refresh with a revoked token is pointless, so we don't.
+    """
+
+
 def _get_spotify_scopes():
     return 'app-remote-control user-read-playback-state ' \
            'user-modify-playback-state user-read-currently-playing'
@@ -38,9 +49,34 @@ def _get_auth_obj(cfg):
         cache_path=cfg['spotipy_cache'])
 
 
+def _is_expired_refresh_tok(ex):
+    """True if this oauth error means the refresh token is dead beyond retry."""
+    return getattr(ex, 'error', None) == 'invalid_grant'
+
+
+def _discard_cached_token(cfg):
+    """Drop the cached token: Spotify asks us not to retry a revoked refresh token."""
+    cache_path = cfg.get('spotipy_cache')
+    if cache_path is None or not os.path.isfile(cache_path):
+        return
+    try:
+        os.remove(cache_path)
+        log.info('Discarded expired Spotify token cache %s', cache_path)
+    except OSError:
+        log.error('Failed to discard Spotify token cache %s', cache_path, exc_info=True)
+
+
 def _get_valid_auth_obj(cfg):
     oauth = _get_auth_obj(cfg)
-    tok = None if oauth is None else oauth.get_cached_token()
+    try:
+        # Careful: get_cached_token() isn't just a cache read, it will silently try to
+        # refresh an expired token, so it can fail with an oauth error
+        tok = None if oauth is None else oauth.get_cached_token()
+    except SpotifyOauthError as ex:
+        if not _is_expired_refresh_tok(ex):
+            raise
+        _discard_cached_token(cfg)
+        raise SpotifyAuthExpired('Spotify auth expired, please renew') from ex
     if tok is None or 'access_token' not in tok or 'refresh_token' not in tok:
         raise RuntimeError('Spotify has no cached token, needs reauth')
     return oauth
@@ -49,7 +85,13 @@ def _get_valid_auth_obj(cfg):
 def _refresh_access_tok(cfg):
     oauth = _get_valid_auth_obj(cfg)
     refresh_tok = oauth.get_cached_token()['refresh_token']
-    new_tok = oauth.refresh_access_token(refresh_tok)
+    try:
+        new_tok = oauth.refresh_access_token(refresh_tok)
+    except SpotifyOauthError as ex:
+        if not _is_expired_refresh_tok(ex):
+            raise
+        _discard_cached_token(cfg)
+        raise SpotifyAuthExpired('Spotify auth expired, please renew') from ex
     if new_tok is None:
         raise RuntimeError('Refresh token failed')
     log.debug('Spotify token refresh succeeded')
@@ -67,6 +109,10 @@ class ZmwSpotify(ZmwMqttService):
         super().__init__(cfg, "zmw_spotify", scheduler=sched)
         self._cfg = cfg
         self._spotipy = None
+        # Human readable reason why we have no valid auth, None while all is well
+        self._auth_error = None
+        # Set when the refresh token is revoked: no amount of retrying will fix it
+        self._auth_expired = False
 
         # Set up www directory and reauth endpoints
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
@@ -74,12 +120,10 @@ class ZmwSpotify(ZmwMqttService):
         www.serve_url('/reauth', self._serve_reauth_page)
         www.serve_url('/reauth/complete/<code>', self._complete_reauth)
         www.serve_url('/status', self._serve_status_page)
+        www.serve_url('/auth_status', self._serve_auth_status)
 
         # Initialize Spotify auth
-        try:
-            self._refresh_access_tok()
-        except (RuntimeError, SpotifyOauthError):
-            log.error('Failed to authenticate Spotify, will retry later', exc_info=True)
+        self._refresh_access_tok()
 
         # Schedule periodic token refresh
         sched.add_job(
@@ -88,15 +132,39 @@ class ZmwSpotify(ZmwMqttService):
             seconds=_SPOTIFY_SECS_BETWEEN_TOK_REFRESH)
 
     def _refresh_access_tok(self):
-        """Refresh Spotify access token and update the spotipy instance."""
+        """Refresh Spotify access token and update the spotipy instance.
+
+        Never raises: this runs from the scheduler, where an escaping exception is
+        just a stack trace in the logs that nobody acts on. Auth problems are
+        reported through the service alerts and the www UI instead.
+        """
+        if self._auth_expired:
+            # Spotify tells us not to retry a revoked token, and it can only be
+            # fixed by a human going through the reauth flow
+            log.debug("Skipping Spotify token refresh: %s", self._auth_error)
+            return
+
         log.info("Refreshing Spotify access token")
         try:
             _refresh_access_tok(self._cfg)
             self._spotipy = _new_spotipy(self._cfg)
+            self._auth_error = None
             log.info("Spotify token refresh succeeded")
-        except RuntimeError:
-            log.error('Failed to authenticate Spotify, needs reauth', exc_info=True)
+        except SpotifyAuthExpired as ex:
+            log.error("Auth expired, please renew: %s/reauth", self._public_url_base)
+            self._auth_error = str(ex)
+            self._auth_expired = True
             self._spotipy = None
+        except (RuntimeError, SpotifyOauthError) as ex:
+            log.error('Failed to authenticate Spotify, will retry later', exc_info=True)
+            self._auth_error = f'Spotify authentication failed: {ex}'
+            self._spotipy = None
+
+    def get_service_alerts(self):
+        """Mark the service unhealthy while Spotify auth is broken."""
+        if self._auth_error is None:
+            return []
+        return [f'{self._auth_error} (reauth at {self._public_url_base}/reauth)']
 
     def _serve_reauth_page(self):
         """Serve the OAuth reauthorization page."""
@@ -147,16 +215,26 @@ class ZmwSpotify(ZmwMqttService):
         log.info("Starting Spotify reauth with code")
         try:
             _get_auth_obj(self._cfg).get_access_token(code)
+            # A new sign in means whatever was wrong before may now be fixed, so lift
+            # the "don't retry" latch before validating the token we just got
+            self._auth_expired = False
             _get_valid_auth_obj(self._cfg)
-        except SpotifyOauthError as ex:
-            log.error("Spotify reauth failed: %s", ex)
-            return str(ex), 400
-        except RuntimeError as ex:
+        except (SpotifyOauthError, RuntimeError) as ex:
             log.error("Spotify reauth failed: %s", ex)
             return str(ex), 400
 
         self._refresh_access_tok()
+        if self._spotipy is None:
+            return self._auth_error or 'Spotify reauth failed', 400
         return "Code accepted! Spotify is now authenticated."
+
+    def _serve_auth_status(self):
+        """Auth state as JSON, for the www UI. Never talks to Spotify."""
+        return {
+            'is_authenticated': self._spotipy is not None,
+            'auth_error': self._auth_error,
+            'reauth_url': f"{self._public_url_base}/reauth",
+        }
 
     def _serve_status_page(self):
         """Serve the service status page."""
@@ -166,9 +244,12 @@ class ZmwSpotify(ZmwMqttService):
             html = """
             <h1>Spotify Service Status</h1>
             <p><strong>Authenticated:</strong> No</p>
+            <p><strong>Reason:</strong> {auth_error}</p>
             <p><a href="{reauth_url}">Click here to authenticate with Spotify</a></p>
             """
-            return html.format(reauth_url=f"{self._public_url_base}/reauth")
+            return html.format(
+                auth_error=state.get('auth_error') or 'Unknown',
+                reauth_url=f"{self._public_url_base}/reauth")
 
         media = state.get('media_info') or {}
         media_html = "<p>No track playing</p>"
@@ -311,6 +392,7 @@ class ZmwSpotify(ZmwMqttService):
 
         return {
             'is_authenticated': False,
+            'auth_error': self._auth_error,
             'is_playing': False,
             'reauth_url': f"{self._public_url_base}/reauth",
             'volume': 0,
@@ -359,7 +441,9 @@ class ZmwSpotify(ZmwMqttService):
                 "get_status_reply": {
                     "description": "Player state as JSON",
                     "payload": {"is_authenticated": "bool", "is_playing": "bool", "volume": "int or null",
-                                "media_info?": "dict with title, artist, album_name, etc.", "reauth_url": "url (when not authenticated)"}
+                                "media_info?": "dict with title, artist, album_name, etc.",
+                                "auth_error?": "why auth is broken (when not authenticated)",
+                                "reauth_url": "url (when not authenticated)"}
                 },
                 "get_mqtt_description_reply": {
                     "description": "MQTT API description",

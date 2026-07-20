@@ -34,6 +34,13 @@
       "day_of_week": "every_day",
       "offset_minutes": -30,
       "action": "turn_lights_on",
+      "args": {"names": ["TVRoomArbolito"]}
+    },
+    {
+      "schedule": "sunset",
+      "day_of_week": "every_day",
+      "offset_minutes": -30,
+      "action": "turn_lights_on",
       "args": {"names": ["Light1", "Light2"]}
     }
   ]
