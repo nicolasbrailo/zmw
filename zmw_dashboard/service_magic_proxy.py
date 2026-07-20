@@ -1,14 +1,28 @@
 """ Forward requests from a Flask http server to arbitrary downstream http services """
 import aiohttp
+import asyncio
+import json
 import os
 import signal
 import ssl
 import time
 
-from flask import abort, request, Response
+from flask import request, Response
 from zzmw_lib.logs import build_logger
 
 log = build_logger("ServiceMagicProxy")
+
+# Upstream services may legitimately take a while: eg ZmwSpeakerAnnounce blocks for up to 10s
+# waiting on a ZmwTextToSpeech MQTT reply. Keep this above the slowest downstream budget, or
+# every TTS cache miss looks like a proxy failure.
+_UPSTREAM_TIMEOUT_SECS = 15
+
+
+def _proxy_error(status, error, detail):
+    """Build a JSON error response. The UI speaks JSON, so never let Flask's HTML error page
+    reach it: mAjax would just dump a wall of markup into the global error banner."""
+    body = json.dumps({'error': error, 'detail': detail, 'status': status})
+    return Response(body, status=status, mimetype='application/json')
 
 class ServiceMagicProxy:
     """ Proxy forwarder: will forward request from a local flask server to another http server based on
@@ -73,7 +87,8 @@ class ServiceMagicProxy:
         """Generic proxy handler that forwards requests to upstream services."""
         if svc_prefix not in self._service_map:
             log.error("Unknown service prefix: %s", svc_prefix)
-            return abort(404, f"Service '{svc_prefix}' not found")
+            return _proxy_error(404, "Unknown service",
+                                f"No service registered under '{svc_prefix}'")
 
         upstream_url = self._service_map[svc_prefix]
         target_url = f"{upstream_url}/{subpath}"
@@ -84,6 +99,7 @@ class ServiceMagicProxy:
 
         log.debug("Proxying %s %s -> %s", request.method, request.path, target_url)
 
+        req_start = time.monotonic()
         try:
             # Create SSL context that accepts self-signed certificates
             ssl_context = ssl.create_default_context()
@@ -94,7 +110,7 @@ class ServiceMagicProxy:
             async with aiohttp.ClientSession(connector=connector) as session:
                 # Prepare request kwargs
                 kwargs = {
-                    'timeout': aiohttp.ClientTimeout(total=5),
+                    'timeout': aiohttp.ClientTimeout(total=_UPSTREAM_TIMEOUT_SECS),
                     'allow_redirects': False,
                 }
 
@@ -131,9 +147,22 @@ class ServiceMagicProxy:
                         headers=response_headers
                     )
 
+        # Must come before ClientError: a total-timeout raises bare asyncio.TimeoutError (not part
+        # of aiohttp's hierarchy at all), while ServerTimeoutError subclasses both. Either way it's
+        # a slow upstream, not a proxy bug, so don't log a traceback for it.
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - req_start
+            log.warning("Timed out after %.1fs proxying to %s", elapsed, target_url)
+            return _proxy_error(
+                504, f"'{svc_prefix}' took too long to respond",
+                f"No response after {elapsed:.1f}s (limit {_UPSTREAM_TIMEOUT_SECS}s). "
+                "The service may still be working on the request.")
         except aiohttp.ClientError as e:
             log.error("Error proxying to %s: %s", target_url, str(e))
-            return abort(502, f"Error connecting to upstream service: {str(e)}")
+            return _proxy_error(502, f"Can't reach '{svc_prefix}'",
+                                f"{type(e).__name__}: {str(e)}")
         except Exception as e:  # pylint: disable=broad-exception-caught
             log.error("Unexpected error proxying to %s: %s", target_url, str(e), exc_info=True)
-            return abort(500, f"Internal proxy error: {str(e)}")
+            # str() on many exceptions is empty, so always include the type
+            return _proxy_error(500, "Internal proxy error",
+                                f"{type(e).__name__}: {str(e)}")
