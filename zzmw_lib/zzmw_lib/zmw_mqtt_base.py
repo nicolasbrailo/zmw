@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, date
 import paho.mqtt.client as mqtt
 import threading
+import traceback
 
 # Configure third-party library log levels (they use root logger's handlers)
 logging.getLogger('paho').setLevel(logging.INFO)
@@ -14,6 +15,18 @@ logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.scheduler").setLevel(logging.ERROR)
 
 log = build_logger("ZmwMqtt", logging.INFO)
+
+# Caps for anything we echo back into a log line. Failing to handle a message makes us log the
+# message itself, and a service may relay error logs back as a new message to handle
+_MAX_LOGGED_PAYLOAD_LEN = 512
+_MAX_LOGGED_TRACEBACK_LEN = 2048
+
+def _truncate_for_log(val, max_len=_MAX_LOGGED_PAYLOAD_LEN):
+    """ Stringify val, capped at max_len chars """
+    as_str = str(val)
+    if len(as_str) <= max_len:
+        return as_str
+    return f'{as_str[:max_len]}...<truncated, {len(as_str)} chars total>'
 
 class ZmwMqttBase(ABC):
     """ Base ZmwMqtt client for ZmwServices: announces to other clients when this client is up, and provides access
@@ -145,9 +158,15 @@ class ZmwMqttBase(ABC):
                     return cb(subtopic, parsed_msg)
             # Fall-through: received unhandled message
         except Exception as ex:  # pylint: disable=broad-except
+            # Format the traceback by hand instead of exc_info=True: the traceback ends with the
+            # exception message, which may itself embed the payload, so it needs capping too
+            tb = _truncate_for_log(
+                ''.join(traceback.format_exception(type(ex), ex, ex.__traceback__)),
+                _MAX_LOGGED_TRACEBACK_LEN)
             log.critical(
                 'Error on MQTT message handling. Topic %s, payload %s. '
-                'Ex: {%s}', msg.topic, msg.payload, ex, exc_info=True)
+                'Ex: {%s}\n%s', msg.topic, _truncate_for_log(msg.payload),
+                _truncate_for_log(ex), tb)
             return
 
         log.error(f"Unhandeld message with topic '%s'", topic)
