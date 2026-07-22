@@ -44,6 +44,10 @@ class ZmwWhatsapp(ZmwMqttService):
         return {
             "description": "MQTT-to-WhatsApp bridge. Only sends photos to configured numbers.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: bridges its own topic to the WhatsApp API; other services push to it.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "send_photo": {
                     "description": "Send photo",

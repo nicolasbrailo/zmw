@@ -59,6 +59,10 @@ class ZmwUnifiClientmon(ZmwMqttService):
         return {
             "description": "Monitors UniFi network, announces when devices join/leave.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: polls the UniFi controller and only publishes to its own topic.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "ls": {
                     "description": "List currently connected interesting clients",

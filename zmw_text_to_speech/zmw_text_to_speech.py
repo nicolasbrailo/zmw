@@ -49,6 +49,10 @@ class ZmwTextToSpeech(ZmwMqttService):
         return {
             "description": "Text-to-speech service. Receives text via MQTT, generates mp3, publishes path back.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: generates audio from text on its own topic; other services push to it.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "tts": {
                     "description": "Generate speech from text",

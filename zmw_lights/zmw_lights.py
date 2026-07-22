@@ -228,6 +228,10 @@ class ZmwLights(ZmwMqttService):
         return {
             "description": "Zigbee light/switch control service. Discovers all light and switch devices, groups them by prefix. Provides on/off and brightness controls.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads light/switch state and writes back the new state on change.
+            "reads_mqtt_topic": ["zigbee2mqtt"],
+            "writes_mqtt_topic": ["zigbee2mqtt"],
             "commands": {
                 "get_lights": {
                     "description": "State of all lights. Response on get_lights_reply",

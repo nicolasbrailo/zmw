@@ -89,7 +89,7 @@ Published when a TTS announcement completes. Contains generated asset paths
 
 Announcement history
 
-Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI', 'fuzzy_text?': 'Paraphrased text if fuzzy was applied'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI'}]`
 
 #### `get_mqtt_description_reply`
 

@@ -238,6 +238,11 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         return {
             "description": "Text-to-speech announcements. Say a message out loud on speakers. Useful for calling people or announcing things. Broadcasts to all known Sonos speakers",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: /shout command. (ZmwTextToSpeech is request/reply only, so not a read.)
+            "reads_mqtt_topic": ["zmw_telegram"],
+            # Writes: synthesis requests, plus registering the /shout command.
+            "writes_mqtt_topic": ["zmw_text_to_speech", "zmw_telegram"],
             "llm_skip_commands": ["ls"],
             "commands": {
                 "ls": {

@@ -48,6 +48,11 @@ class ZmwVisitorDetect(ZmwMqttService):
         return {
             "description": "Visitor detection service",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: doorbell/motion events that trigger a detection run.
+            "reads_mqtt_topic": ["zmw_reolink_cams"],
+            # Writes: announces/notifies when a visitor is recognised.
+            "writes_mqtt_topic": ["zmw_speaker_announce", "zmw_telegram"],
             "commands": {},
             "announcements": {
                 "on_detection": {

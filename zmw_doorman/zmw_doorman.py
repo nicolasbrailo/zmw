@@ -72,6 +72,12 @@ class ZmwDoorman(ZmwMqttService):
             "description": "Door+doorbell manager. Orchestrates door events from a Reolink camera and contact sensor. "\
                            "Plays announcement, sends photos via WhatsApp/Telegram, manages door-open lights scene",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: doorbell/motion/snap events, contact reports, Telegram commands.
+            "reads_mqtt_topic": ["zmw_reolink_cams", "zmw_contactmon", "zmw_telegram"],
+            # Writes: requests snaps/state, then pushes notifications out.
+            "writes_mqtt_topic": ["zmw_reolink_cams", "zmw_contactmon",
+                                  "zmw_speaker_announce", "zmw_whatsapp", "zmw_telegram"],
             "commands": {
                 "get_stats": {
                     "description": "List of events: doorbell presses, motion, door open. Response on get_stats_reply",

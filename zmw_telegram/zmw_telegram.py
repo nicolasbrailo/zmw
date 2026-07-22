@@ -259,6 +259,10 @@ class ZmwTelegram(ZmwMqttService):
         return {
             "description": "MQTT-to-Telegram bridge.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: bridges its own topic to the Telegram API; other services push to it.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "register_command": {
                     "description": "Register a Telegram bot command that will be relayed over MQTT when invoked",

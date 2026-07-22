@@ -231,6 +231,10 @@ class ZmwHomeboard(ZmwMqttService):
         return {
             "description": "Homeboard service integration",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: only publishes its own state (consumed by ZmwSensormon).
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "next": {
                     "description": "Move slideshow to next picture",

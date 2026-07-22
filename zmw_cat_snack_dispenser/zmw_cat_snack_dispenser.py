@@ -76,6 +76,11 @@ class ZmwCatSnackDispenser(ZmwMqttService):
         return {
             "description": "Manages cat food dispenser. Handle alerts, schedule, ad-hoc feeding",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: feeder state changes, /dispensecatsnacks command.
+            "reads_mqtt_topic": ["zigbee2mqtt", "zmw_telegram"],
+            # Writes: dispense + config enforcement on the feeder, Telegram notifications.
+            "writes_mqtt_topic": ["zigbee2mqtt", "zmw_telegram"],
             "commands": {
                 "feed_now": {
                     "description": "Dispense food. Response on feed_now_reply",

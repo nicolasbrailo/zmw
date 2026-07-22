@@ -10,6 +10,13 @@ echo "Updating service READMEs with MQTT sections..."
 python3 "$THIS_SCRIPT_DIR/update_readme_mqtt.py"
 echo ""
 
+# Regenerate the cross-service MQTT topic map (Mermaid) in the top-level README.
+# This edits content between markers above the "# Supported Services" separator,
+# so it is preserved by the truncate+append below.
+echo "Updating MQTT topic map in README.md..."
+python3 "$THIS_SCRIPT_DIR/build_mqtt_map.py"
+echo ""
+
 READMES=$(ls "$PROJECT_DIR"/zmw_*/README.md)
 
 if [[ ! -f "$PROJECT_DIR/README.md" ]]; then

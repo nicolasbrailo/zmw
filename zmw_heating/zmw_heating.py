@@ -80,6 +80,11 @@ class ZmwHeating(ZmwMqttService):
         return {
             "description": "Manages heating via a boiler with a Zigbee on/off relay. Has a schedule with on/off overrides, temperature-based rules, and Telegram integration",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: boiler/sensor state, /tengofrio boost command.
+            "reads_mqtt_topic": ["zigbee2mqtt", "zmw_telegram"],
+            # Writes: drives the boiler, reports back over Telegram.
+            "writes_mqtt_topic": ["zigbee2mqtt", "zmw_telegram"],
             "commands": {
                 "svc_state": {
                     "description": "Service state (schedule, boiler, sensors). Response on svc_state_reply",

@@ -47,6 +47,10 @@ class ZmwSpeechToText(ZmwMqttService):
         return {
             "description": "Speech-to-text and translation service. Receives audio from Telegram, HTTP, or MQTT. Publishes English translated text.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads voice notes to transcribe; publishes the result on its own topic only.
+            "reads_mqtt_topic": ["zmw_telegram"],
+            "writes_mqtt_topic": [],
             "commands": {
                 "transcribe": {
                     "description": "Transcribe audio",

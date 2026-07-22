@@ -205,6 +205,11 @@ class ZmwCronenbergs(ZmwMqttService):
             "description": "Scheduled home automation cron jobs. Has scheduled lights-off, vacation mode (simulates occupancy), "\
                            "scheduled TTS speaker announcements, weekly low-battery Telegram alerts.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: light state, to decide what the scheduled jobs should toggle.
+            "reads_mqtt_topic": ["zigbee2mqtt"],
+            # Writes: scheduled jobs drive lights and send notifications.
+            "writes_mqtt_topic": ["zigbee2mqtt", "zmw_telegram", "zmw_speaker_announce"],
             "commands": {
                 "get_stats": {
                     "description": "light check history, vacation mode, battery info. Response on get_stats_reply",

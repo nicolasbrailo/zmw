@@ -76,6 +76,10 @@ class ZmwSonosCtrl(ZmwMqttService):
             "description": "Manage Sonos speakers. Discover network, create groups, control group "\
                            "(redirect Spotify to Sonos, playback: volume, track skip, play/pause). Commands apply to active group.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads Spotify state announcements, writes playback commands back.
+            "reads_mqtt_topic": ["zmw_spotify"],
+            "writes_mqtt_topic": ["zmw_spotify"],
             "sonos_state": get_all_sonos_state(),
             "llm_skip_commands": ["ls_speakers", "world_state"],
             "llm_context_extra": self._build_llm_context_extra(),

@@ -213,6 +213,11 @@ class ZmwSensormon(ZmwMqttService):
             "description": "Check if your room is hot or cold: sensor monitoring and history. Supports Zigbee, Shelly, and outside weather. "\
                            "Exposes current values and timeseries for temperature, humidity, power, battery, etc.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: z2m sensors, plus plug/homeboard stats via subscribe_with_cb.
+            "reads_mqtt_topic": ["zigbee2mqtt", "zmw_shelly_plug", "zmw_homeboard"],
+            # Writes: publishes virtual things (outside weather, computed metrics) back to z2m.
+            "writes_mqtt_topic": ["zigbee2mqtt"],
             "commands": {
                 "get_sensor_values": {
                     "description": "Read values for one specific sensor by name. Response on get_sensor_values_reply",

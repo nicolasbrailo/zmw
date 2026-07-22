@@ -67,6 +67,11 @@ class ZmwContactmon(ZmwMqttService):
                 "description": "Monitors Zigbee contact sensors (doors, windows). Actions on state change, timeouts, or curfew. "\
                                "Actions: Telegram/WhatsApp notifications, speaker announcements. Actions can be suppressed.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Reads: contact sensor state only (on_dep_published_message ignores deps).
+            "reads_mqtt_topic": ["zigbee2mqtt"],
+            # Writes: transition actions push announcements/messages out.
+            "writes_mqtt_topic": ["zmw_speaker_announce", "zmw_whatsapp", "zmw_telegram"],
             "sensors": [
                 {"name": name, "normal_state": acts["normal_state"]}
                 for name, acts in self._actions_on_sensor_change.items()

@@ -96,6 +96,7 @@ Player state as JSON
 | `is_playing` | bool |
 | `volume` | int or null |
 | `media_info?` | dict with title, artist, album_name, etc. |
+| `auth_error?` | why auth is broken (when not authenticated) |
 | `reauth_url` | url (when not authenticated) |
 
 #### `get_mqtt_description_reply`

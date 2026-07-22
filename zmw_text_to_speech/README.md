@@ -85,7 +85,7 @@ Generate speech from text
 | `text` | Text to synthesize |
 | `language?` | Language or locale code (e.g. en, en_US, es). Defaults to config. |
 | `speaker?` | Voice ID (e.g. en_GB-cori-medium). Overrides language. |
-| `fuzzy?` | If true, paraphrase text using the voice's personality before synthesis. |
+| `fuzzy?` | If true, paraphrase text using the voice's personality before synthesis. Requires a personality configured for the resolved voice. |
 
 #### `get_voices`
 
@@ -111,7 +111,7 @@ A synthesis completed
 
 Available voices
 
-Payload: `[{'voice_id': 'ID', 'name': 'Name', 'locale': 'Locale', 'lang': 'Lang', 'quality': 'Quality', 'personality?': 'Personality description if configured'}]`
+Payload: `[{'voice_id': 'ID', 'name': 'Name', 'locale': 'Locale', 'lang': 'Lang', 'quality': 'Quality'}]`
 
 #### `get_mqtt_description_reply`
 

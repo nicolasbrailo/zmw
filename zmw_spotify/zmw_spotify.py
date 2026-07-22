@@ -403,6 +403,10 @@ class ZmwSpotify(ZmwMqttService):
         return {
             "description": "MQTT-Spotify control (play/pause, stop, volume, next, prev). Exposes playback state with track metadata",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: talks to the Spotify Web API and only publishes to its own topic.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "stop": {
                     "description": "Stop playback",

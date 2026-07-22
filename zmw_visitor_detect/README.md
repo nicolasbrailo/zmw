@@ -53,14 +53,6 @@ Run `make download_models` to fetch the required DNN models (~64MB):
 
 **Topic:** `zmw_visitor_detect`
 
-### Commands
-
-#### `get_mqtt_description`
-
-Service description
-
-_No parameters._
-
 ### Announcements
 
 #### `on_detection`
@@ -70,19 +62,11 @@ Visitor detection event
 | Param | Description |
 |-------|-------------|
 | `timestamp` | float epoch |
-| `event` | new_face_detected | new_visitor_recognized | visitor_recognized | person_no_face_detected |
+| `event` | new_face_detected | new_visitor_recognized | visitor_recognized |
 | `name` | Person name or null |
 | `sightings` | int or null |
-| `person_confidence` | float |
+| `face_confidence` | float |
+| `face_detector` | yunet_sface | yunet_insightface |
 | `bbox` | [x1, y1, x2, y2] |
 | `snap_path` | Source image path |
-| `crop_path` | Cropped person image path |
-
-#### `get_mqtt_description_reply`
-
-Service interface
-
-| Param | Description |
-|-------|-------------|
-| `commands` | ... |
-| `announcements` | ... |
+| `crop_path` | Cropped face image path |

@@ -32,6 +32,10 @@ class ZmwShellyPlug(ZmwMqttService):
         return {
             "description": "Monitors Shelly smart plugs, broadcast on MQTT power/energy stats.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: talks to Shelly plugs over HTTP and only publishes to its own topic.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "commands": {
                 "ls_devs": {
                     "description": "List of devices. Response on ls_devs_reply",

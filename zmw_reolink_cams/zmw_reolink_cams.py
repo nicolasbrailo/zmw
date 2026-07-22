@@ -175,6 +175,10 @@ class ZmwReolinkCams(ZmwMqttService):
             "description": "Multi-camera Reolink service with motion detection, doorbell events, recording, NVR. "\
                            "Connects via webhook/ONVIF, broadcasts events over MQTT, expose snapshot/recording controls.",
             "meta": self.get_service_meta(),
+            # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
+            # Empty: talks to Reolink cameras over webhook/ONVIF and only publishes to its own topic.
+            "reads_mqtt_topic": [],
+            "writes_mqtt_topic": [],
             "known_cameras": [
                 {"cam_host": host, "is_doorbell": cam._is_doorbell_cam,
                  "alias": cam._alias}
