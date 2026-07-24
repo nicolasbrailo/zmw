@@ -32,6 +32,11 @@ _QR_URL_TEMPLATE = "{rc_url}/remote_control?hb_id={hb_id}"
 # How long a mirrored speaker announcement stays on the overlay, in seconds.
 _SPEAKER_ANNOUNCE_OVERLAY_SECS = 60
 
+# A homeboard that's been offline (last boot older than this) is presumed gone;
+# we stop composing/pushing overlays to it. Mirrors the remote-control janitor's
+# stale threshold so both agree on when a device is "dead".
+_OFFLINE_GRACE_SECS = 3 * 24 * 3600
+
 
 class ZmwHomeboard(ZmwMqttService):
     """
@@ -80,6 +85,28 @@ class ZmwHomeboard(ZmwMqttService):
                        trigger='cron', hour='7-22', minute=0)
         _sched.add_job(self._clear_all_overlays,
                        trigger='cron', hour=23, minute=0)
+
+    def _active_homeboards(self):
+        """Homeboards worth composing/pushing overlays to.
+
+        list_homeboards() already excludes bridge records the core couldn't
+        parse (bad format). On top of that, we drop boards that have been
+        offline since longer than the grace period, so we stop pushing at
+        devices that are gone for good (their retained record lingers until
+        the remote-control janitor clears it).
+        """
+        now = time.time()
+        active = []
+        for hb in self._core.list_homeboards():
+            if hb.get('state') == 'offline':
+                host_info = hb.get('host_info') or {}
+                started_at = host_info.get('started_at')
+                if not isinstance(started_at, (int, float)):
+                    started_at = 0
+                if now - started_at > _OFFLINE_GRACE_SECS:
+                    continue
+            active.append(hb)
+        return active
 
     def _now_hour(self):
         return datetime.now().hour
@@ -158,7 +185,7 @@ class ZmwHomeboard(ZmwMqttService):
         return weather_failed
 
     def _recompute_overlay_for(self, hb_id):
-        for hb in self._core.list_homeboards():
+        for hb in self._active_homeboards():
             if hb['id'] == hb_id:
                 try:
                     self._push_overlay_for(hb)
@@ -172,7 +199,7 @@ class ZmwHomeboard(ZmwMqttService):
             log.info("Overlay off-hours; skipping recompute")
             return
 
-        targets = self._core.list_homeboards()
+        targets = self._active_homeboards()
         log.info("Recomputing overlays for %s homeboards", len(targets))
         any_weather_failed = False
         for hb in targets:
@@ -190,7 +217,7 @@ class ZmwHomeboard(ZmwMqttService):
                                 run_date=datetime.now() + timedelta(seconds=60))
 
     def _clear_all_overlays(self):
-        targets = self._core.list_homeboards()
+        targets = self._active_homeboards()
         log.info("Clearing overlays for %s homeboards", len(targets))
         for hb in targets:
             try:
@@ -234,7 +261,7 @@ class ZmwHomeboard(ZmwMqttService):
             if not text:
                 return
             log.info("Mirroring speaker announcement onto homeboards: '%s'", text)
-            for hb in self._core.list_homeboards():
+            for hb in self._active_homeboards():
                 self._set_announce(hb['id'], text, _SPEAKER_ANNOUNCE_OVERLAY_SECS)
 
     def _get_homeboards_state(self):
