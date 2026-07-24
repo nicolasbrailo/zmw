@@ -360,6 +360,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             case "get_mqtt_description":
                 self.publish_own_svc_message("get_mqtt_description_reply",
                     self.get_mqtt_description())
+            case "announcement_in_progress":
+                # Echo of our own broadcast (published for other services to
+                # mirror). Ignore it.
+                return
             case _:
                 log.error("Unknown message %s payload %s", subtopic, payload)
 
