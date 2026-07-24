@@ -124,6 +124,7 @@ flowchart LR
     zmw_doorman --> zmw_whatsapp
     zmw_heating <--> zigbee2mqtt
     zmw_heating <--> zmw_telegram
+    zmw_speaker_announce --> zmw_homeboard
     zmw_lights <--> zigbee2mqtt
     zmw_sensormon <--> zigbee2mqtt
     zmw_homeboard --> zmw_sensormon
@@ -1663,6 +1664,14 @@ Published when a TTS announcement completes. Contains generated asset paths
 |-------|-------------|
 | `local_path` | Filename generated TTS audio |
 | `uri` | Public URL where TTS audio is served |
+
+#### `announcement_in_progress`
+
+Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text
+
+| Param | Description |
+|-------|-------------|
+| `msg` | The text being announced |
 
 #### `announcement_history_reply`
 

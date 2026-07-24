@@ -85,6 +85,14 @@ Published when a TTS announcement completes. Contains generated asset paths
 | `local_path` | Filename generated TTS audio |
 | `uri` | Public URL where TTS audio is served |
 
+#### `announcement_in_progress`
+
+Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text
+
+| Param | Description |
+|-------|-------------|
+| `msg` | The text being announced |
+
 #### `announcement_history_reply`
 
 Announcement history

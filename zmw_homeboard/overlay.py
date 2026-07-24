@@ -99,9 +99,7 @@ class Overlay:
             "viewBox": f"0 0 {self._canvas_w} {self._canvas_h}",
         })
 
-        rot = self._rotation_transform()
-        content = ET.SubElement(out, f"{{{_SVG_NS}}}g", {"transform": rot}) \
-            if rot else out
+        content = out
 
         by_anchor = {}
         for frag, anchor in self._fragments:
@@ -144,13 +142,3 @@ class Overlay:
             wrapper.append(frag.element)
             y += frag.height + INTER_FRAGMENT_GAP
 
-    def _rotation_transform(self):
-        # Map logical (pre-rotation) frame onto physical SVG canvas.
-        # Rotation is clockwise, matching the picture renderer.
-        if self._rotation == 90:
-            return f"translate({self._canvas_w},0) rotate(90)"
-        if self._rotation == 180:
-            return f"translate({self._canvas_w},{self._canvas_h}) rotate(180)"
-        if self._rotation == 270:
-            return f"translate(0,{self._canvas_h}) rotate(270)"
-        return None

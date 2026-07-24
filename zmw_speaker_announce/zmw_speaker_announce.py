@@ -106,7 +106,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             log.info("HTTPS server available at: %s", self._https.server_url)
 
 
-    def _record_announcement(self, phrase, lang, volume, uri, fuzzy_text=None):
+    def _record_announcement(self, phrase, lang, volume, uri, fuzzy_text=None, notify=True):
         entry = {
             'timestamp': datetime.now().isoformat(),
             'phrase': phrase,
@@ -117,6 +117,14 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if fuzzy_text:
             entry['fuzzy_text'] = fuzzy_text
         self._announcement_history.append(entry)
+
+        # Broadcast the spoken text as the announcement starts playing, so other
+        # services (e.g. ZmwHomeboard) can mirror it. Only meaningful for TTS
+        # announcements; asset/recording playbacks pass notify=False.
+        if notify:
+            spoken = fuzzy_text or phrase
+            if spoken:
+                self.publish_own_svc_message("announcement_in_progress", {"msg": spoken})
 
     # --- ZMW TTS integration ---
 
@@ -279,6 +287,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                         "uri": "Public URL where TTS audio is served"
                     }
                 },
+                "announcement_in_progress": {
+                    "description": "Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text",
+                    "payload": {"msg": "The text being announced"}
+                },
                 "announcement_history_reply": {
                     "description": "Announcement history",
                     "payload": [{"timestamp": "ISO timestamp", "phrase?": "Text", "lang": "Language", "volume": "Volume", "uri": "Asset URI"}]
@@ -328,7 +340,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         vol = self._get_payload_vol(request.form)
         log.info("Saved recording to '%s' -> '%s'. Will announce at vol=%s", mp3_path, remote_path, vol)
-        self._record_announcement('<user recording>', '', vol, remote_path)
+        self._record_announcement('<user recording>', '', vol, remote_path, notify=False)
         sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
         return {}
 
@@ -428,7 +440,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         vol = self._get_payload_vol(payload)
         log.info("Announcing asset %s with volume %d", asset_uri, vol)
-        self._record_announcement('<asset playback>', '', vol, asset_uri)
+        self._record_announcement('<asset playback>', '', vol, asset_uri, notify=False)
         sonos_announce(asset_uri, volume=vol, ws_api_cfg=self._cfg)
 
 

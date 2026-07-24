@@ -29,6 +29,9 @@ _OVERLAY_OFF_HOURS = set(range(0, 7)) | {23}
 
 _QR_URL_TEMPLATE = "{rc_url}/remote_control?hb_id={hb_id}"
 
+# How long a mirrored speaker announcement stays on the overlay, in seconds.
+_SPEAKER_ANNOUNCE_OVERLAY_SECS = 60
+
 
 class ZmwHomeboard(ZmwMqttService):
     """
@@ -42,7 +45,8 @@ class ZmwHomeboard(ZmwMqttService):
     """
 
     def __init__(self, cfg, www, _sched):
-        super().__init__(cfg, "zmw_homeboard", scheduler=_sched)
+        super().__init__(cfg, "zmw_homeboard", scheduler=_sched,
+                         svc_deps=["ZmwSpeakerAnnounce"])
 
         self._sched = _sched
         self._weather = WeatherOverlay(
@@ -218,6 +222,21 @@ class ZmwHomeboard(ZmwMqttService):
         # this is cheap unless we have many homeboards.
         self._recompute_all_overlays(scheduled=False)
 
+    def on_dep_published_message(self, svc_name, subtopic, payload):
+        # Mirror live speaker announcements onto every homeboard overlay: when
+        # ZmwSpeakerAnnounce speaks something, show the same text as if 'announce'
+        # had been called over MQTT for each homeboard.
+        if svc_name == "ZmwSpeakerAnnounce" and subtopic == "announcement_in_progress":
+            if not isinstance(payload, dict):
+                log.warning("ZmwSpeakerAnnounce announcement_in_progress with bad payload: %s", payload)
+                return
+            text = (payload.get('msg') or '').strip()
+            if not text:
+                return
+            log.info("Mirroring speaker announcement onto homeboards: '%s'", text)
+            for hb in self._core.list_homeboards():
+                self._set_announce(hb['id'], text, _SPEAKER_ANNOUNCE_OVERLAY_SECS)
+
     def _get_homeboards_state(self):
         return {"homeboards": self._core.list_homeboards()}
 
@@ -232,8 +251,9 @@ class ZmwHomeboard(ZmwMqttService):
             "description": "Homeboard service integration",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Empty: only publishes its own state (consumed by ZmwSensormon).
-            "reads_mqtt_topic": [],
+            # Reads: mirrors live speaker announcements onto the overlay.
+            # Own state is published too (consumed by ZmwSensormon).
+            "reads_mqtt_topic": ["zmw_speaker_announce"],
             "writes_mqtt_topic": [],
             "commands": {
                 "next": {
