@@ -17,6 +17,14 @@ from zzmw_lib.logs import build_logger
 
 log = build_logger("ZmwSonosCtrl")
 
+_SPOTIFY_TIMEOUT_MSG = "Spotify state timeout. Service is down or unauthenticated"
+
+def _get_spotify_uri(spotify_context):
+    """Context URI from a ZmwSpotify get_status_reply, or None.
+    media_info and context may be present but None (nothing playing, request failed, no context)."""
+    media_info = (spotify_context or {}).get("media_info") or {}
+    return (media_info.get("context") or {}).get("uri")
+
 class ZmwSonosCtrl(ZmwMqttService):
     """Service to manage Sonos speaker groups and audio source selection."""
 
@@ -42,7 +50,7 @@ class ZmwSonosCtrl(ZmwMqttService):
         www.serve_url('/ls_speakers', lambda: list(ls_speakers().keys()))
         www.serve_url('/world_state', get_all_sonos_state)
         www.serve_url('/stop_all_playback', self._stop_all, methods=['PUT'])
-        www.serve_url('/get_spotify_context', self._get_spotify_context)
+        www.serve_url('/get_spotify_context', self._www_get_spotify_context)
         www.serve_url('/volume', self._set_volume, methods=['PUT'])
         www.serve_url('/volume_up', self._volume_up, methods=['PUT', 'GET'])
         www.serve_url('/volume_down', self._volume_down, methods=['PUT', 'GET'])
@@ -149,7 +157,7 @@ class ZmwSonosCtrl(ZmwMqttService):
                 },
                 "get_spotify_context_reply": {
                     "description": "Spotify info with context URI and current track",
-                    "payload": {"media_info": "dict"}
+                    "payload": {"media_info": "dict", "error?": "Set if Spotify state is unavailable"}
                 },
                 "get_mqtt_description_reply": {
                     "description": "Service description",
@@ -210,7 +218,7 @@ class ZmwSonosCtrl(ZmwMqttService):
         try:
             log.info("User requests to hijack Spotify to %s", speakers_cfg)
             spotify_context = self._get_spotify_context(status_cb)
-            spotify_uri = spotify_context.get("media_info", {}).get("context", {}).get("uri") if spotify_context else None
+            spotify_uri = _get_spotify_uri(spotify_context)
             if spotify_uri is None:
                 log.info("User requested Spotify-hijack, but I can't find Spotify playing anything")
                 return
@@ -224,16 +232,22 @@ class ZmwSonosCtrl(ZmwMqttService):
             self._hijack_in_progress.release()
 
     def _get_spotify_context(self, status_cb=None):
-        """Get Spotify context, using status_cb to report progress."""
+        """Get Spotify context, using status_cb to report progress. Returns None on timeout."""
         if status_cb is None:
             status_cb = lambda msg: log.info(msg)
         status_cb("Requesting Spotify state...")
         self._spotify_ready.clear()
-        self.message_svc("ZmwSpotify", "publish_state", {})
+        self.message_svc("ZmwSpotify", "get_status", {})
         if not self._spotify_ready.wait(timeout=5):
             status_cb("Error! Timeout waiting for Spotify state.")
-            return "Spotify state timeout. Service is down or unauthenticated"
+            return None
         return self._spotify_context
+
+    def _www_get_spotify_context(self):
+        ctx = self._get_spotify_context()
+        if ctx is None:
+            return _SPOTIFY_TIMEOUT_MSG, 504
+        return ctx
 
     def _ws_line_in_requested(self, ws=None):
         ws.send("UNIMPLEMENTED YET")
@@ -336,15 +350,16 @@ class ZmwSonosCtrl(ZmwMqttService):
                 self.publish_own_svc_message("get_sonos_play_uris_reply",
                     get_all_sonos_playing_uris())
             case "get_spotify_context":
+                ctx = self._get_spotify_context()
                 self.publish_own_svc_message("get_spotify_context_reply",
-                    self._get_spotify_context())
+                    ctx if ctx is not None else {"error": _SPOTIFY_TIMEOUT_MSG})
             case "get_mqtt_description":
                 self.publish_own_svc_message("get_mqtt_description_reply",
                     self.get_mqtt_description())
 
     def on_dep_published_message(self, svc_name, subtopic, msg):
         """Handle messages from dependent services."""
-        if svc_name == "ZmwSpotify" and subtopic == "state":
+        if svc_name == "ZmwSpotify" and subtopic == "get_status_reply":
             if msg is None:
                 log.error("Bad message form ZmwSpotify")
                 self._spotify_context = {}
@@ -357,11 +372,11 @@ class ZmwSonosCtrl(ZmwMqttService):
                 return
             log.info("Received Spotify state")
             self._spotify_context = msg
-            spotify_uri = msg.get("media_info", {}).get("context", {}).get("uri")
+            spotify_uri = _get_spotify_uri(msg)
             if spotify_uri:
                 log.info("Spotify published playlist URI: %s", spotify_uri)
             else:
-                log.warning("Spotify not playing media, or doesn't expose media URI.")
+                # Spotify not playing media, or doesn't expose media URI
                 log.debug("Received media_info: %s", msg.get("media_info"))
             self._spotify_ready.set()
 

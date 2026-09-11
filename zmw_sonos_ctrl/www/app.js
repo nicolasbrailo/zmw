@@ -254,6 +254,9 @@ class SonosCtrl extends React.Component {
     });
     mJsonGet(`${this.props.api_base_path}/get_spotify_context`, (data) => {
       this.setState({ spotifyContext: data });
+    }, () => {
+      // Drop stale context so the hijack button doesn't stay enabled
+      this.setState({ spotifyContext: null });
     });
   }
 
