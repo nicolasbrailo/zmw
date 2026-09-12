@@ -5,7 +5,7 @@ import os
 import signal
 import subprocess
 
-from ffmpeg_helper import rtsp_to_local_file, reencode_to_telegram_vid
+from ffmpeg_helper import rtsp_to_local_file, reencode_to_telegram_vid, gen_thumbnail_from_video
 from zzmw_lib.logs import build_logger
 
 log = build_logger("CamRtsp")
@@ -187,6 +187,8 @@ class Rtsp:
             self._last_recording_fpath = outfile
             log.info("Cam %s: New RTSP recording at %s", self._cam_host, outfile)
             self._event_cb.on_new_recording(self._cam_host, outfile)
+            # Thumbnail for the NVR UI. Done once per recording, so there's at most one ffmpeg per cam doing this
+            gen_thumbnail_from_video(outfile)
         else:
             log.error("Cam %s: RTSP failed to record %s", self._cam_host, outfile)
             self._event_cb.on_recording_failed(self._cam_host, outfile)

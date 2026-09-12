@@ -2,7 +2,7 @@
 import os
 from datetime import datetime, timedelta
 from flask import send_from_directory, jsonify, redirect, request
-from ffmpeg_helper import gen_thumbnail_from_video
+from ffmpeg_helper import get_thumbnail_path
 
 
 def _get_cams(base_path):
@@ -41,7 +41,8 @@ def _get_cam_recordings(base_path, cam, days=None):
             ftime = os.path.getmtime(fpath)
 
             is_in_requested_time = ftimelimit is None or datetime.fromtimestamp(ftime) > ftimelimit
-            is_movie = fname.endswith('.mp4')
+            # .small.mp4 files are reencodings of a recording (eg for Telegram), not recordings of their own
+            is_movie = fname.endswith('.mp4') and not fname.endswith('.small.mp4')
             if is_in_requested_time and is_movie:
                 recs.append((fname, fpath, fsize, ftime))
     recs.sort(reverse=True)
@@ -100,9 +101,10 @@ class Nvr:
 
         recordings = []
         for (fname, fpath, fsize, _) in recs:
-            # Generate thumbnail
-            img_path = gen_thumbnail_from_video(fpath)
-            if img_path is None:
+            # Thumbnails are generated when a recording completes; never spawn ffmpeg from here, as
+            # listing many recordings would spawn one ffmpeg per recording in parallel
+            img_path = get_thumbnail_path(fpath)
+            if not os.path.exists(img_path):
                 thumbnail_url = None
             else:
                 img_fname = os.path.basename(img_path)
