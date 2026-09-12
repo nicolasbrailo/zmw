@@ -160,6 +160,7 @@ Spotify info with context URI and current track
 | Param | Description |
 |-------|-------------|
 | `media_info` | dict |
+| `error?` | Set if Spotify state is unavailable |
 
 #### `get_mqtt_description_reply`
 

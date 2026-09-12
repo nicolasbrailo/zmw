@@ -31,7 +31,7 @@ logging.getLogger("reolink_aio.api.data").setLevel(logging.ERROR)
 logging.getLogger("reolink_aio.helpers").setLevel(logging.ERROR)
 
 
-async def _connect_to_cam(cam_host, cam_user, cam_pass, webhook_url, rtsp_cbs,
+async def _connect_to_cam(cam_host, cam_alias, cam_user, cam_pass, webhook_url, rtsp_cbs,
                           rec_path, rec_retention_days, rec_default_duration_secs, scheduler,
                           is_doorbell):
     log.info("Connecting to camera at %s...", cam_host)
@@ -74,7 +74,8 @@ async def _connect_to_cam(cam_host, cam_user, cam_pass, webhook_url, rtsp_cbs,
     try:
         rtspurl = await cam.get_rtsp_stream_source(0, "main")
         log.info("Cam %s offers RTSP at %s", cam_host, rtspurl)
-        rtsp = Rtsp(cam_host, rtsp_cbs, rtspurl, rec_path, scheduler, rec_retention_days, rec_default_duration_secs)
+        rtsp = Rtsp(cam_host, cam_alias, rtsp_cbs, rtspurl, rec_path, scheduler, rec_retention_days,
+                    rec_default_duration_secs)
     except ReolinkError:
         log.error("Failed to get RTSP URL from cam %s (recording disabled)", cam_host, exc_info=True)
 
@@ -90,6 +91,8 @@ class ReolinkDoorbell(ABC):
         self._should_be_connected = False
         self._cam = None
         self._cam_host = cfg['cam_host']
+        # Stable name for the cam, used for storage paths. The host may change (eg DHCP)
+        self._cam_alias = cfg['cam_alias']
         self._cam_user = cfg['cam_user']
         self._cam_pass = cfg['cam_pass']
         self._is_doorbell = cfg.get('is_doorbell', False)
@@ -142,14 +145,18 @@ class ReolinkDoorbell(ABC):
         """Get camera host address."""
         return self._cam_host
 
+    def get_cam_alias(self):
+        """Stable camera name, used by consumers to identify this cam (the host may change)."""
+        return self._cam_alias
+
     def connect_bg(self):
         """ Logs in and subscribes to camera events (non-blocking) """
         self._should_be_connected = True
         if self._runner_thread is None:
             self._start_runner_thread()
 
-        camtask = _connect_to_cam(self._cam_host, self._cam_user, self._cam_pass, self._webhook_url, self,
-                                  self._rec_path, self._rec_retention_days, self._rec_default_duration_secs,
+        camtask = _connect_to_cam(self._cam_host, self._cam_alias, self._cam_user, self._cam_pass,
+                                  self._webhook_url, self, self._rec_path, self._rec_retention_days, self._rec_default_duration_secs,
                                   self._scheduler, self._is_doorbell)
 
         def on_done(future):
@@ -204,8 +211,8 @@ class ReolinkDoorbell(ABC):
 
         def _reconnect():
             try:
-                camtask = _connect_to_cam(self._cam_host, self._cam_user, self._cam_pass, self._webhook_url, self,
-                                          self._rec_path, self._rec_retention_days, self._rec_default_duration_secs,
+                camtask = _connect_to_cam(self._cam_host, self._cam_alias, self._cam_user, self._cam_pass,
+                                          self._webhook_url, self, self._rec_path, self._rec_retention_days, self._rec_default_duration_secs,
                                           self._scheduler, self._is_doorbell)
                 self._cam, self.rtsp = self._run_async(camtask)
             except ReolinkError:

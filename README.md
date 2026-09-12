@@ -133,7 +133,7 @@ flowchart LR
     zmw_speaker_announce <--> zmw_telegram
     zmw_speaker_announce --> zmw_text_to_speech
     zmw_telegram --> zmw_speech_to_text
-    zmw_reolink_cams --> zmw_visitor_detect
+    zmw_visitor_detect <--> zmw_reolink_cams
     zmw_visitor_detect --> zmw_speaker_announce
     zmw_visitor_detect --> zmw_telegram
 
@@ -494,7 +494,7 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 | `doorbell_announce_volume` | Volume level for speaker announcements on button press |
 | `doorbell_announce_sound` | Sound file name (served from `www/` directory) to play on button press |
 | `doorbell_contact_sensor` | Name of the Zigbee contact sensor on the door |
-| `doorbell_cam_host` | Hostname/IP of the Reolink doorbell camera |
+| `doorbell_cam_alias` | `cam_alias` of the doorbell camera, as configured in ZmwReolinkCams |
 | `door_open_scene_thing_to_manage` | List of Zigbee light names to control in the door-open scene |
 | `door_open_scene_timeout_secs` | Seconds before the door-open scene auto-expires |
 | `latlon` | `[lat, lon]` for sunrise/sunset calculation (door-open scene only activates when dark) |
@@ -965,25 +965,29 @@ Multi-camera Reolink service with motion detection, doorbell events, recording, 
 
 | Key | Description |
 |-----|-------------|
-| `cameras` | Array of camera configs, each with at least `cam_host` (hostname/IP) |
+| `cameras` | Array of camera configs, each with at least `cam_alias` and `cam_host` |
+| `cameras[].cam_alias` | Unique, stable camera name (eg `doorbell`). MQTT events carry it, and other services use it to pick a camera, so they don't depend on the camera's IP |
+| `cameras[].cam_host` | Hostname/IP of the camera |
 | `cameras[].is_doorbell` | (optional) Set `true` if camera is a doorbell model |
-| `rec_path` | Directory for storing recordings, organized by camera |
-| `snap_path_on_movement` | (optional) Directory for motion-triggered snapshots |
+| `rec_path` | Directory for storing recordings, in a subdirectory per `cam_alias` |
+| `snap_path_on_movement` | (optional) Directory for motion-triggered snapshots, in a subdirectory per `cam_alias` |
 
 ## WWW Endpoints
 
+All camera paths identify a camera by its `cam_alias`, never by its IP.
+
 ### Camera Controls
-- `/ls_cams` - JSON list of currently online camera hostnames
-- `/snap/<cam_host>` - Capture and return a new snapshot (JPEG)
-- `/lastsnap/<cam_host>` - Return the last saved snapshot (JPEG)
-- `/record/<cam_host>?secs=N` - Start recording for N seconds (5-120)
+- `/ls_cams` - JSON list of currently online camera aliases
+- `/snap/<cam_alias>` - Capture and return a new snapshot (JPEG)
+- `/lastsnap/<cam_alias>` - Return the last saved snapshot (JPEG)
+- `/record/<cam_alias>?secs=N` - Start recording for N seconds (5-120)
 
 ### Camera Webhooks
-- `/cam/<cam_host>` - Webhook endpoint for camera events (GET/POST, used internally by camera firmware)
+- `/cam/<cam_alias>` - Webhook endpoint for camera events (GET/POST, used internally by camera firmware)
 
 ### NVR Web Interface
 - `/nvr` - NVR web UI for browsing recordings and snapshots
-- `/nvr/api/cameras` - JSON list of cameras with recordings on disk
+- `/nvr/api/cameras` - JSON list of cameras (by alias) with recordings on disk
 - `/nvr/api/<cam>/recordings?days=N` - JSON list of recordings for a camera (optionally filtered by age)
 - `/nvr/api/<cam>/snapshots` - JSON list of snapshots for a camera
 - `/nvr/<cam>/get_recording/<file>` - Serve a recording file
@@ -1020,7 +1024,7 @@ Cam snapshot. Response published on_snap_ready
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera host or alias (cam_alias) |
+| `cam_alias` | Camera name |
 
 #### `rec`
 
@@ -1028,12 +1032,12 @@ Start recording
 
 | Param | Description |
 |-------|-------------|
-| `cam_host` | Camera host or alias (cam_alias) |
+| `cam_alias` | Camera name |
 | `secs` | Duration (seconds) |
 
 #### `ls_cams`
 
-List online cams. Response on ls_cams_reply
+List all configured cams, and whether they are online. Response on ls_cams_reply
 
 _No parameters._
 
@@ -1052,7 +1056,8 @@ Snapshot ready
 | Param | Description |
 |-------|-------------|
 | `event` | on_snap_ready |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `snap_path` | Local path to snapshot file |
 
 #### `on_doorbell_button_pressed`
@@ -1062,7 +1067,8 @@ Doorbell button was pressed
 | Param | Description |
 |-------|-------------|
 | `event` | on_doorbell_button_pressed |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `snap_path` | Path to snapshot |
 | `full_cam_msg` | Raw cam event |
 
@@ -1073,7 +1079,8 @@ Camera detected motion
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_detected |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `path_to_img` | Snapshot path |
 | `motion_level` | Motion confidence |
 | `full_cam_msg` | Raw cam event |
@@ -1085,7 +1092,8 @@ Motion cleared by camera
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_cleared |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `full_cam_msg` | Raw cam event |
 
 #### `on_motion_timeout`
@@ -1095,7 +1103,8 @@ Motion event timed out without camera reporting clear
 | Param | Description |
 |-------|-------------|
 | `event` | on_motion_timeout |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `timeout` | seconds |
 
 #### `on_new_recording`
@@ -1105,7 +1114,8 @@ New recording completed and is available
 | Param | Description |
 |-------|-------------|
 | `event` | on_new_recording |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `path` | Local path to recording file |
 
 #### `on_recording_failed`
@@ -1115,7 +1125,8 @@ Recording failed
 | Param | Description |
 |-------|-------------|
 | `event` | on_recording_failed |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `path` | Path of failed recording |
 
 #### `on_reencoding_ready`
@@ -1125,7 +1136,8 @@ Re-encoding of a recording completed
 | Param | Description |
 |-------|-------------|
 | `event` | on_reencoding_ready |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `orig_path` | Original recording path |
 | `reencode_path` | Re-encoded file path |
 
@@ -1136,14 +1148,15 @@ Re-encoding of a recording failed
 | Param | Description |
 |-------|-------------|
 | `event` | on_reencoding_failed |
-| `cam_host` | Cam id |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
 | `path` | Path of failed re-encode |
 
 #### `ls_cams_reply`
 
-List of online camera host identifiers
+All configured cams, including offline ones
 
-Payload: `['cam_host_1', 'cam_host_2']`
+Payload: `[{'cam_alias': 'Cam name', 'online': 'bool'}]`
 
 #### `get_mqtt_description_reply`
 
@@ -1568,6 +1581,7 @@ Spotify info with context URI and current track
 | Param | Description |
 |-------|-------------|
 | `media_info` | dict |
+| `error?` | Set if Spotify state is unavailable |
 
 #### `get_mqtt_description_reply`
 
@@ -2115,7 +2129,7 @@ Visitor detection and identification from doorbell camera snapshots. Detects per
 
 | Key | Description |
 |-----|-------------|
-| `doorbell_cam_host` | IP/hostname of the doorbell camera to monitor |
+| `doorbell_cam_alias` | `cam_alias` of the doorbell camera to monitor, as configured in ZmwReolinkCams |
 | `detection_cooldown_secs` | (optional) Per-person announcement cooldown, default 300 |
 | `sighting_dedup_gap_secs` | (optional) Min gap between sightings to count as a new sighting, default 1800 |
 | `models_dir` | (optional) Path to DNN model files, default `./models` |

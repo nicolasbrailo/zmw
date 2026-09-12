@@ -6,7 +6,7 @@ Visitor detection and identification from doorbell camera snapshots. Detects per
 
 | Key | Description |
 |-----|-------------|
-| `doorbell_cam_host` | IP/hostname of the doorbell camera to monitor |
+| `doorbell_cam_alias` | `cam_alias` of the doorbell camera to monitor, as configured in ZmwReolinkCams |
 | `detection_cooldown_secs` | (optional) Per-person announcement cooldown, default 300 |
 | `sighting_dedup_gap_secs` | (optional) Min gap between sightings to count as a new sighting, default 1800 |
 | `models_dir` | (optional) Path to DNN model files, default `./models` |

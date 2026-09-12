@@ -4,7 +4,8 @@
     51.5476529,
     -0.1255959
   ],
-  "doorbell_cam_host": "10.0.0.20",
+  "doorbell_cam_alias_comment": "cam_alias of the doorbell camera, as configured in ZmwReolinkCams",
+  "doorbell_cam_alias": "doorbell",
   "door_open_scene_timeout_secs": 120,
   "door_open_scene_thing_to_manage": ["EntradaCeiling", "EntradaColor", "CocinaFloorlamp"],
   "doorbell_contact_sensor": "ContactSensor_FrontDoor",

@@ -3,6 +3,7 @@ import os
 import pathlib
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 from flask import jsonify
 
@@ -22,7 +23,10 @@ class ZmwVisitorDetect(ZmwMqttService):
         super().__init__(cfg, "zmw_visitor_detect", scheduler=sched,
                          svc_deps=['ZmwReolinkCams', 'ZmwSpeakerAnnounce', 'ZmwTelegram'])
         self._cfg = cfg
-        self._doorbell_cam_host = cfg["doorbell_cam_host"]
+        self._sched = sched
+        self._doorbell_cam_alias = cfg["doorbell_cam_alias"]
+        # Set if ZmwReolinkCams doesn't know about our doorbell_cam_alias
+        self._doorbell_cam_error = None
         self._cooldown_secs = cfg.get("detection_cooldown_secs", 300)
 
         self._detector = VisitorDetector(
@@ -51,8 +55,8 @@ class ZmwVisitorDetect(ZmwMqttService):
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
             # Reads: doorbell/motion events that trigger a detection run.
             "reads_mqtt_topic": ["zmw_reolink_cams"],
-            # Writes: announces/notifies when a visitor is recognised.
-            "writes_mqtt_topic": ["zmw_speaker_announce", "zmw_telegram"],
+            # Writes: announces/notifies when a visitor is recognised, checks the doorbell cam exists.
+            "writes_mqtt_topic": ["zmw_reolink_cams", "zmw_speaker_announce", "zmw_telegram"],
             "commands": {},
             "announcements": {
                 "on_detection": {
@@ -78,10 +82,38 @@ class ZmwVisitorDetect(ZmwMqttService):
                 self.publish_own_svc_message("get_mqtt_description_reply",
                                              self.get_mqtt_description())
 
+    def get_service_alerts(self):
+        return [self._doorbell_cam_error] if self._doorbell_cam_error else []
+
+    def on_service_came_up(self, service_name):
+        if service_name == "ZmwReolinkCams":
+            # Check our cam exists. Delay the request: our subscription to the service may not be ready yet,
+            # so asking right away could lose the reply.
+            self._sched.add_job(lambda: self.message_svc("ZmwReolinkCams", "ls_cams", {}),
+                                trigger='date', run_date=datetime.now() + timedelta(seconds=3))
+
+    def _check_doorbell_cam_exists(self, cams):
+        alias = self._doorbell_cam_alias
+        cam = next((c for c in cams if c.get("cam_alias") == alias), None)
+        if cam is None:
+            known = ', '.join(c.get("cam_alias", "?") for c in cams)
+            self._doorbell_cam_error = (f"doorbell_cam_alias '{alias}' is not a camera in ZmwReolinkCams "
+                                        f"(known cams: {known or 'none'})")
+            log.error(self._doorbell_cam_error)
+            return
+        self._doorbell_cam_error = None
+        if cam.get("online"):
+            log.info("Doorbell cam '%s' found in ZmwReolinkCams", alias)
+        else:
+            log.warning("Doorbell cam '%s' found in ZmwReolinkCams, but it's offline", alias)
+
     def on_dep_published_message(self, svc_name, subtopic, msg):
         match svc_name:
             case 'ZmwReolinkCams':
-                if msg.get("cam_host") != self._doorbell_cam_host:
+                if subtopic == "ls_cams_reply":
+                    self._check_doorbell_cam_exists(msg)
+                    return
+                if msg.get("cam_alias") != self._doorbell_cam_alias:
                     return
                 match subtopic:
                     case "on_doorbell_button_pressed":

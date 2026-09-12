@@ -1,5 +1,7 @@
 {
+  "COMMENT": "cam_alias is the stable name other services use to refer to a camera; cam_host (IP) may change",
   "cameras_ALL": [{
+    "cam_alias": "doorbell",
     "cam_host": "10.0.0.20",
     "cam_user": "admin",
     "cam_pass": "",
@@ -8,6 +10,7 @@
     "snap_on_movement_enabled": true,
     "snap_history_len": 20
   },{
+    "cam_alias": "backyard",
     "cam_host": "10.0.0.56",
     "cam_user": "admin",
     "cam_pass": "qwepoi",

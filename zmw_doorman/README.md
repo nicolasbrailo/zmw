@@ -11,7 +11,7 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 | `doorbell_announce_volume` | Volume level for speaker announcements on button press |
 | `doorbell_announce_sound` | Sound file name (served from `www/` directory) to play on button press |
 | `doorbell_contact_sensor` | Name of the Zigbee contact sensor on the door |
-| `doorbell_cam_host` | Hostname/IP of the Reolink doorbell camera |
+| `doorbell_cam_alias` | `cam_alias` of the doorbell camera, as configured in ZmwReolinkCams |
 | `door_open_scene_thing_to_manage` | List of Zigbee light names to control in the door-open scene |
 | `door_open_scene_timeout_secs` | Seconds before the door-open scene auto-expires |
 | `latlon` | `[lat, lon]` for sunrise/sunset calculation (door-open scene only activates when dark) |

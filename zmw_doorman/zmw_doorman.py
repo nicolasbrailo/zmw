@@ -3,6 +3,7 @@ import time
 import os
 import pathlib
 import threading
+from datetime import datetime, timedelta
 
 from flask import send_file, jsonify
 
@@ -23,11 +24,12 @@ class ZmwDoorman(ZmwMqttService):
                          svc_deps=['ZmwSpeakerAnnounce', 'ZmwWhatsapp', 'ZmwTelegram',
                                    'ZmwReolinkCams', 'ZmwContactmon', 'ZmwUnifiClientmon'])
         self._cfg = cfg
+        self._sched = sched
         # Ensure required config keys exist
         _ = self._cfg["doorbell_announce_volume"]
         _ = self._cfg["doorbell_announce_sound"]
         _ = self._cfg["doorbell_contact_sensor"]
-        _ = self._cfg["doorbell_cam_host"]
+        _ = self._cfg["doorbell_cam_alias"]
 
         self._waiting_on_telegram_snap = None
         self._snap_request_timeout_secs = 5
@@ -44,6 +46,9 @@ class ZmwDoorman(ZmwMqttService):
 
         self._door_open_scene = DoorOpenScene(cfg, self, sched)
         self._door_stats = DoorStats(sched)
+
+        # Set if ZmwReolinkCams doesn't know about our doorbell_cam_alias
+        self._doorbell_cam_error = None
 
         self._contactmon_state_baton = threading.Event()
         self._contactmon_state = None
@@ -163,11 +168,34 @@ class ZmwDoorman(ZmwMqttService):
             return jsonify({'error': 'Timeout waiting for contactmon state'}), 504
         return jsonify(self._contactmon_state)
 
+    def get_service_alerts(self):
+        return [self._doorbell_cam_error] if self._doorbell_cam_error else []
+
     def on_service_came_up(self, service_name):
         if service_name == "ZmwTelegram":
             self.message_svc("ZmwTelegram", "register_command",
                              {'cmd': self._telegram_cmd_door_snap,
                               'descr': 'Take and send a doorbell cam picture'})
+        if service_name == "ZmwReolinkCams":
+            # Check our cam exists. Delay the request: our subscription to the service may not be ready yet,
+            # so asking right away could lose the reply.
+            self._sched.add_job(lambda: self.message_svc("ZmwReolinkCams", "ls_cams", {}),
+                                trigger='date', run_date=datetime.now() + timedelta(seconds=3))
+
+    def _check_doorbell_cam_exists(self, cams):
+        alias = self._cfg["doorbell_cam_alias"]
+        cam = next((c for c in cams if c.get("cam_alias") == alias), None)
+        if cam is None:
+            known = ', '.join(c.get("cam_alias", "?") for c in cams)
+            self._doorbell_cam_error = (f"doorbell_cam_alias '{alias}' is not a camera in ZmwReolinkCams "
+                                        f"(known cams: {known or 'none'})")
+            log.error(self._doorbell_cam_error)
+            return
+        self._doorbell_cam_error = None
+        if cam.get("online"):
+            log.info("Doorbell cam '%s' found in ZmwReolinkCams", alias)
+        else:
+            log.warning("Doorbell cam '%s' found in ZmwReolinkCams, but it's offline", alias)
 
     def on_dep_published_message(self, svc_name, subtopic, msg):
         match svc_name:
@@ -185,10 +213,13 @@ class ZmwDoorman(ZmwMqttService):
                 if subtopic.startswith("on_command/"):
                     self.on_telegram_cmd(subtopic[len("on_command/"):], msg)
             case 'ZmwReolinkCams':
-                if subtopic.startswith("ls_cams"):
-                    # Announcing cams, we don't care as we only monitor a single cam
+                if subtopic == "ls_cams_reply":
+                    self._check_doorbell_cam_exists(msg)
                     return
-                if msg.get("cam_host") != self._cfg["doorbell_cam_host"]:
+                if subtopic == "ls_cams":
+                    # Our own request, echoed back
+                    return
+                if msg.get("cam_alias") != self._cfg["doorbell_cam_alias"]:
                     # Service announced event for camera we don't monitor, ignore
                     return
                 match subtopic:
@@ -277,7 +308,7 @@ class ZmwDoorman(ZmwMqttService):
                     "First snap to arrive will be sent, others will be ignored."
                 )
             self._waiting_on_telegram_snap = time.time()
-            self.message_svc("ZmwReolinkCams", "snap", {"cam_host", self._cfg["doorbell_cam_host"]})
+            self.message_svc("ZmwReolinkCams", "snap", {"cam_alias": self._cfg["doorbell_cam_alias"]})
 
     def on_snap_ready(self, msg):
         """Handle camera snap ready event."""
@@ -367,11 +398,13 @@ class ZmwDoorman(ZmwMqttService):
         self.publish_own_svc_message("on_motion_cleared", {})
 
     def _update_snap_directory(self, snap_path):
-        """Update the snap directory from a full snap path."""
+        """Update the snap directory from a full snap path. Follows the latest snap, in case the cam's
+        snap directory changed (eg the cam was renamed) since the directory was restored from persisted state."""
         if snap_path is None:
             return
-        if self._snap_directory is None:
-            self._snap_directory = os.path.dirname(snap_path)
+        snap_directory = os.path.dirname(snap_path)
+        if snap_directory != self._snap_directory:
+            self._snap_directory = snap_directory
             log.info("Snap directory discovered: %s", self._snap_directory)
 
     def _get_snap(self, filename):
@@ -391,7 +424,7 @@ class ZmwDoorman(ZmwMqttService):
 
     def _request_snap(self):
         log.info("User requested new snap via web UI")
-        self.message_svc("ZmwReolinkCams", "snap", {"cam_host": self._cfg["doorbell_cam_host"]})
+        self.message_svc("ZmwReolinkCams", "snap", {"cam_alias": self._cfg["doorbell_cam_alias"]})
         return jsonify({'status': 'ok'})
 
 service_runner(ZmwDoorman)

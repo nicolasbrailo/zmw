@@ -67,7 +67,8 @@ def _delete_old_files(directory, days_threshold):
 
 class Rtsp:
     """ Manage RTSP recordings """
-    def __init__(self, cam_host, event_cb, rtspurl, rec_path_prefix, scheduler, retention_days=15, default_duration_secs=10):
+    def __init__(self, cam_host, cam_alias, event_cb, rtspurl, rec_path_prefix, scheduler, retention_days=15,
+                 default_duration_secs=10):
         self._scheduler = scheduler
 
         self._default_recording_duration_secs = default_duration_secs
@@ -90,7 +91,7 @@ class Rtsp:
             self._outdir = None
         else:
             self._nvr_retention_days = retention_days
-            self._outdir = os.path.join(self._rec_path_prefix, cam_host)
+            self._outdir = os.path.join(self._rec_path_prefix, cam_alias)
             if not os.path.exists(self._outdir):
                 os.makedirs(self._outdir)
             log.info("Cam %s: RTSP recordings will be saved at %s", cam_host, self._outdir)
