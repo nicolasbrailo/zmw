@@ -97,3 +97,20 @@ Show an svg overlay in the Homeboards
 Recompute and push the overlay for all homeboards
 
 _No parameters._
+
+## WWW UI
+
+`www/app.js` shows every known homeboard and drives it through these endpoints,
+which forward to the same commands as the MQTT interface:
+
+| Endpoint | Method | Effect |
+|----------|--------|--------|
+| `/get_homeboards_state` | GET | everything the UI renders |
+| `/cmd/<hb_id>/next`, `/cmd/<hb_id>/prev` | GET | move the slideshow |
+| `/cmd/<hb_id>/force_on`, `/cmd/<hb_id>/force_off` | GET | screen on/off |
+| `/cmd/<hb_id>/set_transition_time_secs/<secs>` | GET | seconds per picture, at least 1 |
+| `/announce_all` | PUT `{"msg":..., "timeout_secs":...}` | one message on every homeboard; empty `msg` clears it |
+
+Announcements go out with the `announce` command rather than the composed SVG
+overlay (`_set_announce`), so they also reach devices with no SVG renderer, such
+as a Portal running alauncher.

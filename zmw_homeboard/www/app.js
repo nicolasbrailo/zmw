@@ -10,8 +10,16 @@ class Homeboard extends React.Component {
     this.state = {
       homeboards: [],
       loading: true,
+      // One announcement is sent to every homeboard at once
+      announceMsg: '',
+      announceSecs: 60,
+      announceStatus: null,
+      // Per homeboard, what the transition time box holds
+      transitionSecs: {},
     };
     this.refresh = this.refresh.bind(this);
+    this.announceAll = this.announceAll.bind(this);
+    this.clearAnnounce = this.clearAnnounce.bind(this);
     this._timer = null;
   }
 
@@ -35,6 +43,124 @@ class Homeboard extends React.Component {
     }, () => {
       this.setState({ loading: false });
     });
+  }
+
+  // Commands are the same ones the MQTT interface offers; the service
+  // forwards them to the homeboard
+  sendCmd(hbId, path) {
+    mJsonGet(`/cmd/${encodeURIComponent(hbId)}/${path}`, () => this.refresh());
+  }
+
+  setTransitionSecs(hbId, value) {
+    this.setState((prev) => ({
+      transitionSecs: { ...prev.transitionSecs, [hbId]: value },
+    }));
+  }
+
+  // Whole seconds, at least min; null when the box holds something else, which
+  // is what disables the button that would send it
+  static seconds(value, min) {
+    const secs = parseInt(value, 10);
+    return (Number.isFinite(secs) && secs >= min) ? secs : null;
+  }
+
+  applyTransitionSecs(hbId) {
+    const secs = Homeboard.seconds(this.state.transitionSecs[hbId], 1);
+    if (secs === null) return;
+    this.sendCmd(hbId, `set_transition_time_secs/${secs}`);
+  }
+
+  // An empty message clears whatever is on screen
+  sendAnnounce(msg) {
+    const secs = Homeboard.seconds(this.state.announceSecs, 0);
+    if (secs === null) return;
+    mJsonPut('/announce_all', { msg, timeout_secs: secs }, (data) => {
+      const sent = (data && data.sent_to) || [];
+      const failed = (data && data.failed) || [];
+      const what = msg ? `Announced to ${sent.length}` : `Cleared on ${sent.length}`;
+      this.setState({
+        announceStatus: failed.length ? `${what}, failed on ${failed.join(', ')}` : what,
+      });
+    }, () => {
+      this.setState({ announceStatus: 'Announce failed' });
+    });
+  }
+
+  announceAll() {
+    this.sendAnnounce(this.state.announceMsg.trim());
+  }
+
+  clearAnnounce() {
+    this.sendAnnounce('');
+  }
+
+  renderAnnounce() {
+    const { announceMsg, announceSecs, announceStatus } = this.state;
+    return (
+      <div className="card">
+        <h3>Announce</h3>
+        <div>Shown on every homeboard at once.</div>
+        <div>
+          <input
+            type="text"
+            value={announceMsg}
+            placeholder="Message"
+            size="40"
+            onChange={(e) => this.setState({ announceMsg: e.target.value })}
+          />
+          <label>
+            {' for '}
+            <input
+              type="number"
+              min="0"
+              value={announceSecs}
+              size="4"
+              onChange={(e) => this.setState({ announceSecs: e.target.value })}
+            />
+            {' s (0 = until cleared) '}
+          </label>
+          <button
+            onClick={this.announceAll}
+            disabled={!announceMsg.trim() || Homeboard.seconds(announceSecs, 0) === null}
+          >
+            Show on all
+          </button>
+          <button onClick={this.clearAnnounce} disabled={Homeboard.seconds(announceSecs, 0) === null}>
+            Clear all
+          </button>
+        </div>
+        {announceStatus && (<div><em>{announceStatus}</em></div>)}
+      </div>
+    );
+  }
+
+  renderControls(hb) {
+    const secs = this.state.transitionSecs[hb.id] ?? '';
+    return (
+      <div>
+        <button onClick={() => this.sendCmd(hb.id, 'prev')}>Previous</button>
+        <button onClick={() => this.sendCmd(hb.id, 'next')}>Next</button>
+        <button onClick={() => this.sendCmd(hb.id, 'force_on')}>Screen on</button>
+        <button onClick={() => this.sendCmd(hb.id, 'force_off')}>Screen off</button>
+        <label>
+          {' Seconds per picture '}
+          <input
+            type="number"
+            min="1"
+            value={secs}
+            size="4"
+            placeholder="30"
+            onChange={(e) => this.setTransitionSecs(hb.id, e.target.value)}
+          />
+        </label>
+        <button
+          onClick={() => this.applyTransitionSecs(hb.id)}
+          disabled={Homeboard.seconds(secs, 1) === null}
+        >
+          Set
+        </button>
+      </div>
+    );
   }
 
   renderOccupancy(occ) {
@@ -221,6 +347,7 @@ class Homeboard extends React.Component {
           Bridge: <strong>{hb.state}</strong>
           {online && (<> — Slideshow: <strong>{slideshowActive ? 'Active' : 'Not active'}</strong></>)}
         </div>
+        {this.renderControls(hb)}
         {this.renderOccupancy(hb.occupancy)}
         {this.renderDeviceHealth(hb.doctor)}
         {hb.displayed_photo && (
@@ -249,6 +376,7 @@ class Homeboard extends React.Component {
     return (
       <div>
         <div>{homeboards.length} homeboard(s) known</div>
+        {this.renderAnnounce()}
         {homeboards.map((hb) => this.renderHomeboard(hb))}
       </div>
     );

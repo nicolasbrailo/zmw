@@ -3,6 +3,8 @@ import pathlib
 import time
 from datetime import datetime, timedelta
 
+from flask import abort, request
+
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
@@ -80,6 +82,16 @@ class ZmwHomeboard(ZmwMqttService):
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         www.register_www_dir(www_path)
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
+        # Per-homeboard controls for the www UI. Each maps to the same command
+        # the MQTT interface offers, so both routes behave identically.
+        www.serve_url('/cmd/<hb_id>/next', self._www_next)
+        www.serve_url('/cmd/<hb_id>/prev', self._www_prev)
+        www.serve_url('/cmd/<hb_id>/force_on', self._www_force_on)
+        www.serve_url('/cmd/<hb_id>/force_off', self._www_force_off)
+        www.serve_url('/cmd/<hb_id>/set_transition_time_secs/<int:secs>',
+                      self._www_set_transition_time_secs)
+        # One announcement goes to every homeboard at once
+        www.serve_url('/announce_all', self._www_announce_all, methods=['PUT'])
 
         _sched.add_job(self._recompute_all_overlays,
                        trigger='cron', hour='7-22', minute=0)
@@ -266,6 +278,59 @@ class ZmwHomeboard(ZmwMqttService):
 
     def _get_homeboards_state(self):
         return {"homeboards": self._core.list_homeboards()}
+
+    # ---- WWW UI ----------------------------------------------------------
+
+    def _www_next(self, hb_id):
+        return {"ok": self._core.next(hb_id)}
+
+    def _www_prev(self, hb_id):
+        return {"ok": self._core.prev(hb_id)}
+
+    def _www_force_on(self, hb_id):
+        return {"ok": self._core.force_on(hb_id)}
+
+    def _www_force_off(self, hb_id):
+        return {"ok": self._core.force_off(hb_id)}
+
+    def _www_set_transition_time_secs(self, hb_id, secs):
+        if secs < 1:
+            return abort(400, description="Transition time must be at least 1 second")
+        return {"ok": self._core.set_transition_time_secs(hb_id, secs)}
+
+    def _www_announce_all(self):
+        """Show one message on every homeboard.
+
+        This uses the announce command rather than the composed SVG overlay
+        (_set_announce): every device speaks it, including ones that have no
+        SVG renderer, and they all show the same text at the same time. An
+        empty msg clears whatever is on screen.
+        """
+        try:
+            req = request.get_json()
+        except Exception as e:
+            return abort(400, description=f"Invalid JSON: {e}")
+        if not isinstance(req, dict):
+            return abort(400, description="Expected a JSON object")
+
+        msg = (req.get('msg') or '').strip()
+        try:
+            timeout_secs = int(req.get('timeout_secs', 60))
+        except (TypeError, ValueError):
+            return abort(400, description="timeout_secs must be a number")
+        if timeout_secs < 0:
+            return abort(400, description="timeout_secs cannot be negative")
+
+        sent_to = []
+        failed = []
+        for hb in self._active_homeboards():
+            if self._core.announce(hb['id'], timeout_secs, msg):
+                sent_to.append(hb['id'])
+            else:
+                failed.append(hb['id'])
+        if failed:
+            log.warning("Announce failed for %s", failed)
+        return {"ok": not failed, "sent_to": sent_to, "failed": failed}
 
     def stop(self):
         try:
