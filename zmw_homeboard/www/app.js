@@ -14,12 +14,24 @@ class Homeboard extends React.Component {
       announceMsg: '',
       announceSecs: 60,
       announceStatus: null,
+      // One album filter applies to every homeboard, like an announcement
+      albumName: '',
+      albumExclude: '',
+      albumFromYear: '',
+      albumToYear: '',
+      albumFilter: null,
+      albumFilterStatus: null,
       // Per homeboard, what the transition time box holds
       transitionSecs: {},
     };
     this.refresh = this.refresh.bind(this);
     this.announceAll = this.announceAll.bind(this);
     this.clearAnnounce = this.clearAnnounce.bind(this);
+    this.applyAlbumFilter = this.applyAlbumFilter.bind(this);
+    this.clearAlbumFilter = this.clearAlbumFilter.bind(this);
+    // The boxes are seeded once from whatever filter is in force; after that
+    // they're the user's to type in, and the 5s refresh must not stomp them
+    this._albumBoxesSeeded = false;
     this._timer = null;
   }
 
@@ -39,7 +51,17 @@ class Homeboard extends React.Component {
   refresh() {
     mJsonGet('/get_homeboards_state', (data) => {
       const homeboards = (data && data.homeboards) || [];
-      this.setState({ homeboards, loading: false });
+      const albumFilter = (data && data.album_filter) || null;
+      this.setState({ homeboards, albumFilter, loading: false });
+      if (albumFilter && !this._albumBoxesSeeded) {
+        this._albumBoxesSeeded = true;
+        this.setState({
+          albumName: albumFilter.name || '',
+          albumExclude: albumFilter.exclude || '',
+          albumFromYear: albumFilter.from_year || '',
+          albumToYear: albumFilter.to_year || '',
+        });
+      }
     }, () => {
       this.setState({ loading: false });
     });
@@ -130,6 +152,145 @@ class Homeboard extends React.Component {
           </button>
         </div>
         {announceStatus && (<div><em>{announceStatus}</em></div>)}
+      </div>
+    );
+  }
+
+  // An empty box means "no bound"; null when it holds something that isn't a
+  // year, which is what disables the button that would send it
+  static year(value) {
+    const s = String(value).trim();
+    if (s === '') return 0;
+    const y = parseInt(s, 10);
+    return (Number.isFinite(y) && y >= 0 && y <= 9999) ? y : null;
+  }
+
+  // What the boxes currently describe, or null while they don't describe a
+  // filter the service would accept
+  albumFilterArgs() {
+    const from = Homeboard.year(this.state.albumFromYear);
+    const to = Homeboard.year(this.state.albumToYear);
+    if (from === null || to === null) return null;
+    // The service rejects a reversed range: the year test is an overlap test,
+    // so it would select the albums straddling the boundary rather than none
+    if (from && to && from > to) return null;
+    return {
+      name: this.state.albumName.trim(),
+      exclude: this.state.albumExclude.trim(),
+      from_year: from,
+      to_year: to,
+    };
+  }
+
+  sendAlbumFilter(filt) {
+    mJsonPut('/set_album_filter_all', filt, (data) => {
+      const sent = (data && data.sent_to) || [];
+      const failed = (data && data.failed) || [];
+      const what = `Album filter set on ${sent.length}`;
+      this.setState({
+        albumFilterStatus: failed.length ? `${what}, failed on ${failed.join(', ')}` : what,
+      });
+      this.refresh();
+    }, () => {
+      this.setState({ albumFilterStatus: 'Album filter failed' });
+    });
+  }
+
+  applyAlbumFilter() {
+    const filt = this.albumFilterArgs();
+    if (filt === null) return;
+    this.sendAlbumFilter(filt);
+  }
+
+  // An empty filter is the only way back to showing every album
+  clearAlbumFilter() {
+    this.setState({
+      albumName: '', albumExclude: '', albumFromYear: '', albumToYear: '',
+    });
+    this.sendAlbumFilter({});
+  }
+
+  static describeAlbumFilter(f) {
+    if (!f) return 'not set since this service started';
+    const parts = [];
+    if (f.name) parts.push(`named ${f.name}`);
+    if (f.exclude) parts.push(`except ${f.exclude}`);
+    if (f.from_year) parts.push(`from ${f.from_year}`);
+    if (f.to_year) parts.push(`up to ${f.to_year}`);
+    return parts.length ? parts.join(', ') : 'every album';
+  }
+
+  renderAlbumFilter() {
+    const {
+      albumName, albumExclude, albumFromYear, albumToYear,
+      albumFilter, albumFilterStatus,
+    } = this.state;
+    return (
+      <div className="card">
+        <h3>Album filter</h3>
+        <div>
+          Which albums every homeboard may show pictures from. Patterns are
+          comma separated and match the whole album name, case insensitive,
+          with <code>*</code> for any run of characters and <code>?</code> for
+          one. Years bound the dates of an album's pictures, not its name; an
+          album is kept when any part of its span falls in the range.
+        </div>
+        <div>
+          <label>
+            {' Show '}
+            <input
+              type="text"
+              value={albumName}
+              placeholder="every album"
+              size="30"
+              onChange={(e) => this.setState({ albumName: e.target.value })}
+            />
+          </label>
+          <label>
+            {' except '}
+            <input
+              type="text"
+              value={albumExclude}
+              placeholder="nothing"
+              size="30"
+              onChange={(e) => this.setState({ albumExclude: e.target.value })}
+            />
+          </label>
+        </div>
+        <div>
+          <label>
+            {' From year '}
+            <input
+              type="number"
+              min="0"
+              max="9999"
+              value={albumFromYear}
+              size="4"
+              placeholder="any"
+              onChange={(e) => this.setState({ albumFromYear: e.target.value })}
+            />
+          </label>
+          <label>
+            {' to year '}
+            <input
+              type="number"
+              min="0"
+              max="9999"
+              value={albumToYear}
+              size="4"
+              placeholder="any"
+              onChange={(e) => this.setState({ albumToYear: e.target.value })}
+            />
+          </label>
+          <button onClick={this.applyAlbumFilter} disabled={this.albumFilterArgs() === null}>
+            Apply to all
+          </button>
+          <button onClick={this.clearAlbumFilter}>
+            Show all albums
+          </button>
+        </div>
+        <div>In force: <em>{Homeboard.describeAlbumFilter(albumFilter)}</em></div>
+        {albumFilterStatus && (<div><em>{albumFilterStatus}</em></div>)}
       </div>
     );
   }
@@ -377,6 +538,7 @@ class Homeboard extends React.Component {
       <div>
         <div>{homeboards.length} homeboard(s) known</div>
         {this.renderAnnounce()}
+        {this.renderAlbumFilter()}
         {homeboards.map((hb) => this.renderHomeboard(hb))}
       </div>
     );

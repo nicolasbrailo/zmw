@@ -31,3 +31,8 @@ test_announce:
 test_weather:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/update_weather' -m '{}'
 
+test_album_filter:
+	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/set_album_filter' -m '{"name": "portalgo-*", "from_year": 2019}'
+
+test_album_filter_clear:
+	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/set_album_filter' -m '{}'

@@ -9,7 +9,7 @@ from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
-from homeboard_remote_control import RemoteControlCore
+from homeboard_remote_control import RemoteControlCore, as_year
 
 from announce_overlay import AnnounceOverlay
 from overlay import Overlay
@@ -68,6 +68,12 @@ class ZmwHomeboard(ZmwMqttService):
         # hb_id -> (text, expires_at_ts). Only kept while the announce is live.
         self._announce_state = {}
 
+        # The album filter last pushed to every homeboard, or None if we haven't
+        # set one since this service started. There is one filter for all of
+        # them, like announcements: the homeboards persist it themselves, so
+        # this is only what we last asked for, not what they're running.
+        self._album_filter = None
+
         self._core = RemoteControlCore(
             cfg['homeboard']['mqtt_ip'],
             int(cfg['homeboard']['mqtt_port']),
@@ -92,6 +98,9 @@ class ZmwHomeboard(ZmwMqttService):
                       self._www_set_transition_time_secs)
         # One announcement goes to every homeboard at once
         www.serve_url('/announce_all', self._www_announce_all, methods=['PUT'])
+        # Same for the album filter: one filter, pushed to all of them
+        www.serve_url('/set_album_filter_all', self._www_set_album_filter_all,
+                      methods=['PUT'])
 
         _sched.add_job(self._recompute_all_overlays,
                        trigger='cron', hour='7-22', minute=0)
@@ -255,6 +264,57 @@ class ZmwHomeboard(ZmwMqttService):
         self._recompute_overlay_for(hb_id)
         return True
 
+    @staticmethod
+    def _parse_album_filter(req):
+        """Validate an album filter request. Returns (filter, error_description).
+
+        The four fields are all optional, and an absent one means "no
+        constraint of that kind" rather than "leave it as it was": the filter
+        is always replaced whole, so an empty request is the way to clear it
+        and show every album again.
+        """
+        filt = {}
+        for key in ('name', 'exclude'):
+            val = req.get(key) or ''
+            if not isinstance(val, str):
+                return None, f"{key} must be a string"
+            filt[key] = val.strip()
+
+        for key in ('from_year', 'to_year'):
+            raw = req.get(key)
+            # Absent, null, or an empty box in the UI all mean "unbounded"
+            if raw is None or raw == '':
+                raw = 0
+            year = as_year(raw)
+            if year is None:
+                return None, f"{key} must be a whole number between 0 and 9999"
+            filt[key] = year
+
+        # The year test is an overlap test, so a reversed range isn't empty: it
+        # selects the albums straddling the boundary, which looks exactly like
+        # the filter being ignored. Refuse it instead.
+        if filt['from_year'] and filt['to_year'] and filt['from_year'] > filt['to_year']:
+            return None, "from_year cannot be later than to_year"
+
+        return filt, None
+
+    def _push_album_filter(self, filt):
+        """Push one album filter to every homeboard. Returns (sent_to, failed)."""
+        sent_to = []
+        failed = []
+        for hb in self._active_homeboards():
+            if self._core.set_album_filter(hb['id'], **filt):
+                sent_to.append(hb['id'])
+            else:
+                failed.append(hb['id'])
+        # Remember what we asked for even if some boards didn't take it, so the
+        # UI shows the filter that's meant to be in force.
+        self._album_filter = filt
+        log.info("Album filter %s pushed to %s homeboards", filt, len(sent_to))
+        if failed:
+            log.warning("Album filter push failed for %s", failed)
+        return sent_to, failed
+
     def _on_hb_host_info(self, hb_id, _data):
         log.info("Config for '%s' changed, recomputing overlay", hb_id)
         # Recompute everyone: weather is the slow part and is memoized, so
@@ -277,7 +337,10 @@ class ZmwHomeboard(ZmwMqttService):
                 self._set_announce(hb['id'], text, _SPEAKER_ANNOUNCE_OVERLAY_SECS)
 
     def _get_homeboards_state(self):
-        return {"homeboards": self._core.list_homeboards()}
+        return {
+            "homeboards": self._core.list_homeboards(),
+            "album_filter": self._album_filter,
+        }
 
     # ---- WWW UI ----------------------------------------------------------
 
@@ -331,6 +394,27 @@ class ZmwHomeboard(ZmwMqttService):
         if failed:
             log.warning("Announce failed for %s", failed)
         return {"ok": not failed, "sent_to": sent_to, "failed": failed}
+
+    def _www_set_album_filter_all(self):
+        """Set the album filter on every homeboard.
+
+        One filter for all of them; an empty request clears it, which is the
+        only way back to showing every album.
+        """
+        try:
+            req = request.get_json()
+        except Exception as e:
+            return abort(400, description=f"Invalid JSON: {e}")
+        if not isinstance(req, dict):
+            return abort(400, description="Expected a JSON object")
+
+        filt, err = self._parse_album_filter(req)
+        if err is not None:
+            return abort(400, description=err)
+
+        sent_to, failed = self._push_album_filter(filt)
+        return {"ok": not failed, "album_filter": filt,
+                "sent_to": sent_to, "failed": failed}
 
     def stop(self):
         try:
@@ -402,6 +486,17 @@ class ZmwHomeboard(ZmwMqttService):
                         "svg_file_path": "Path to the SVG file in the local filesystem",
                     }
                 },
+                "set_album_filter": {
+                    "description": "Pick which albums every homeboard may show pictures from; "
+                                   "an empty request clears the filter and brings back all albums",
+                    "params": {
+                        "name": "Comma-separated glob patterns (*, ?) matched against the whole "
+                                "album name, case-insensitive; empty means every album",
+                        "exclude": "Same syntax as name, for albums to drop; wins over name",
+                        "from_year": "Only albums holding pictures from this year onwards (0 = no bound)",
+                        "to_year": "Only albums holding pictures up to this year (0 = no bound)",
+                    }
+                },
                 "update_weather": {
                     "description": "Recompute and push the overlay for all homeboards",
                 },
@@ -454,6 +549,15 @@ class ZmwHomeboard(ZmwMqttService):
                     ok = False
                 else:
                     ok = self._core.set_svg_overlay(hb_id, payload.get('timeout_secs', 15), svg)
+        elif subtopic == "set_album_filter":
+            # Global, like update_weather: one filter goes to every homeboard
+            filt, err = self._parse_album_filter(payload)
+            if err is not None:
+                log.warning("Dropping bad album filter %s: %s", payload, err)
+                ok = False
+            else:
+                _sent_to, failed = self._push_album_filter(filt)
+                ok = not failed
         elif subtopic == "update_weather":
             self._recompute_all_overlays(scheduled=False)
             ok = True

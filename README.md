@@ -750,6 +750,35 @@ The Homeboard uses its custom MQTT service, not shared with ZMW. This service ac
 
 
 
+## WWW UI
+
+`www/app.js` shows every known homeboard and drives it through these endpoints,
+which forward to the same commands as the MQTT interface:
+
+| Endpoint | Method | Effect |
+|----------|--------|--------|
+| `/get_homeboards_state` | GET | everything the UI renders |
+| `/cmd/<hb_id>/next`, `/cmd/<hb_id>/prev` | GET | move the slideshow |
+| `/cmd/<hb_id>/force_on`, `/cmd/<hb_id>/force_off` | GET | screen on/off |
+| `/cmd/<hb_id>/set_transition_time_secs/<secs>` | GET | seconds per picture, at least 1 |
+| `/announce_all` | PUT `{"msg":..., "timeout_secs":...}` | one message on every homeboard; empty `msg` clears it |
+| `/set_album_filter_all` | PUT `{"name":..., "exclude":..., "from_year":..., "to_year":...}` | one album filter on every homeboard; an empty object clears it |
+
+Announcements go out with the `announce` command rather than the composed SVG
+overlay (`_set_announce`), so they also reach devices with no SVG renderer, such
+as a Portal running alauncher.
+
+The album filter is global too: there is one filter for all homeboards, pushed
+to each of them, and every field is optional. An absent field means "no
+constraint of that kind" rather than "leave it as it was", so the whole filter
+is replaced on each command and an empty payload is the only way back to
+showing every album. Each homeboard persists the filter itself; this service
+only remembers what it last asked for, so a restart here doesn't change what
+they're showing.
+
+This section sits above `## MQTT` on purpose: `scripts/update_readme_mqtt.py`
+regenerates everything from that header to the end of the file.
+
 ## MQTT
 
 **Topic:** `zmw_homeboard`
@@ -835,6 +864,17 @@ Show an svg overlay in the Homeboards
 | `homeboard_id` | Name of the target homeboard |
 | `timeout_secs` | How long it should be displayed (0 means forever) |
 | `svg_file_path` | Path to the SVG file in the local filesystem |
+
+#### `set_album_filter`
+
+Pick which albums every homeboard may show pictures from; an empty request clears the filter and brings back all albums
+
+| Param | Description |
+|-------|-------------|
+| `name` | Comma-separated glob patterns (*, ?) matched against the whole album name, case-insensitive; empty means every album |
+| `exclude` | Same syntax as name, for albums to drop; wins over name |
+| `from_year` | Only albums holding pictures from this year onwards (0 = no bound) |
+| `to_year` | Only albums holding pictures up to this year (0 = no bound) |
 
 #### `update_weather`
 
