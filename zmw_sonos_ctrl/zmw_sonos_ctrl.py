@@ -6,6 +6,7 @@ import time
 
 from sonos_helpers import *
 import json
+import requests
 import soco
 from flask import request
 from flask_sock import Sock
@@ -62,6 +63,10 @@ class ZmwSonosCtrl(ZmwMqttService):
         self._sock.route('/spotify_hijack')(self._ws_spotify_hijack)
         self._sock.route('/line_in_requested')(self._ws_line_in_requested)
         # TODO: Add a WS endpoint to stream updates from Spotify, so it lists the playing media in the UI
+
+    def get_service_alerts(self):
+        """Speakers that stopped answering (dead, unplugged, or moved by DHCP) in the last minute."""
+        return get_unreachable_speaker_alerts()
 
     def _build_llm_grammar_values(self):
         state = get_all_sonos_state()
@@ -253,17 +258,32 @@ class ZmwSonosCtrl(ZmwMqttService):
         ws.send("UNIMPLEMENTED YET")
         log.error("line-in request not implemented yet")
 
+    def _on_coordinator(self, action, fn):
+        """Run fn(coordinator) against the last known coordinator.
+
+        The coordinator is a SoCo object we cached earlier, so it may be a speaker that has since been
+        switched off or moved by DHCP. Every access to it is a network call (even .group), so failures are
+        logged and alerted instead of propagating to the www/mqtt caller as a 500.
+        """
+        coord = self._last_active_coord
+        if coord is None:
+            log.info("%s requested, but no coordinator known", action)
+            return {}
+
+        try:
+            fn(coord)
+            # ip_address is a local attribute; player_name would be another call to a speaker we just used
+            log.info("%s on group coordinated by %s", action, coord.ip_address)
+        except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException) as ex:
+            log_speaker_query_failure(action, coord.ip_address, ex)
+        return {}
+
     def _stop_all(self):
         log.info("Stop-all request: will stop Spotify and reset Sonos states")
         self.message_svc("ZmwSpotify", "stop", {})
-        if self._last_active_coord:
-            sonos_reset_state_all(self._last_active_coord.group.members, lambda msg: log.info(msg))
-        else:
-            log.info("No active coordinator found: can't stop")
-            # We could also send the stop command to all speakers, but for safety let's limit this to known coordinators
-            # log.info("No active coordinator found: sending stop command to ALL speakers")
-            # sonos_reset_state_all(ls_speakers().values(), lambda msg: log.info(msg))
-        return {}
+        # We could also send the stop command to all speakers, but for safety let's limit this to known coordinators
+        return self._on_coordinator(
+            'stop playback', lambda coord: sonos_reset_state_all(coord.group.members, lambda msg: log.info(msg)))
 
     def _set_volume(self):
         # This sets the volume of all requested speakers, even if they are not part of the coordinator
@@ -271,44 +291,23 @@ class ZmwSonosCtrl(ZmwMqttService):
         vol_cfg = request.get_json()
         devs = ls_speakers()
         for spk_name, volume in vol_cfg.items():
-            if spk_name in devs:
-                devs[spk_name].volume = volume
-                log.info("Set %s volume to %s", spk_name, volume)
-            else:
+            if spk_name not in devs:
                 log.warning("Speaker %s not found", spk_name)
+                continue
+            sonos_set_volume(devs[spk_name], spk_name, volume)
         return {}
 
     def _volume_up(self, vol=5):
-        if self._last_active_coord:
-            sonos_adjust_volume_all(self._last_active_coord.group.members, vol)
-            log.info("Volume up on group %s", self._last_active_coord.player_name)
-        else:
-            log.info("Volume up requested, but no coordinator known")
-        return {}
+        return self._on_coordinator('turn volume up', lambda coord: sonos_adjust_volume_all(coord.group.members, vol))
 
     def _volume_down(self, vol=5):
-        if self._last_active_coord:
-            sonos_adjust_volume_all(self._last_active_coord.group.members, -vol)
-            log.info("Volume down on group %s", self._last_active_coord.player_name)
-        else:
-            log.info("Volume down requested, but no coordinator known")
-        return {}
+        return self._on_coordinator('turn volume down', lambda coord: sonos_adjust_volume_all(coord.group.members, -vol))
 
     def _next_track(self):
-        if self._last_active_coord:
-            self._last_active_coord.next()
-            log.info("Next track on group %s", self._last_active_coord.player_name)
-        else:
-            log.info("Next track requested, but no coordinator known")
-        return {}
+        return self._on_coordinator('skip to next track', lambda coord: coord.next())
 
     def _prev_track(self):
-        if self._last_active_coord:
-            self._last_active_coord.previous()
-            log.info("Previous track on group %s", self._last_active_coord.player_name)
-        else:
-            log.info("Previous track requested, but no coordinator known")
-        return {}
+        return self._on_coordinator('skip to previous track', lambda coord: coord.previous())
 
     def on_service_received_message(self, subtopic, msg):
         if subtopic.endswith('_reply'):
