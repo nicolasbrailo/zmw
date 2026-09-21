@@ -126,6 +126,19 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             if spoken:
                 self.publish_own_svc_message("announcement_in_progress", {"msg": spoken})
 
+    def _sonos_announce(self, uri, vol, speakers=None, msg=None):
+        """Play uri on the speakers, and broadcast what's being played so other services can react.
+        msg is the text a TTS request asked to say; None for recordings and assets."""
+        playing = {
+            'uri': uri,
+            'volume': vol,
+            'speakers': speakers,
+        }
+        if msg:
+            playing['msg'] = msg
+        self.publish_own_svc_message("currently_playing", playing)
+        sonos_announce(uri, volume=vol, ws_api_cfg=self._cfg, speakers=speakers)
+
     # --- ZMW TTS integration ---
 
     def _use_zmw_tts(self):
@@ -194,7 +207,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             remote_path = f"{self._public_tts_base}/{local_path}"
             fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
             self._record_announcement(txt, None, vol, remote_path, fuzzy_text=fuzzy_text)
-            sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
+            self._sonos_announce(remote_path, vol, msg=txt)
         except Exception:
             log.exception("Failed to handle shout: '%s'", txt)
 
@@ -291,6 +304,15 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                     "description": "Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text",
                     "payload": {"msg": "The text being announced"}
                 },
+                "currently_playing": {
+                    "description": "Published whenever the speakers are asked to play a sound (TTS, user recording or asset)",
+                    "payload": {
+                        "uri": "URL of the audio being played",
+                        "volume": "Requested volume 0-100 (null: speaker default)",
+                        "speakers": "List of target speaker names (null: all speakers)",
+                        "msg?": "Original text of the TTS request; absent for recordings and assets",
+                    }
+                },
                 "announcement_history_reply": {
                     "description": "Announcement history",
                     "payload": [{"timestamp": "ISO timestamp", "phrase?": "Text", "lang": "Language", "volume": "Volume", "uri": "Asset URI"}]
@@ -322,7 +344,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         remote_path = f"{self._public_tts_base}/{local_path}"
         fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
         self._record_announcement(txt, lang, vol, remote_path, fuzzy_text=fuzzy_text)
-        sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg, speakers=speakers)
+        self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt)
         return {}
 
     def _announce_user_recording(self):
@@ -341,7 +363,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(request.form)
         log.info("Saved recording to '%s' -> '%s'. Will announce at vol=%s", mp3_path, remote_path, vol)
         self._record_announcement('<user recording>', '', vol, remote_path, notify=False)
-        sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
+        self._sonos_announce(remote_path, vol)
         return {}
 
     def on_service_received_message(self, subtopic, payload):
@@ -360,9 +382,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             case "get_mqtt_description":
                 self.publish_own_svc_message("get_mqtt_description_reply",
                     self.get_mqtt_description())
-            case "announcement_in_progress":
-                # Echo of our own broadcast (published for other services to
-                # mirror). Ignore it.
+            case "announcement_in_progress" | "currently_playing":
+                # Echo of our own broadcasts (published for other services to
+                # mirror). Ignore them.
                 return
             case _:
                 log.error("Unknown message %s payload %s", subtopic, payload)
@@ -389,7 +411,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(payload)
         fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
         self._record_announcement(payload['msg'], lang, vol, remote_path, fuzzy_text=fuzzy_text)
-        sonos_announce(remote_path, volume=vol, ws_api_cfg=self._cfg)
+        self._sonos_announce(remote_path, vol, msg=payload['msg'])
 
     def _save_asset_to_www(self, local_path):
         try:
@@ -445,7 +467,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(payload)
         log.info("Announcing asset %s with volume %d", asset_uri, vol)
         self._record_announcement('<asset playback>', '', vol, asset_uri, notify=False)
-        sonos_announce(asset_uri, volume=vol, ws_api_cfg=self._cfg)
+        self._sonos_announce(asset_uri, vol)
 
 
     def _get_payload_vol(self, payload):

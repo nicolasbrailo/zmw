@@ -855,6 +855,17 @@ Show an announcement text in the Homeboard overlay (empty msg clears)
 | `timeout_secs` | How long to display, in seconds |
 | `msg` | Text to display; empty clears the current announce |
 
+#### `announce_audio`
+
+Tell a homeboard that the speakers are playing an audio file
+
+| Param | Description |
+|-------|-------------|
+| `homeboard_id` | Name of the target homeboard |
+| `uri` | URL of the audio being played |
+| `volume?` | Volume 0-100 the speakers were asked to use |
+| `msg?` | Text being spoken, when the audio comes from a TTS request |
+
 #### `set_svg_overlay`
 
 Show an svg overlay in the Homeboards
@@ -1726,6 +1737,17 @@ Published when a spoken (TTS) announcement starts playing on the speakers. Lets 
 | Param | Description |
 |-------|-------------|
 | `msg` | The text being announced |
+
+#### `currently_playing`
+
+Published whenever the speakers are asked to play a sound (TTS, user recording or asset)
+
+| Param | Description |
+|-------|-------------|
+| `uri` | URL of the audio being played |
+| `volume` | Requested volume 0-100 (null: speaker default) |
+| `speakers` | List of target speaker names (null: all speakers) |
+| `msg?` | Original text of the TTS request; absent for recordings and assets |
 
 #### `announcement_history_reply`
 

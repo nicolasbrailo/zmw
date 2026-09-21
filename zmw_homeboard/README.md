@@ -111,6 +111,17 @@ Show an announcement text in the Homeboard overlay (empty msg clears)
 | `timeout_secs` | How long to display, in seconds |
 | `msg` | Text to display; empty clears the current announce |
 
+#### `announce_audio`
+
+Tell a homeboard that the speakers are playing an audio file
+
+| Param | Description |
+|-------|-------------|
+| `homeboard_id` | Name of the target homeboard |
+| `uri` | URL of the audio being played |
+| `volume?` | Volume 0-100 the speakers were asked to use |
+| `msg?` | Text being spoken, when the audio comes from a TTS request |
+
 #### `set_svg_overlay`
 
 Show an svg overlay in the Homeboards

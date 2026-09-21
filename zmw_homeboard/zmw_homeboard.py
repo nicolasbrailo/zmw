@@ -336,6 +336,20 @@ class ZmwHomeboard(ZmwMqttService):
             for hb in self._active_homeboards():
                 self._set_announce(hb['id'], text, _SPEAKER_ANNOUNCE_OVERLAY_SECS)
 
+        # Whenever the speakers play anything (TTS, recordings, assets), tell
+        # every homeboard what's playing.
+        elif svc_name == "ZmwSpeakerAnnounce" and subtopic == "currently_playing":
+            if not isinstance(payload, dict) or not payload.get('uri'):
+                log.warning("ZmwSpeakerAnnounce currently_playing with bad payload: %s", payload)
+                return
+            failed = []
+            for hb in self._active_homeboards():
+                if not self._core.announce_audio(hb['id'], payload['uri'],
+                                                 payload.get('volume'), payload.get('msg')):
+                    failed.append(hb['id'])
+            if failed:
+                log.warning("announce_audio failed for %s, payload: %s", failed, payload)
+
     def _get_homeboards_state(self):
         return {
             "homeboards": self._core.list_homeboards(),
@@ -427,7 +441,8 @@ class ZmwHomeboard(ZmwMqttService):
             "description": "Homeboard service integration",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: mirrors live speaker announcements onto the overlay.
+            # Reads: mirrors live speaker announcements onto the overlay, and
+            # forwards what the speakers are playing to every homeboard.
             # Own state is published too (consumed by ZmwSensormon).
             "reads_mqtt_topic": ["zmw_speaker_announce"],
             "writes_mqtt_topic": [],
@@ -476,6 +491,15 @@ class ZmwHomeboard(ZmwMqttService):
                         "homeboard_id": "Name of the target homeboard",
                         "timeout_secs": "How long to display, in seconds",
                         "msg": "Text to display; empty clears the current announce",
+                    }
+                },
+                "announce_audio": {
+                    "description": "Tell a homeboard that the speakers are playing an audio file",
+                    "params": {
+                        "homeboard_id": "Name of the target homeboard",
+                        "uri": "URL of the audio being played",
+                        "volume?": "Volume 0-100 the speakers were asked to use",
+                        "msg?": "Text being spoken, when the audio comes from a TTS request",
                     }
                 },
                 "set_svg_overlay": {
@@ -535,6 +559,9 @@ class ZmwHomeboard(ZmwMqttService):
             ok = self._set_announce(hb_id,
                                     payload.get('msg', ''),
                                     payload.get('timeout_secs', 60))
+        elif subtopic == "announce_audio":
+            ok = self._core.announce_audio(hb_id, payload.get('uri'),
+                                           payload.get('volume'), payload.get('msg'))
         elif subtopic == "set_svg_overlay":
             svg_path = payload.get('svg_file_path')
             if not svg_path:

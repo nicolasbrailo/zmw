@@ -93,6 +93,17 @@ Published when a spoken (TTS) announcement starts playing on the speakers. Lets 
 |-------|-------------|
 | `msg` | The text being announced |
 
+#### `currently_playing`
+
+Published whenever the speakers are asked to play a sound (TTS, user recording or asset)
+
+| Param | Description |
+|-------|-------------|
+| `uri` | URL of the audio being played |
+| `volume` | Requested volume 0-100 (null: speaker default) |
+| `speakers` | List of target speaker names (null: all speakers) |
+| `msg?` | Original text of the TTS request; absent for recordings and assets |
+
 #### `announcement_history_reply`
 
 Announcement history
