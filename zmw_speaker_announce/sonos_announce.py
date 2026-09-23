@@ -21,6 +21,10 @@ log = build_logger("MqttSpeakerAnnounceSonos")
 
 _SONOS_EXC = (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException)
 
+# All websockets are opened before any announcement is sent, so a slow speaker delays everyone. Cap
+# how long we'll wait for one to connect; speakers that don't make it are skipped.
+_SONOS_WS_CONNECT_TIMEOUT_SECS = 3
+
 async def _sonos_ws_connect(api_key, ip_addr):
     uri = f"wss://{ip_addr}:1443/websocket/api"
     headers = {
@@ -30,7 +34,8 @@ async def _sonos_ws_connect(api_key, ip_addr):
     log.debug("Opening websocket to %s", uri)
     session = aiohttp.ClientSession()
     try:
-        session.ws = await session.ws_connect(uri, headers=headers, verify_ssl=False)
+        session.ws = await asyncio.wait_for(session.ws_connect(uri, headers=headers, verify_ssl=False),
+                                            timeout=_SONOS_WS_CONNECT_TIMEOUT_SECS)
     except aiohttp.ClientResponseError as exc:
         log.error("HTTP error %s connecting to Sonos@'%s'", exc.code, uri)
     except (aiohttp.ClientConnectionError, asyncio.TimeoutError):
@@ -48,13 +53,9 @@ async def _sonos_ws_connect(api_key, ip_addr):
     return None
 
 
-async def _async_sonos_announce_one(api_cfg, ip_addr, soco_uid, alert_uri, volume=None):
+async def _async_sonos_send_clip(session, ip_addr, soco_uid, api_cfg, alert_uri, volume=None):
     # ~Inspired on~ stolen from
     # https://github.com/jjlawren/sonos-websocket/blob/main/sonos_websocket/websocket.py
-    session = await _sonos_ws_connect(api_cfg['api_key'], ip_addr)
-    if session is None or session.ws is None:
-        return
-
     command = {
         "namespace": "audioClip:1",
         "command": "loadAudioClip",
@@ -72,21 +73,41 @@ async def _async_sonos_announce_one(api_cfg, ip_addr, soco_uid, alert_uri, volum
     try:
         await session.ws.send_json([command, options])
         log.info("Asked speaker %s to play %s", ip_addr, alert_uri)
+    except (aiohttp.ClientError, TypeError, ValueError):
+        log.error("Error sending command to Sonos@'%s'", ip_addr, exc_info=True)
+
+
+async def _async_sonos_wait_and_close(session, ip_addr):
+    try:
         await session.ws.receive()
         #log.debug("Speaker %s replies %s", ip_addr, str(msg))
     except (aiohttp.ClientError, TypeError, ValueError):
-        log.error("Error sending command to Sonos@'%s'", ip_addr, exc_info=True)
+        log.error("Error reading reply from Sonos@'%s'", ip_addr, exc_info=True)
 
     try:
         await session.ws.close()
         await session.close()
     except (aiohttp.ClientError, OSError):
         log.error("Error closing connection to Sonos@'%s'", ip_addr, exc_info=True)
-    return True
+
+
+async def _async_sonos_announce_many(api_cfg, targets, alert_uri, volume=None):
+    """ Announce on a list of (ip_addr, soco_uid) targets. Connections are all established before any
+    command is sent, so that connection setup time (TLS handshake, which varies per speaker) doesn't
+    translate into playback skew between speakers. """
+    sessions = await asyncio.gather(*[_sonos_ws_connect(api_cfg['api_key'], ip) for ip, _ in targets])
+    connected = [(sess, ip, uid) for sess, (ip, uid) in zip(sessions, targets) if sess is not None]
+    if not connected:
+        log.error("Couldn't connect to any speaker for announcement")
+        return
+
+    await asyncio.gather(*[_async_sonos_send_clip(sess, ip, uid, api_cfg, alert_uri, volume)
+                           for sess, ip, uid in connected])
+    await asyncio.gather(*[_async_sonos_wait_and_close(sess, ip) for sess, ip, _ in connected])
 
 
 async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None, speakers=None):
-    tasks = []
+    targets = []
     announced_names = []
 
     if 'speaker_ip_list' in api_cfg:
@@ -99,7 +120,7 @@ async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None, speakers=No
                     log.debug("Skipping speaker %s (not in requested list)", name)
                     continue
                 announced_names.append(name)
-                tasks.append(_async_sonos_announce_one(api_cfg, dev.ip_address, dev.uid, alert_uri, volume))
+                targets.append((dev.ip_address, dev.uid))
             except _SONOS_EXC:
                 log.warning("Failed to connect to speaker at %s, skipping", ip, exc_info=True)
     else:
@@ -121,9 +142,9 @@ async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None, speakers=No
                 log.debug("Skipping speaker %s (not in requested list)", name)
                 continue
             announced_names.append(name)
-            tasks.append(_async_sonos_announce_one(api_cfg, spk.ip_address, spk.uid, alert_uri, volume))
+            targets.append((spk.ip_address, spk.uid))
 
-    if not tasks:
+    if not targets:
         log.error("No speakers available for announcement")
         return False
 
@@ -132,7 +153,7 @@ async def _async_sonos_announce_all(api_cfg, alert_uri, volume=None, speakers=No
         if missing:
             log.error("Requested speakers not found: %s", sorted(missing))
 
-    await asyncio.gather(*tasks)
+    await _async_sonos_announce_many(api_cfg, targets, alert_uri, volume)
     return True
 
 
