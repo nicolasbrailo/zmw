@@ -126,9 +126,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             if spoken:
                 self.publish_own_svc_message("announcement_in_progress", {"msg": spoken})
 
-    def _sonos_announce(self, uri, vol, speakers=None, msg=None):
+    def _sonos_announce(self, uri, vol, speakers=None, msg=None, *, synced):
         """Play uri on the speakers, and broadcast what's being played so other services can react.
-        msg is the text a TTS request asked to say; None for recordings and assets."""
+        msg is the text a TTS request asked to say; None for recordings and assets. synced trades
+        latency for better playback sync between speakers (a skew is very noticeable in TTS)."""
         playing = {
             'uri': uri,
             'volume': vol,
@@ -137,7 +138,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if msg:
             playing['msg'] = msg
         self.publish_own_svc_message("currently_playing", playing)
-        sonos_announce(uri, volume=vol, ws_api_cfg=self._cfg, speakers=speakers)
+        sonos_announce(uri, volume=vol, ws_api_cfg=self._cfg, speakers=speakers, synced=synced)
 
     # --- ZMW TTS integration ---
 
@@ -207,7 +208,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             remote_path = f"{self._public_tts_base}/{local_path}"
             fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
             self._record_announcement(txt, None, vol, remote_path, fuzzy_text=fuzzy_text)
-            self._sonos_announce(remote_path, vol, msg=txt)
+            self._sonos_announce(remote_path, vol, msg=txt, synced=True)
         except Exception:
             log.exception("Failed to handle shout: '%s'", txt)
 
@@ -344,7 +345,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         remote_path = f"{self._public_tts_base}/{local_path}"
         fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
         self._record_announcement(txt, lang, vol, remote_path, fuzzy_text=fuzzy_text)
-        self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt)
+        self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
         return {}
 
     def _announce_user_recording(self):
@@ -363,7 +364,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(request.form)
         log.info("Saved recording to '%s' -> '%s'. Will announce at vol=%s", mp3_path, remote_path, vol)
         self._record_announcement('<user recording>', '', vol, remote_path, notify=False)
-        self._sonos_announce(remote_path, vol)
+        self._sonos_announce(remote_path, vol, synced=False)
         return {}
 
     def on_service_received_message(self, subtopic, payload):
@@ -411,7 +412,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(payload)
         fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
         self._record_announcement(payload['msg'], lang, vol, remote_path, fuzzy_text=fuzzy_text)
-        self._sonos_announce(remote_path, vol, msg=payload['msg'])
+        self._sonos_announce(remote_path, vol, msg=payload['msg'], synced=True)
 
     def _save_asset_to_www(self, local_path):
         try:
@@ -467,7 +468,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(payload)
         log.info("Announcing asset %s with volume %d", asset_uri, vol)
         self._record_announcement('<asset playback>', '', vol, asset_uri, notify=False)
-        self._sonos_announce(asset_uri, vol)
+        self._sonos_announce(asset_uri, vol, synced=False)
 
 
     def _get_payload_vol(self, payload):
