@@ -63,24 +63,21 @@ class TestMqttDispatch(unittest.TestCase):
         with self.assertLogs('ZmwMqtt', level='CRITICAL'):
             self._deliver('zigbee2mqtt/foo', {})
 
-    # Known bugs: matching is a raw string prefix, so a topic that is a prefix of another one steals its messages.
-    # Step 1 of multiz2m.md fixes these; remove the expectedFailure markers then.
+    # Matching must happen on topic-level boundaries, so a topic that is a string prefix of another one doesn't
+    # steal its messages.
 
-    @unittest.expectedFailure
     def test_sibling_topic_with_shared_prefix(self):
         self._sub('zigbee2mqtt')
         self._sub('zigbee2mqtt_foo')
         self._deliver('zigbee2mqtt_foo/bridge/devices', [1])
         self.assertEqual(self.calls, [('zigbee2mqtt_foo', 'bridge/devices', [1])])
 
-    @unittest.expectedFailure
     def test_thing_extras_with_shared_name_prefix(self):
         self._sub('zmw_thing_extras/Foo')
         self._sub('zmw_thing_extras/FooBar')
         self._deliver('zmw_thing_extras/FooBar', {'a': 1})
         self.assertEqual(self.calls, [('zmw_thing_extras/FooBar', '', {'a': 1})])
 
-    @unittest.expectedFailure
     def test_prefix_without_separator_is_unhandled(self):
         self._sub('zigbee2mqtt')
         self._deliver('zigbee2mqttX/foo', {})

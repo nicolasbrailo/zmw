@@ -153,7 +153,8 @@ class ZmwMqttBase(ABC):
                 if t[-2:] == '/#':
                     # This topic has an mqtt wildcard, it fininshes with 'topic/#'. Don't check the wildcard.
                     t = t[:-2]
-                if topic.startswith(t):
+                # Match only on topic-level boundaries: 'foo' must not match 'foobar/x'
+                if topic == t or topic.startswith(t + '/'):
                     subtopic = topic[len(t) + len('/'):]
                     return cb(subtopic, parsed_msg)
             # Fall-through: received unhandled message
