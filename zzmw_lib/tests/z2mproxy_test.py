@@ -189,6 +189,34 @@ class TestZ2MProxyMessageDispatch(unittest.TestCase):
         self.mqtt.deliver('Oficina', {'state': 'ON'})
         self.assertEqual(changes, [('Oficina', True)])
 
+    def _assert_handled_once(self, mqtt, thing, subtopics):
+        calls = []
+        thing.on_any_change_from_mqtt = lambda t: calls.append(t.name)
+        for subtopic in subtopics:
+            calls.clear()
+            mqtt.deliver(subtopic, {'state': 'ON'})
+            self.assertEqual(len(calls), 1, f'message on {subtopic} handled {len(calls)} times')
+
+    def test_each_message_is_handled_once(self):
+        self._assert_handled_once(self.mqtt, self.lamp,
+                                  ['Oficina', 'Oficina/set', LAMP_ADDR, f'{LAMP_ADDR}/set'])
+
+    def test_unnamed_device_messages_are_handled_once(self):
+        # Z2M names unnamed devices after their address, so name, real_name and address are the same topic
+        proxy, mqtt, _ = make_proxy()
+        unnamed = get_a_lamp()
+        unnamed['friendly_name'] = unnamed['ieee_address']
+        mqtt.deliver('bridge/devices', [unnamed])
+        self._assert_handled_once(mqtt, proxy.get_thing(LAMP_ADDR), [LAMP_ADDR, f'{LAMP_ADDR}/set'])
+
+    def test_aliased_thing_messages_are_handled_once(self):
+        proxy, mqtt, _ = make_proxy()
+        proxy._aliases = {'Oficina': 'OfficeLamp'}
+        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        self._assert_handled_once(mqtt, proxy.get_thing('OfficeLamp'),
+                                  ['OfficeLamp', 'OfficeLamp/set', 'Oficina', 'Oficina/set',
+                                   LAMP_ADDR, f'{LAMP_ADDR}/set'])
+
     def test_unknown_topic_warns(self):
         with self.assertLogs('Z2M', level='WARNING') as logs:
             self.mqtt.deliver('NotAThing', {'state': 'ON'})
@@ -382,6 +410,13 @@ class TestZ2MProxyMultiTopic(unittest.TestCase):
         with self.assertNoLogs('Z2M', level='WARNING'):
             self.mqtt.deliver('bridge/state', {}, topic='net_b')
 
+    def test_group_rules_are_per_network(self):
+        self.mqtt.deliver('bridge/groups', [{'id': 7}], topic='net_b')
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('7/availability', {}, topic='net_b')
+        with self.assertLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('7/availability', {}, topic='zigbee2mqtt')
+
     def test_broadcast_goes_to_the_thing_network(self):
         self._discover_both()
         self.proxy.get_thing('Oficina').set('state', True)
@@ -421,6 +456,84 @@ class TestZ2MProxyMultiTopic(unittest.TestCase):
         with self.assertNoLogs('Z2M', level='WARNING'):
             self.sched.jobs[0][0]()
         kill.assert_not_called()
+
+
+class TestZ2MProxyNameCollisions(unittest.TestCase):
+    def setUp(self):
+        self.proxy, self.mqtt, _ = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
+
+    def _logs_while(self, fn):
+        """ All Z2M log lines emitted while running fn (discovery always logs at INFO, so this never fails) """
+        with self.assertLogs('Z2M', level='DEBUG') as logs:
+            fn()
+        return logs.output
+
+    def test_cross_network_collision_keeps_first_and_logs_error(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_b')
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("'net_a'", logs.output[0])
+        self.assertIn("'net_b'", logs.output[0])
+        self.assertEqual(self.proxy.get_thing('Oficina').z2m_topic, 'net_a')
+
+    def test_cross_network_collision_is_logged_once(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        with self.assertLogs('Z2M', level='ERROR'):
+            self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_b')
+        with self.assertNoLogs('Z2M', level='ERROR'):
+            self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_b')
+
+    def test_colliding_thing_messages_dont_update_the_known_thing(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        with self.assertLogs('Z2M', level='ERROR'):
+            self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_b')
+        lamp = self.proxy.get_thing('Oficina')
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('Oficina', {'state': 'ON'}, topic='net_b')
+            self.mqtt.deliver(LAMP_ADDR, {'state': 'ON'}, topic='net_b')
+        self.assertEqual(lamp.get('state'), None)
+        self.mqtt.deliver('Oficina', {'state': 'ON'}, topic='net_a')
+        self.assertEqual(lamp.get('state'), True)
+
+    def test_thing_ignores_its_name_on_other_networks(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        lamp = self.proxy.get_thing('Oficina')
+        with self.assertLogs('Z2M', level='WARNING') as logs:
+            self.mqtt.deliver('Oficina', {'state': 'ON'}, topic='net_b')
+        self.assertIn('net_b/Oficina', logs.output[0])
+        self.assertEqual(lamp.get('state'), None)
+
+    def test_same_network_republish_is_quiet(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        logs = self._logs_while(lambda: self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a'))
+        self.assertFalse(any('WARNING' in l or 'ERROR' in l for l in logs), logs)
+
+    def test_same_network_address_change_warns_once(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        replaced = get_a_lamp()
+        replaced['ieee_address'] = '0x0000000000000003'
+        logs = self._logs_while(lambda: self.mqtt.deliver('bridge/devices', [replaced], topic='net_a'))
+        self.assertEqual(len([l for l in logs if 'replaced' in l]), 1)
+        self.assertEqual(self.proxy.get_thing('Oficina').address, LAMP_ADDR)
+        logs = self._logs_while(lambda: self.mqtt.deliver('bridge/devices', [replaced], topic='net_a'))
+        self.assertFalse(any('replaced' in l for l in logs), logs)
+
+    def test_virtual_thing_after_network_thing(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            self.proxy.register_virtual_thing(create_virtual_thing('Oficina', 'virtual', 'sensor', 'SomeApi'))
+        self.assertIn("network 'net_a'", logs.output[0])
+        self.assertEqual(self.proxy.get_thing('Oficina').z2m_topic, 'net_a')
+
+    def test_network_thing_after_virtual_thing_is_silenced(self):
+        vt = create_virtual_thing('Oficina', 'virtual', 'sensor', 'SomeApi')
+        self.proxy.register_virtual_thing(vt)
+        with self.assertLogs('Z2M', level='ERROR'):
+            self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('Oficina', {'state': 'ON'}, topic='net_a')
+        self.assertIs(self.proxy.get_thing('Oficina'), vt)
 
 
 class TestZ2MProxyQueries(unittest.TestCase):
@@ -502,11 +615,13 @@ class TestZ2MProxyVirtualThings(unittest.TestCase):
         self.assertIs(proxy.get_thing('Weather'), first)
 
     def test_virtual_thing_shadows_network_device_with_same_name(self):
-        # Pins current behaviour: first registration wins, network device is dropped (step 8 will make this loud)
+        # First registration wins, the network device is dropped with an error
         proxy, mqtt, _ = make_proxy()
         vt = create_virtual_thing('Oficina', 'virtual', 'sensor', 'SomeApi')
         proxy.register_virtual_thing(vt)
-        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            mqtt.deliver('bridge/devices', [get_a_lamp()])
+        self.assertIn('a virtual thing', logs.output[0])
         self.assertIs(proxy.get_thing('Oficina'), vt)
 
     def test_virtual_thing_survives_discovery(self):

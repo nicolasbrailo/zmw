@@ -34,6 +34,12 @@ def _get_z2m_topics(cfg):
                 raise ValueError(f"z2m_topics entries {a!r} and {b!r} overlap, base topics must be distinct")
     return list(topics)
 
+def _describe_origin(thing):
+    """ Where a thing comes from, for logs """
+    if thing.z2m_topic == ZMW_NO_MQTT_BACKING:
+        return 'a virtual thing'
+    return f"a thing from network '{thing.z2m_topic}'"
+
 class Z2MProxy:
     """
     Proxy for interacting with Zigbee2MQTT devices.
@@ -54,7 +60,10 @@ class Z2MProxy:
         self._main_z2m_topic = self._z2m_topics[0]
         self._z2m_topics_discovered = set()
         self._known_things = {}
-        self._z2m_subtopic_cbs = []
+        # Full MQTT topic ('<z2m_topic>/<subtopic>') -> list of callbacks, called as cb(subtopic, payload)
+        self._z2m_topic_cbs = {}
+        # Things we refused to register because their name is taken, already logged: {(z2m_topic, name, address)}
+        self._rejected_things = set()
         self._init_subtopics()
 
         self._aliases = {} # Can be used to set up aliases to things if needed
@@ -77,33 +86,31 @@ class Z2MProxy:
         for z2m_topic in self._z2m_topics:
             self._mqtt.subscribe_with_cb(z2m_topic, functools.partial(self._on_z2m_json_msg, z2m_topic))
 
+    def _add_topic_cb(self, z2m_topic, subtopic, cb):
+        """ Register cb for messages on '<z2m_topic>/<subtopic>'. Multiple callbacks can be active for the same
+        topic (eg one to update a thing, another to forward the exact same message to a websocket). """
+        self._z2m_topic_cbs.setdefault(f'{z2m_topic}/{subtopic}', []).append(cb)
+
     def _init_subtopics(self):
-        """ Register a callback for an MQTT topic. Multiple callbacks can be active
-        for the same topic (eg one to update a thing, another to forward the
-        exact same message to a websocket).
-        Register default rules before starting mqtt loop, so that the first handled
+        """ Register the bridge rules of every network before starting the mqtt loop, so that the first handled
         message already has some rules """
         def _ignore_msg(_topic, _payload):
             pass
-        def ignore_group_messages(_topic, payload):
+        def ignore_group_messages(z2m_topic, _topic, payload):
             for group in payload:
                 try:
                     gid = group['id']
-                    self._z2m_subtopic_cbs.append((f'{gid}/', _ignore_msg))
-                    self._z2m_subtopic_cbs.append((f'{gid}/availability', _ignore_msg))
+                    self._add_topic_cb(z2m_topic, f'{gid}/', _ignore_msg)
+                    self._add_topic_cb(z2m_topic, f'{gid}/availability', _ignore_msg)
                 except:
                     log.error("Malformed group message has no group id, payload '%s'", str(payload))
-        self._z2m_subtopic_cbs.append(('bridge/groups', ignore_group_messages))
-        self._z2m_subtopic_cbs.append(('bridge/state', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/extensions', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/logging', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/info', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/config', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/converters', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/definitions', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/event', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/response/device/rename', _ignore_msg))
-        self._z2m_subtopic_cbs.append(('bridge/response/health_check', _ignore_msg))
+        for z2m_topic in self._z2m_topics:
+            self._add_topic_cb(z2m_topic, 'bridge/devices', functools.partial(self._on_msg_device_list_published, z2m_topic))
+            self._add_topic_cb(z2m_topic, 'bridge/groups', functools.partial(ignore_group_messages, z2m_topic))
+            for subtopic in ('bridge/state', 'bridge/extensions', 'bridge/logging', 'bridge/info', 'bridge/config',
+                             'bridge/converters', 'bridge/definitions', 'bridge/event',
+                             'bridge/response/device/rename', 'bridge/response/health_check'):
+                self._add_topic_cb(z2m_topic, subtopic, _ignore_msg)
 
 
     def _z2m_connect_check(self):
@@ -142,21 +149,11 @@ class Z2MProxy:
                           z2m_topic, self._z2m_ping_timeout_minutes)
 
     def _on_z2m_json_msg(self, z2m_topic, topic, payload):
-        """ Handle a message from the network on z2m_topic; topic is the subtopic (eg a thing name). Subtopic rules
-        are shared by all networks, since thing names are unique across networks. """
+        """ Handle a message from the network on z2m_topic; topic is the subtopic (eg a thing name). Rules are keyed
+        by full topic, so a thing only gets messages from its own network. """
         self._z2m_last_msg_t[z2m_topic] = datetime.now()
-        if topic == 'bridge/devices':
-            self._on_msg_device_list_published(z2m_topic, payload)
-            return
-
-        # Filter CBs so we can apply them without worrying about a callback
-        # changing the rules
-        matching_cbs = []
-        for rule, cb_for_topic in self._z2m_subtopic_cbs:
-            if topic == rule:
-                # log.debug('Applying rule %s for topic %s', rule, topic)
-                matching_cbs.append(cb_for_topic)
-
+        # Copy the list, so callbacks can add rules (eg bridge/groups) while we iterate
+        matching_cbs = list(self._z2m_topic_cbs.get(f'{z2m_topic}/{topic}', []))
         for cb_for_topic in matching_cbs:
             cb_for_topic(topic, payload)
 
@@ -164,7 +161,7 @@ class Z2MProxy:
             log.warning('Unhandled MQTT message on topic %s/%s', z2m_topic, topic)
 
 
-    def _on_msg_device_list_published(self, z2m_topic, payload):
+    def _on_msg_device_list_published(self, z2m_topic, _topic, payload):
         log.info('Zigbee2Mqtt bridge on %s published list of devices', z2m_topic)
         device_added = False
         for jsonthing in payload:
@@ -197,17 +194,41 @@ class Z2MProxy:
 
 
     def _is_thing_unknown(self, thing):
-        if thing.name in self._known_things:
-            if thing.name != thing.real_name and thing.real_name not in self._known_things:
-                log.warning(
-                    "Thing with MQTT name %s is being ignored, because it's aliased by %s. "
-                    "Aliasing things to the same name is a bad idea.", thing.real_name, thing.name)
-            else:
-                log.debug(
-                    'Ignoring registration for %s, thing already known',
-                    thing.name)
-            return False
-        return True
+        known = self._known_things.get(thing.name)
+        if known is None:
+            return True
+
+        if thing.name != thing.real_name and thing.real_name not in self._known_things:
+            log.warning(
+                "Thing with MQTT name %s is being ignored, because it's aliased by %s. "
+                "Aliasing things to the same name is a bad idea.", thing.real_name, thing.name)
+        elif known.z2m_topic == thing.z2m_topic and known.address == thing.address:
+            log.debug(
+                'Ignoring registration for %s, thing already known',
+                thing.name)
+        else:
+            self._reject_thing(thing, known)
+        return False
+
+    def _reject_thing(self, thing, known):
+        """ thing's name is already taken by a different thing: keep the first one, and ignore messages for the new
+        one (only in its own network, so they don't update the known thing). Logs once per rejected thing. """
+        key = (thing.z2m_topic, thing.name, thing.address)
+        if key in self._rejected_things:
+            return
+        self._rejected_things.add(key)
+        self._reg_to_ignore(thing)
+
+        if known.z2m_topic == thing.z2m_topic:
+            log.warning(
+                "Thing %s on '%s' now has address %s, but %s is already registered for it (was the device replaced?). "
+                "Keeping the old one, restart the service to pick up the new one.",
+                thing.name, thing.z2m_topic, thing.address, known.address)
+        else:
+            log.error(
+                "Thing name %s from network '%s' is already used by %s. Names must be unique across networks, "
+                "ignoring the one from '%s'.",
+                thing.name, thing.z2m_topic, _describe_origin(known), thing.z2m_topic)
 
 
     def _register(self, thing):
@@ -229,14 +250,7 @@ class Z2MProxy:
     def _register_or_replace(self, thing):
         """ Add or replace a thing to the MQTT registry """
         self._known_things[thing.name] = thing
-        self._z2m_subtopic_cbs.append((thing.name, thing.on_mqtt_update))
-        if thing.real_name != thing.name:
-            # Add a second callback for aliases
-            self._z2m_subtopic_cbs.append((thing.real_name, thing.on_mqtt_update))
-        self._z2m_subtopic_cbs.append((thing.address, thing.on_mqtt_update))
-        self._z2m_subtopic_cbs.append((f'{thing.real_name}/set', thing.on_mqtt_update))
-        self._z2m_subtopic_cbs.append((f'{thing.name}/set', thing.on_mqtt_update))
-        self._z2m_subtopic_cbs.append((f'{thing.address}/set', thing.on_mqtt_update))
+        self._add_thing_topic_cbs(thing, thing.on_mqtt_update)
 
         # We're never unsubscribing if the thing goes away, but the entire service will never forget unreg'ed things either
         # so it's fine. It'd require a bit of refactoring to properly track registered objects, and since this should very
@@ -249,14 +263,15 @@ class Z2MProxy:
         register only to interesting messages. """
         def _ignore_msg(_topic, _payload):
             pass
-        self._z2m_subtopic_cbs.append((thing.name, _ignore_msg))
-        if thing.real_name != thing.name:
-            # Add a second callback for aliases
-            self._z2m_subtopic_cbs.append((thing.real_name, _ignore_msg))
-        self._z2m_subtopic_cbs.append((thing.address, _ignore_msg))
-        self._z2m_subtopic_cbs.append((f'{thing.real_name}/set', _ignore_msg))
-        self._z2m_subtopic_cbs.append((f'{thing.name}/set', _ignore_msg))
-        self._z2m_subtopic_cbs.append((f'{thing.address}/set', _ignore_msg))
+        self._add_thing_topic_cbs(thing, _ignore_msg)
+
+    def _add_thing_topic_cbs(self, thing, cb):
+        """ Register cb for every topic a thing may use: its name, its unaliased name and its address, plus their
+        /set echoes. These often coincide (no alias; unnamed devices are named after their address), so register each
+        distinct topic once, otherwise cb would run more than once per message. """
+        for subtopic in dict.fromkeys((thing.name, thing.real_name, thing.address)):
+            self._add_topic_cb(thing.z2m_topic, subtopic, cb)
+            self._add_topic_cb(thing.z2m_topic, f'{subtopic}/set', cb)
 
     def register_virtual_thing(self, thing):
         """Register a virtual (non-zigbee) thing.
@@ -268,7 +283,8 @@ class Z2MProxy:
             thing: A thing created with create_virtual_thing()
         """
         if thing.name in self._known_things:
-            log.error("Virtual thing %s is already registered or duplicates a name, ignoring new registration", thing.name)
+            log.error("Virtual thing %s is already used by %s, ignoring new registration",
+                      thing.name, _describe_origin(self._known_things[thing.name]))
             return
 
         self._known_things[thing.name] = thing
