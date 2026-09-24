@@ -61,6 +61,19 @@ class IgnoredAction:
         return f"{self.name}=IGNORED"
 
 
+def _parse_number(val):
+    """ A number, from a number or a numeric string. Integer strings become ints, others floats (eg '21.5' for a
+    thermostat setpoint). Raises ValueError for anything else. """
+    if isinstance(val, (int, float)):
+        return val
+    if isinstance(val, str):
+        try:
+            return int(val)
+        except ValueError:
+            return float(val)
+    raise ValueError(f'{val!r} is not a number')
+
+
 @dataclass(frozen=False)
 class Zigbee2MqttThing:
     """
@@ -388,7 +401,12 @@ class Zigbee2MqttActionValue:
             return
 
         if self.meta['type'] == 'numeric':
-            num_val = int(val)
+            # Values set from a UI or REST call arrive as strings (eg '223'). Store the parsed number, so that it's
+            # propagated to MQTT with the type the schema declares.
+            try:
+                val = num_val = _parse_number(val)
+            except ValueError:
+                log_bad_set()
             if (self.meta['value_min'] is not None) and (
                     num_val < self.meta['value_min']):
                 if from_mqtt:

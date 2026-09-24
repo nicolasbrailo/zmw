@@ -581,6 +581,14 @@ class TestZ2MProxyMatterMapping(unittest.TestCase):
         self.proxy.broadcast_thing(light)
         self.assertEqual(self.mqtt.broadcasts, [('mt2m/matter_1/set', {'state': 'ON', 'brightness': 100})])
 
+    def test_ui_numeric_strings_are_sent_as_numbers(self):
+        # The matter bridge rejects '{"brightness": "223"}': expected a number
+        light = self.proxy.get_thing('matter_6')
+        light.set('brightness', '223')
+        self.proxy.broadcast_thing(light)
+        self.assertEqual(self.mqtt.broadcasts, [('mt2m/matter_6/set', {'brightness': 223})])
+        self.assertIsInstance(self.mqtt.broadcasts[0][1]['brightness'], int)
+
 
 class TestZ2MProxyQueries(unittest.TestCase):
     def setUp(self):

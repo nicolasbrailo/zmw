@@ -114,6 +114,44 @@ class TestThings(unittest.TestCase):
         self.assertEqual(d['actions']['state']['value']['meta']['type'], 'binary')
         self.assertEqual(d['actions']['brightness']['value']['meta']['type'], 'numeric')
 
+    def test_numeric_string_from_user_is_stored_as_number(self):
+        # UIs and REST calls send numbers as strings; MQTT must get the type the schema declares
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        t.set('brightness', '223')
+        self.assertEqual(t.get('brightness'), 223)
+        update = t.make_mqtt_status_update()
+        self.assertEqual(update, {'brightness': 223})
+        self.assertIsInstance(update['brightness'], int)
+
+    def test_fractional_numeric_string(self):
+        setpoint = Zigbee2MqttActionValue(thing_name='Thermostat',
+                                          meta={'type': 'numeric', 'value_min': 5, 'value_max': 30})
+        setpoint.set_value('21.5')
+        self.assertEqual(setpoint.get_value(), 21.5)
+        setpoint.set_value(22.5)
+        self.assertEqual(setpoint.get_value(), 22.5)
+
+    def test_invalid_numeric_strings_from_user_are_rejected(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        for bad in ('abc', '', '300', '-1', None):
+            with self.subTest(val=bad):
+                with self.assertRaises(ValueError):
+                    t.set('brightness', bad)
+
+    def test_numeric_string_from_mqtt(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        t.on_mqtt_update('topic', {'brightness': '100'})
+        self.assertEqual(t.get('brightness'), 100)
+        t.on_mqtt_update('topic', {'brightness': '5321'})
+        self.assertEqual(t.get('brightness'), 254)
+
+    def test_null_numeric_from_mqtt_is_ignored(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        t.on_mqtt_update('topic', {'brightness': 100})
+        with self.assertLogs('Z2M', level='ERROR'):
+            t.on_mqtt_update('topic', {'brightness': None})
+        self.assertEqual(t.get('brightness'), 100)
+
     def test_model_falls_back_to_model_id_without_definition(self):
         # Z2M devices not in its catalogue have no definition, only what the device reports
         lamp = get_a_lamp()
