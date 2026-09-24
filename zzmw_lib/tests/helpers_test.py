@@ -9,7 +9,7 @@ from zzmw_lib.z2m.helpers import bind_callbacks_to_z2m_actions
 class TestBindCallbacks(unittest.TestCase):
     def test_bind_callbacks_to_thing_actions(self):
         # Create a lamp thing
-        lamp = parse_from_zigbee2mqtt(1, get_a_lamp())
+        lamp = parse_from_zigbee2mqtt(1, get_a_lamp(), 'zigbee2mqtt')
         known_things = {'Oficina': lamp}
 
         # Create an object with callback methods
@@ -50,7 +50,7 @@ class TestBindCallbacks(unittest.TestCase):
         self.assertEqual(holder.state_value, 'ON')
 
     def test_bind_callback_to_whole_thing(self):
-        lamp = parse_from_zigbee2mqtt(1, get_a_lamp())
+        lamp = parse_from_zigbee2mqtt(1, get_a_lamp(), 'zigbee2mqtt')
         known_things = {'Oficina': lamp}
 
         class CallbackHolder:
@@ -74,7 +74,7 @@ class TestBindCallbacks(unittest.TestCase):
         self.assertEqual(holder.thing_ref, lamp)
 
     def test_bind_with_global_pre_callback(self):
-        lamp = parse_from_zigbee2mqtt(1, get_a_lamp())
+        lamp = parse_from_zigbee2mqtt(1, get_a_lamp(), 'zigbee2mqtt')
         known_things = {'Oficina': lamp}
 
         pre_cb_calls = []

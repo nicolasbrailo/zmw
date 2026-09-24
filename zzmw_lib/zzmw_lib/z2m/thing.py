@@ -12,6 +12,9 @@ log = build_logger("Z2M")
 
 _Z2M_IGNORE_ACTIONS = ['update']
 
+# z2m_topic of things that don't come from an MQTT network (eg virtual things). Never used as an MQTT topic.
+ZMW_NO_MQTT_BACKING = '__zmw_no_mqtt_backing__'
+
 
 class ActionDict(dict):
     """
@@ -74,6 +77,8 @@ class Zigbee2MqttThing:
     description: str
     thing_type: str
     actions: ActionDict
+    # MQTT base topic of the network this thing belongs to, or ZMW_NO_MQTT_BACKING
+    z2m_topic: str
     extras: ThingExtras = None
     is_zigbee_mqtt: bool = True
     # Will print extra verbose logs for each MQTT action
@@ -100,6 +105,7 @@ class Zigbee2MqttThing:
             "actions": self.actions.dictify(),
             "is_zigbee_mqtt": self.is_zigbee_mqtt,
             "user_defined": self.user_defined,
+            "z2m_topic": self.z2m_topic,
         }
 
     def debug_str(self):
@@ -730,10 +736,11 @@ def _parse_zigbee2mqtt_actions(thing_name, definition):
     return thing_type, ActionDict(actions)
 
 
-def parse_from_zigbee2mqtt(thing_id, thing, known_aliases=None):
+def parse_from_zigbee2mqtt(thing_id, thing, z2m_topic, known_aliases=None):
     """
     Parses a message from zigbee2mqtt to create a local replica, with
-    self-describing metadata.
+    self-describing metadata. z2m_topic is the MQTT base topic of the network
+    that published this thing.
     """
     known_aliases = known_aliases or {}
     addr = thing['ieee_address']
@@ -762,6 +769,7 @@ def parse_from_zigbee2mqtt(thing_id, thing, known_aliases=None):
         thing_type=thing_type,
         actions=actions,
         extras=ThingExtras(name),
+        z2m_topic=z2m_topic,
     )
 
 
@@ -778,7 +786,7 @@ def create_virtual_thing(name, description, thing_type, manufacturer):
         manufacturer: Optional manufacturer/source name
 
     Returns:
-        A Zigbee2MqttThing with is_zigbee_mqtt=False
+        A Zigbee2MqttThing with is_zigbee_mqtt=False and z2m_topic=ZMW_NO_MQTT_BACKING
     """
     return Zigbee2MqttThing(
         thing_id=-1,  # Virtual things don't have zigbee IDs
@@ -791,6 +799,7 @@ def create_virtual_thing(name, description, thing_type, manufacturer):
         description=description,
         thing_type=thing_type,
         actions=ActionDict(),
+        z2m_topic=ZMW_NO_MQTT_BACKING,
         extras=ThingExtras(name),
         is_zigbee_mqtt=False,
     )

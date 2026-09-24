@@ -7,10 +7,32 @@ from ctypes import c_int32
 from datetime import datetime, timedelta
 
 import dataclasses
+import functools
 import os
 import signal
 
-from .thing import parse_from_zigbee2mqtt
+from .thing import parse_from_zigbee2mqtt, ZMW_NO_MQTT_BACKING
+
+_DEFAULT_Z2M_TOPIC = 'zigbee2mqtt'
+
+def _get_z2m_topics(cfg):
+    """ List of network base topics: cfg['z2m_topics'] if set, otherwise just the default zigbee2mqtt topic """
+    if 'z2m_topics' not in cfg:
+        return [_DEFAULT_Z2M_TOPIC]
+
+    topics = cfg['z2m_topics']
+    if not isinstance(topics, list) or len(topics) == 0 or \
+            not all(isinstance(t, str) and len(t) > 0 for t in topics):
+        raise ValueError(f"z2m_topics must be a non-empty list of topic names, got {topics!r}")
+    for t in topics:
+        if t.endswith('/') or '#' in t or '+' in t or t == ZMW_NO_MQTT_BACKING:
+            raise ValueError(f"z2m_topics entry {t!r} must be a plain base topic (no wildcards, no trailing '/')")
+    for i, a in enumerate(topics):
+        for j, b in enumerate(topics):
+            # Dispatch is first-match, so a topic nested in another one would steal (or lose) its messages
+            if i != j and (a == b or b.startswith(a + '/')):
+                raise ValueError(f"z2m_topics entries {a!r} and {b!r} overlap, base topics must be distinct")
+    return list(topics)
 
 class Z2MProxy:
     """
@@ -21,13 +43,16 @@ class Z2MProxy:
     the bridge and receives device announcements and state changes.
 
     Args:
-        cfg: Configuration dict
+        cfg: Configuration dict. 'z2m_topics' is a list of MQTT base topics, one per network (device names must be
+             unique across networks). The first one is the primary network. Defaults to ['zigbee2mqtt'].
         mqtt: MqttProxy instance for MQTT communication
-        topic: MQTT topic prefix for Zigbee2MQTT (default: 'zigbee2mqtt')
     """
-    def __init__(self, cfg, mqtt, scheduler, topic='zigbee2mqtt',
-                 cb_on_z2m_network_discovery=None, cb_is_device_interesting=None):
-        self._z2m_topic = topic
+    def __init__(self, cfg, mqtt, scheduler, cb_on_z2m_network_discovery=None, cb_is_device_interesting=None):
+        self._z2m_topics = _get_z2m_topics(cfg)
+        # Primary network: must be up on startup. We monitor this one is up.
+        # TODO: Remove the main z2m topic once multi topic support is complete, so that we monitor ALL topics.
+        self._main_z2m_topic = self._z2m_topics[0]
+        self._z2m_topics_discovered = set()
         self._known_things = {}
         self._z2m_subtopic_cbs = []
         self._init_subtopics()
@@ -40,6 +65,8 @@ class Z2MProxy:
 
         self._scheduler = scheduler
         self._z2m_ping_timeout_minutes = 5
+        # Last time each network sent anything, by topic. A network that never sent anything has no entry.
+        self._z2m_last_msg_t = {}
         self._scheduler.add_job(
             self._z2m_connect_check,
             'date',
@@ -47,7 +74,8 @@ class Z2MProxy:
         )
 
         self._mqtt = mqtt
-        self._mqtt.subscribe_with_cb(self._z2m_topic, self._on_z2m_json_msg)
+        for z2m_topic in self._z2m_topics:
+            self._mqtt.subscribe_with_cb(z2m_topic, functools.partial(self._on_z2m_json_msg, z2m_topic))
 
     def _init_subtopics(self):
         """ Register a callback for an MQTT topic. Multiple callbacks can be active
@@ -56,7 +84,7 @@ class Z2MProxy:
         Register default rules before starting mqtt loop, so that the first handled
         message already has some rules """
         def _ignore_msg(_topic, _payload):
-            self._z2m_last_msg_t = datetime.now()
+            pass
         def ignore_group_messages(_topic, payload):
             for group in payload:
                 try:
@@ -65,7 +93,6 @@ class Z2MProxy:
                     self._z2m_subtopic_cbs.append((f'{gid}/availability', _ignore_msg))
                 except:
                     log.error("Malformed group message has no group id, payload '%s'", str(payload))
-        self._z2m_subtopic_cbs.append(('bridge/devices', self._on_msg_device_list_published))
         self._z2m_subtopic_cbs.append(('bridge/groups', ignore_group_messages))
         self._z2m_subtopic_cbs.append(('bridge/state', _ignore_msg))
         self._z2m_subtopic_cbs.append(('bridge/extensions', _ignore_msg))
@@ -80,29 +107,48 @@ class Z2MProxy:
 
 
     def _z2m_connect_check(self):
-        if not self._z2m_devices_discovered:
+        if self._main_z2m_topic not in self._z2m_topics_discovered:
             # If Z2M didn't publish its network, crash so that we try again.
             # We could unsubscribe and subscribe to z2m/bridge/devices, but since this
             # hasn't ever happend it's probably safe to kill and restart instead of retrying
-            log.critical("Z2M didn't publish a network. Is Z2M down? "
+            log.critical("Z2M didn't publish a network on '%s'. Is Z2M down? "
                          "This can happen if an mqtt message is lost, "
-                         "and it's typically benign if a restart of the service fixes the problem.")
+                         "and it's typically benign if a restart of the service fixes the problem.", self._main_z2m_topic)
             os.kill(os.getpid(), signal.SIGTERM)
             return
+
+        # Only the primary network is required: others may come up later (or be test topics with no network)
+        for z2m_topic in self._z2m_topics:
+            if z2m_topic not in self._z2m_topics_discovered:
+                log.warning("Z2M network on '%s' hasn't published its devices yet, its things will be missing "
+                            "until it does", z2m_topic)
 
         self._scheduler.add_job(
             self._z2m_health_check,
             'interval',
             minutes=self._z2m_ping_timeout_minutes,
-            id=f'z2m_health_check_{self._z2m_topic}'
+            id='z2m_health_check'
         )
 
     def _z2m_health_check(self):
-        if datetime.now() - self._z2m_last_msg_t > timedelta(minutes=self._z2m_ping_timeout_minutes):
-            log.error("Z2M hasn't sent a message in more than %d minutes, is it alive?", self._z2m_ping_timeout_minutes)
+        """ Single job for all networks: complain about each one that has gone quiet """
+        now = datetime.now()
+        for z2m_topic in self._z2m_topics:
+            last_msg_t = self._z2m_last_msg_t.get(z2m_topic)
+            if last_msg_t is None:
+                log.error("Z2M network on '%s' hasn't sent any message since startup, is it alive?", z2m_topic)
+            elif now - last_msg_t > timedelta(minutes=self._z2m_ping_timeout_minutes):
+                log.error("Z2M network on '%s' hasn't sent a message in more than %d minutes, is it alive?",
+                          z2m_topic, self._z2m_ping_timeout_minutes)
 
-    def _on_z2m_json_msg(self, topic, payload):
-        self._z2m_last_msg_t = datetime.now()
+    def _on_z2m_json_msg(self, z2m_topic, topic, payload):
+        """ Handle a message from the network on z2m_topic; topic is the subtopic (eg a thing name). Subtopic rules
+        are shared by all networks, since thing names are unique across networks. """
+        self._z2m_last_msg_t[z2m_topic] = datetime.now()
+        if topic == 'bridge/devices':
+            self._on_msg_device_list_published(z2m_topic, payload)
+            return
+
         # Filter CBs so we can apply them without worrying about a callback
         # changing the rules
         matching_cbs = []
@@ -115,15 +161,16 @@ class Z2MProxy:
             cb_for_topic(topic, payload)
 
         if len(matching_cbs) == 0:
-            log.warning('Unhandled MQTT message on topic %s', topic)
+            log.warning('Unhandled MQTT message on topic %s/%s', z2m_topic, topic)
 
 
-    def _on_msg_device_list_published(self, _topic, payload):
-        log.info('Zigbee2Mqtt bridge published list of devices')
+    def _on_msg_device_list_published(self, z2m_topic, payload):
+        log.info('Zigbee2Mqtt bridge on %s published list of devices', z2m_topic)
         device_added = False
         for jsonthing in payload:
             self._last_device_id += 1
-            thing = parse_from_zigbee2mqtt(self._last_device_id, jsonthing, known_aliases=self._aliases)
+            thing = parse_from_zigbee2mqtt(self._last_device_id, jsonthing, z2m_topic,
+                                           known_aliases=self._aliases)
             if self._is_thing_unknown(thing):
                 if self._cb_is_device_interesting(thing):
                     self._register(thing)
@@ -133,6 +180,7 @@ class Z2MProxy:
 
         is_first_discovery = not self._z2m_devices_discovered
         self._z2m_devices_discovered = True
+        self._z2m_topics_discovered.add(z2m_topic)
 
         if not device_added:
             log.info('Bridge published network definition. No new devices were found.')
@@ -287,10 +335,12 @@ class Z2MProxy:
         else:
             thing = thing_or_name
 
-        # Broadcast regular zigbee2mqtt values
-        topic = f'{self._z2m_topic}/{thing.real_name}/set'
+        # Broadcast regular zigbee2mqtt values, to the network this thing belongs to
+        topic = f'{thing.z2m_topic}/{thing.real_name}/set'
         status = thing.make_mqtt_status_update()
-        if len(status.keys()) != 0:
+        if len(status.keys()) != 0 and thing.z2m_topic == ZMW_NO_MQTT_BACKING:
+            log.error('Thing %s has no MQTT network, dropping update %s', thing.name, status)
+        elif len(status.keys()) != 0:
             self._mqtt.broadcast(topic, status)
             log.debug(
                 'Thing %s%s is bcasting update topic[%s]:"%s"',

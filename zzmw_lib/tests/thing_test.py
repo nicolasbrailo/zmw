@@ -8,13 +8,15 @@ from z2m_fixtures import get_motion_sensor
 import json
 import unittest
 from zzmw_lib.z2m.thing import parse_from_zigbee2mqtt
+from zzmw_lib.z2m.thing import create_virtual_thing
+from zzmw_lib.z2m.thing import ZMW_NO_MQTT_BACKING
 from zzmw_lib.z2m.thing import Zigbee2MqttAction
 from zzmw_lib.z2m.thing import Zigbee2MqttActionValue
 
 
 class TestThings(unittest.TestCase):
     def test_lamp(self):
-        t = parse_from_zigbee2mqtt(42, get_a_lamp())
+        t = parse_from_zigbee2mqtt(42, get_a_lamp(), 'zigbee2mqtt')
         self.assertEqual(t.thing_id, 42)
         self.assertEqual(t.address, '0x847127fffecda276')
         self.assertEqual(t.name, 'Oficina')
@@ -60,7 +62,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(len(t.actions['effect'].value.meta['values']), 6)
 
     def test_sensor(self):
-        t = parse_from_zigbee2mqtt(0, get_contact_sensor())
+        t = parse_from_zigbee2mqtt(0, get_contact_sensor(), 'zigbee2mqtt')
         self.assertEqual(t.address, '0x00158d0008ad5e77')
         self.assertEqual(t.name, 'SensorPuertaEntrada')
         self.assertEqual(t.broken, False)
@@ -70,7 +72,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(len(t.actions), 5)
 
     def test_alias(self):
-        t = parse_from_zigbee2mqtt(0, get_contact_sensor(), known_aliases={'SensorPuertaEntrada': 'AliasName'})
+        t = parse_from_zigbee2mqtt(0, get_contact_sensor(), 'zigbee2mqtt', known_aliases={'SensorPuertaEntrada': 'AliasName'})
         self.assertEqual(t.address, '0x00158d0008ad5e77')
         self.assertEqual(t.name, 'AliasName')
         self.assertEqual(t.real_name, 'SensorPuertaEntrada')
@@ -80,7 +82,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(len(t.actions), 5)
 
     def test_debug(self):
-        t = parse_from_zigbee2mqtt(0, get_contact_sensor())
+        t = parse_from_zigbee2mqtt(0, get_contact_sensor(), 'zigbee2mqtt')
         dbg = t.debug_str()
         self.assertTrue('SensorPuertaEntrada' in dbg)
         self.assertTrue('battery' in dbg)
@@ -90,7 +92,7 @@ class TestThings(unittest.TestCase):
         self.assertTrue('linkquality' in dbg)
 
     def test_dictify(self):
-        t = parse_from_zigbee2mqtt(42, get_a_lamp())
+        t = parse_from_zigbee2mqtt(42, get_a_lamp(), 'zigbee2mqtt')
         d = t.dictify()
         self.assertEqual(d['thing_id'], 42)
         self.assertEqual(d['address'], '0x847127fffecda276')
@@ -110,20 +112,34 @@ class TestThings(unittest.TestCase):
         self.assertEqual(d['actions']['state']['value']['meta']['type'], 'binary')
         self.assertEqual(d['actions']['brightness']['value']['meta']['type'], 'numeric')
 
+    def test_topic_is_recorded(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'some_net')
+        self.assertEqual(t.z2m_topic, 'some_net')
+        self.assertEqual(t.dictify()['z2m_topic'], 'some_net')
+
+    def test_topic_is_mandatory(self):
+        with self.assertRaises(TypeError):
+            parse_from_zigbee2mqtt(0, get_a_lamp())
+
+    def test_virtual_things_have_no_mqtt_backing(self):
+        t = create_virtual_thing('Weather', 'Outside weather', 'sensor', 'SomeApi')
+        self.assertEqual(t.z2m_topic, ZMW_NO_MQTT_BACKING)
+        self.assertEqual(t.dictify()['z2m_topic'], ZMW_NO_MQTT_BACKING)
+
     def test_broken(self):
-        t = parse_from_zigbee2mqtt(0, get_broken_thing())
+        t = parse_from_zigbee2mqtt(0, get_broken_thing(), 'zigbee2mqtt')
         self.assertTrue(t.broken)
         self.assertEqual(t.address, 'bar')
         self.assertEqual(t.name, 'foo')
 
     def test_values_are_actions(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         values_names = set(t.get_json_state().keys()) - {'thing_name', 'extras'}
         actions = set(t.actions)
         self.assertEqual(actions.intersection(values_names), values_names)
 
     def test_default_values_are_null(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         state = t.get_json_state()
         self.assertEqual(state['extras'], {})
         for k in state.keys():
@@ -133,7 +149,7 @@ class TestThings(unittest.TestCase):
             self.assertEqual(t.get(k), None)
 
     def test_values_update_from_mqtt(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.on_mqtt_update('topic', json.loads(
             '{"brightness":145,"color_mode":"color_temp","color_temp":370,"linkquality":120,"state":"ON","update":{"state":"idle"}}'))
         state = t.get_json_state()
@@ -147,7 +163,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get('linkquality'), 120)
 
     def test_partial_values_update_from_mqtt(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.on_mqtt_update('topic', json.loads(
             '{"brightness":145,"state":"ON"}'))
         state = t.get_json_state()
@@ -185,7 +201,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get('linkquality'), 111)
 
     def test_rejects_invalid_values_from_mqtt(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.on_mqtt_update('topic', json.loads(
             '{"brightness":145,"state":"ON","effect":"blink"}'))
         state = t.get_json_state()
@@ -205,7 +221,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['brightness'], 0)
 
     def test_update_from_mqtt_triggers_cb(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
 
         localCalled = False
 
@@ -228,7 +244,7 @@ class TestThings(unittest.TestCase):
         self.assertTrue(globalCalled)
 
     def test_update_from_mqtt_triggers_multiple_cbs(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
 
         calledB = False
 
@@ -265,7 +281,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(globalCalled, 2)
 
     def test_update_from_mqtt_triggers_correct_cb(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
 
         called = False
 
@@ -279,7 +295,7 @@ class TestThings(unittest.TestCase):
         self.assertFalse(called)
 
     def test_accepts_user_values(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.set('state', True)
         t.set('brightness', 123)
         t.set('effect', 'blink')
@@ -289,7 +305,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(state['effect'], 'blink')
 
     def test_binary_values_update_from_user(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.set('state', True)
         self.assertEqual(t.get('state'), True)
         t.set('state', False)
@@ -308,7 +324,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get('state'), False)
 
     def test_update_from_user_triggers_no_cb(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
 
         called = False
 
@@ -322,24 +338,24 @@ class TestThings(unittest.TestCase):
         self.assertFalse(called)
 
     def test_get_rejects_nonexistant_action(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         with self.assertRaises(AttributeError):
             t.get('foo')
 
     def test_rejects_ro_user_values(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         with self.assertRaises(ValueError):
             t.set('linkquality', 123)
 
     def test_rejects_invalid_user_values(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         with self.assertRaises(ValueError):
             t.set('brightness', 12345)
         with self.assertRaises(ValueError):
             t.set('effect', 'FOO')
 
     def test_propagates_user_changes(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
 
         # Nothing to propagate by default
         self.assertEqual(t.make_mqtt_status_update(), {})
@@ -364,7 +380,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['brightness'], 123)
 
     def test_doesnt_propagate_mqtt_changes(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         self.assertEqual(t.get_json_state()['state'], None)
         t.on_mqtt_update('topic', json.loads(
             '{"state":"OFF","linkquality":111}'))
@@ -372,7 +388,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['state'], False)
 
     def test_propagates_user_change_after_mqtt_change(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         self.assertEqual(t.get_json_state()['state'], None)
         self.assertEqual(t.get_json_state()['brightness'], None)
 
@@ -394,14 +410,14 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['brightness'], 123)
 
     def test_user_change_wins_over_mqtt_change(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.set('brightness', 200)
         t.on_mqtt_update('topic', json.loads('{"brightness":100}'))
         self.assertEqual(t.make_mqtt_status_update(), {'brightness': 200})
         self.assertEqual(t.get_json_state()['brightness'], 200)
 
     def test_lamp_presets(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         self.assertTrue('presets' in t.actions['color_temp'].value.meta)
         found = set(p['name']
                     for p in t.actions['color_temp'].value.meta['presets'])
@@ -409,13 +425,13 @@ class TestThings(unittest.TestCase):
         self.assertEqual(found.intersection(expect), expect)
 
     def test_lamp_presets_debug_str(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         dbg = t.debug_str()
         for name in ['coolest', 'cool', 'neutral', 'warm', 'warmest']:
             self.assertTrue(name in dbg)
 
     def test_lamp_preset_value_from_user(self):
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         self.assertEqual(t.get_json_state()['color_temp'], None)
         t.set('color_temp', 'warm')
         self.assertEqual(t.get_json_state()['color_temp'], 454)
@@ -423,7 +439,7 @@ class TestThings(unittest.TestCase):
 
     def test_lamp_preset_value_from_mqtt(self):
         # Don't think this should happen, but if it does...
-        t = parse_from_zigbee2mqtt(0, get_a_lamp())
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         t.on_mqtt_update('topic', json.loads('{"color_temp":"warm"}'))
         self.assertEqual(t.get_json_state()['color_temp'], 454)
         self.assertEqual(t.make_mqtt_status_update(), {})
@@ -432,7 +448,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['color_temp'], 250)
 
     def test_motion_sensor(self):
-        t = parse_from_zigbee2mqtt(0, get_motion_sensor())
+        t = parse_from_zigbee2mqtt(0, get_motion_sensor(), 'zigbee2mqtt')
         t.on_mqtt_update('ignored', json.loads(
             '{"battery":74,"illuminance_above_threshold":false,"linkquality":65,"occupancy":false,"update":{"state":"idle"}}'))
         self.assertEqual(t.get_json_state()['battery'], 74)
@@ -442,7 +458,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['linkquality'], 65)
 
     def test_composite_action_parses_ok(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         self.assertEqual(t.actions['color_hs'].name, 'color_hs')
         self.assertEqual(t.actions['color_hs'].value.meta['type'], 'composite')
         self.assertEqual(
@@ -467,7 +483,7 @@ class TestThings(unittest.TestCase):
             'numeric')
 
     def test_composite_action_updates_from_mqtt(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         t.on_mqtt_update('topic', json.loads(
             '{"state":"OFF","color":{"x":0.123,"y":0.456},"color_mode":"xy"}'))
         self.assertEqual(
@@ -477,7 +493,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['state'], False)
 
     def test_partial_composite_update_creates_dynamic_action(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         t.on_mqtt_update('topic', json.loads(
             '{"state":"ON","color":{"x":0.123}}'))
         # Composite action rejects partial update
@@ -489,7 +505,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['state'], True)
 
     def test_composite_action_updates_from_user(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         t.actions['color_xy'].set_value({'x': 0.123, 'y': 0.456})
         self.assertEqual(
             t.actions['color_xy'].value.get_value(), {
@@ -497,7 +513,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['color'], {'x': 0.123, 'y': 0.456})
 
     def test_composite_action_updates_from_user_as_string(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         t.actions["color_xy"].set_value('{"x": 0.123, "y": 0.456}')
         self.assertEqual(
             t.actions['color_xy'].value.get_value(), {
@@ -505,13 +521,13 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.get_json_state()['color'], {'x': 0.123, 'y': 0.456})
 
     def test_composite_action_rejects_partial_update_from_user(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         t.actions['color_xy'].set_value({'x': 0.123})
         self.assertEqual(t.actions['color_xy'].value.get_value(), None)
         self.assertTrue('color' not in t.get_json_state())
 
     def test_composite_action_broadcasts_to_mqtt_after_user_update(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
 
         self.assertEqual(t.actions['color_xy'].value.get_value(), None)
         self.assertTrue('color' not in t.get_json_state())
@@ -545,12 +561,12 @@ class TestThings(unittest.TestCase):
                     'x': 0.123, 'y': 0.456}, 'state': 'ON'})
 
     def test_composite_action_debug_str(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         self.assertTrue('hue' in t.debug_str())
         self.assertTrue('saturation' in t.debug_str())
 
     def test_ignored_action_for_unknown_composite_field(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         # Send a composite update with an unknown field 'z'
         t.on_mqtt_update('topic', json.loads(
             '{"color":{"x":0.1,"y":0.2,"z":0.3}}'))
@@ -569,7 +585,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.actions['color_xy'].value.get_value(), None)
 
     def test_multiple_ignored_actions_for_unknown_composite_fields(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
         # First update adds 'z' as IgnoredAction
         t.on_mqtt_update('topic', json.loads(
             '{"color":{"x":0.1,"y":0.2,"z":0.3}}'))
@@ -587,7 +603,7 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.actions['color_xy'].value.get_value(), None)
 
     def test_user_defined_action(self):
-        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action())
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
 
         set_called = False
 
@@ -621,7 +637,7 @@ class TestThings(unittest.TestCase):
         self.assertTrue(get_called)
 
     def test_multiple_types(self):
-        t = parse_from_zigbee2mqtt(42, get_lamp_multiple_types())
+        t = parse_from_zigbee2mqtt(42, get_lamp_multiple_types(), 'zigbee2mqtt')
         self.assertEqual(t.thing_type, 'first_thing_type')
 
 

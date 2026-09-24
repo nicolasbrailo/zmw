@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from zzmw_lib.z2m.thing import create_virtual_thing
+from zzmw_lib.z2m.thing import parse_from_zigbee2mqtt
+from zzmw_lib.z2m.thing import ZMW_NO_MQTT_BACKING
 from zzmw_lib.z2m.z2mproxy import Z2MProxy
 
 LAMP_ADDR = '0x847127fffecda276'
@@ -39,11 +41,19 @@ class FakeScheduler:
         self.jobs.append((func, trigger, kwargs))
 
 
-def make_proxy(**kwargs):
+def make_proxy(cfg=None, **kwargs):
     mqtt = FakeMqtt()
     sched = FakeScheduler()
-    proxy = Z2MProxy({}, mqtt, sched, **kwargs)
+    proxy = Z2MProxy(cfg or {}, mqtt, sched, **kwargs)
     return proxy, mqtt, sched
+
+
+def get_other_lamp():
+    """ A lamp with its own name and address, to live in a second network next to get_a_lamp() """
+    lamp = get_a_lamp()
+    lamp['friendly_name'] = 'OtherLamp'
+    lamp['ieee_address'] = '0x0000000000000002'
+    return lamp
 
 
 class TestZ2MProxyConstruction(unittest.TestCase):
@@ -52,7 +62,7 @@ class TestZ2MProxyConstruction(unittest.TestCase):
         self.assertEqual(list(mqtt.subscriptions.keys()), ['zigbee2mqtt'])
 
     def test_subscribes_to_custom_topic(self):
-        _, mqtt, _ = make_proxy(topic='custom_z2m')
+        _, mqtt, _ = make_proxy(cfg={'z2m_topics': ['custom_z2m']})
         self.assertEqual(list(mqtt.subscriptions.keys()), ['custom_z2m'])
 
     def test_schedules_connect_check(self):
@@ -132,6 +142,12 @@ class TestZ2MProxyDiscovery(unittest.TestCase):
         mqtt.subscriptions['zmw_thing_extras/Oficina']('', {'feels_like': 21})
         self.assertEqual(proxy.get_thing('Oficina').extras.get('feels_like'), 21)
 
+    def test_things_record_their_topic(self):
+        proxy, mqtt, _ = make_proxy()
+        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        self.assertEqual(proxy.get_thing('Oficina').z2m_topic, 'zigbee2mqtt')
+        self.assertEqual(proxy.get_thing_meta('Oficina')['z2m_topic'], 'zigbee2mqtt')
+
     def test_alias(self):
         proxy, mqtt, _ = make_proxy()
         proxy._aliases = {'Oficina': 'OfficeLamp'}
@@ -174,8 +190,9 @@ class TestZ2MProxyMessageDispatch(unittest.TestCase):
         self.assertEqual(changes, [('Oficina', True)])
 
     def test_unknown_topic_warns(self):
-        with self.assertLogs('Z2M', level='WARNING'):
+        with self.assertLogs('Z2M', level='WARNING') as logs:
             self.mqtt.deliver('NotAThing', {'state': 'ON'})
+        self.assertIn('zigbee2mqtt/NotAThing', logs.output[0])
 
     def test_bridge_topics_are_silently_ignored(self):
         for sub in ('bridge/state', 'bridge/extensions', 'bridge/logging', 'bridge/info', 'bridge/config',
@@ -268,7 +285,7 @@ class TestZ2MProxyBroadcast(unittest.TestCase):
         ])
 
     def test_broadcast_uses_custom_topic(self):
-        proxy, mqtt, _ = make_proxy(topic='custom_z2m')
+        proxy, mqtt, _ = make_proxy(cfg={'z2m_topics': ['custom_z2m']})
         mqtt.deliver('bridge/devices', [get_a_lamp()], topic='custom_z2m')
         lamp = proxy.get_thing('Oficina')
         lamp.set('state', True)
@@ -287,6 +304,123 @@ class TestZ2MProxyBroadcast(unittest.TestCase):
             ('zigbee2mqtt/Oficina/set', {'state': 'ON'}),
             ('zmw_thing_extras/OfficeLamp', {'foo': 1}),
         ])
+
+
+class TestZ2MProxyMultiTopicConfig(unittest.TestCase):
+    def test_subscribes_to_all_cfg_topics(self):
+        _, mqtt, _ = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
+        self.assertEqual(sorted(mqtt.subscriptions.keys()), ['net_a', 'net_b'])
+
+    def test_single_cfg_topic(self):
+        _, mqtt, _ = make_proxy(cfg={'z2m_topics': ['zigbee2mqtt']})
+        self.assertEqual(list(mqtt.subscriptions.keys()), ['zigbee2mqtt'])
+
+    def test_single_health_check_job_for_all_topics(self):
+        _, mqtt, sched = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
+        mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        sched.jobs[0][0]()
+        interval_jobs = [kwargs for _, trigger, kwargs in sched.jobs if trigger == 'interval']
+        self.assertEqual(len(interval_jobs), 1)
+        self.assertEqual(interval_jobs[0]['id'], 'z2m_health_check')
+
+    def test_invalid_configs(self):
+        for bad in ([], 'zigbee2mqtt', [''], [1], ['a', 'a'], ['a', 'a/b'], ['a/'], ['a/#'], ['a/+/b'],
+                    [ZMW_NO_MQTT_BACKING]):
+            with self.subTest(z2m_topics=bad):
+                with self.assertRaises(ValueError):
+                    make_proxy(cfg={'z2m_topics': bad})
+
+    def test_topics_sharing_a_string_prefix_are_valid(self):
+        _, mqtt, _ = make_proxy(cfg={'z2m_topics': ['zigbee2mqtt', 'zigbee2mqtt_b']})
+        self.assertEqual(sorted(mqtt.subscriptions.keys()), ['zigbee2mqtt', 'zigbee2mqtt_b'])
+
+
+class TestZ2MProxyMultiTopic(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.proxy, self.mqtt, self.sched = make_proxy(
+            cfg={'z2m_topics': ['zigbee2mqtt', 'net_b']},
+            cb_on_z2m_network_discovery=lambda first, known: self.calls.append((first, set(known.keys()))))
+
+    def _discover_both(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+
+    def test_things_are_tagged_with_their_network(self):
+        self._discover_both()
+        self.assertEqual(self.proxy.get_thing('Oficina').z2m_topic, 'zigbee2mqtt')
+        self.assertEqual(self.proxy.get_thing('OtherLamp').z2m_topic, 'net_b')
+        self.assertEqual(set(self.proxy.get_thing_names()), {'Oficina', 'OtherLamp'})
+
+    def test_discovery_cb_sees_merged_things(self):
+        self._discover_both()
+        self.assertEqual(self.calls, [
+            (True, {'Oficina'}),
+            (False, {'Oficina', 'OtherLamp'}),
+        ])
+
+    def test_discovery_on_secondary_first(self):
+        self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.assertEqual(self.calls, [
+            (True, {'OtherLamp'}),
+            (False, {'Oficina', 'OtherLamp'}),
+        ])
+
+    def test_updates_are_routed_by_name(self):
+        self._discover_both()
+        self.mqtt.deliver('OtherLamp', {'state': 'ON'}, topic='net_b')
+        self.assertEqual(self.proxy.get_thing('OtherLamp').get('state'), True)
+        self.assertEqual(self.proxy.get_thing('Oficina').get('state'), None)
+
+    def test_unknown_thing_warning_names_network(self):
+        with self.assertLogs('Z2M', level='WARNING') as logs:
+            self.mqtt.deliver('Nobody', {}, topic='net_b')
+        self.assertIn('net_b/Nobody', logs.output[0])
+
+    def test_bridge_topics_are_silently_ignored_on_any_network(self):
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('bridge/state', {}, topic='net_b')
+
+    def test_broadcast_goes_to_the_thing_network(self):
+        self._discover_both()
+        self.proxy.get_thing('Oficina').set('state', True)
+        self.proxy.get_thing('OtherLamp').set('state', False)
+        self.proxy.broadcast_things(['Oficina', 'OtherLamp'])
+        self.assertEqual(self.mqtt.broadcasts, [
+            ('zigbee2mqtt/Oficina/set', {'state': 'ON'}),
+            ('net_b/OtherLamp/set', {'state': 'OFF'}),
+        ])
+
+    def test_virtual_thing_extras_are_network_independent(self):
+        vt = create_virtual_thing('Weather', 'Outside weather', 'sensor', 'SomeApi')
+        self.proxy.register_virtual_thing(vt)
+        vt.extras.set('temp', 12)
+        self.proxy.broadcast_thing(vt)
+        self.assertEqual(self.mqtt.broadcasts, [('zmw_thing_extras/Weather', {'temp': 12})])
+
+    @patch('zzmw_lib.z2m.z2mproxy.os.kill')
+    def test_connect_check_kills_if_primary_is_silent(self, kill):
+        self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        with self.assertLogs('Z2M', level='CRITICAL'):
+            self.sched.jobs[0][0]()
+        kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+
+    @patch('zzmw_lib.z2m.z2mproxy.os.kill')
+    def test_connect_check_only_warns_if_secondary_is_silent(self, kill):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        with self.assertLogs('Z2M', level='WARNING') as logs:
+            self.sched.jobs[0][0]()
+        kill.assert_not_called()
+        self.assertTrue(any("'net_b'" in line for line in logs.output))
+        self.assertEqual(self.sched.jobs[1][1], 'interval')
+
+    @patch('zzmw_lib.z2m.z2mproxy.os.kill')
+    def test_connect_check_quiet_when_all_networks_up(self, kill):
+        self._discover_both()
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.sched.jobs[0][0]()
+        kill.assert_not_called()
 
 
 class TestZ2MProxyQueries(unittest.TestCase):
@@ -342,6 +476,15 @@ class TestZ2MProxyVirtualThings(unittest.TestCase):
         self.assertIn('Weather', proxy.get_thing_names())
         self.assertIn('zmw_thing_extras/Weather', mqtt.subscriptions)
 
+    def test_unbacked_thing_never_broadcasts_state(self):
+        proxy, mqtt, _ = make_proxy()
+        lamp = parse_from_zigbee2mqtt(0, get_a_lamp(), ZMW_NO_MQTT_BACKING)
+        proxy.register_virtual_thing(lamp)
+        lamp.set('state', True)
+        with self.assertLogs('Z2M', level='ERROR'):
+            proxy.broadcast_thing(lamp)
+        self.assertEqual(mqtt.broadcasts, [])
+
     def test_virtual_thing_broadcasts_extras_only(self):
         proxy, mqtt, _ = make_proxy()
         vt = create_virtual_thing('Weather', 'Outside weather', 'sensor', 'SomeApi')
@@ -396,18 +539,7 @@ class TestZ2MProxyHealth(unittest.TestCase):
         _, trigger, kwargs = sched.jobs[1]
         self.assertEqual(trigger, 'interval')
         self.assertEqual(kwargs['minutes'], 5)
-        self.assertEqual(kwargs['id'], 'z2m_health_check_zigbee2mqtt')
-
-    def test_health_check_job_ids_are_unique_per_topic(self):
-        sched = FakeScheduler()
-        for topic in ('zigbee2mqtt', 'custom_z2m'):
-            mqtt = FakeMqtt()
-            Z2MProxy({}, mqtt, sched, topic=topic)
-            mqtt.deliver('bridge/devices', [get_a_lamp()], topic=topic)
-        for connect_check in [job[0] for job in sched.jobs if job[1] == 'date']:
-            connect_check()
-        ids = [kwargs['id'] for _, trigger, kwargs in sched.jobs if trigger == 'interval']
-        self.assertEqual(sorted(ids), ['z2m_health_check_custom_z2m', 'z2m_health_check_zigbee2mqtt'])
+        self.assertEqual(kwargs['id'], 'z2m_health_check')
 
     @patch('zzmw_lib.z2m.z2mproxy.os.kill')
     def test_connect_check_is_not_fooled_by_other_messages(self, kill):
@@ -435,6 +567,45 @@ class TestZ2MProxyHealth(unittest.TestCase):
     def test_health_check_complains_when_stale(self):
         with self.assertLogs('Z2M', level='ERROR'):
             self._health_check_at(minutes_since_last_msg=10)
+
+    def _multi_topic_health_check(self, deliveries, check_at_minute):
+        """ Proxy on net_a (primary) and net_b. deliveries is a list of (minute, topic, subtopic); runs the connect
+        check after the first delivery, and the health check at check_at_minute """
+        t0 = datetime(2026, 1, 1, 12, 0, 0)
+        with patch('zzmw_lib.z2m.z2mproxy.datetime') as fake_dt:
+            fake_dt.now.return_value = t0
+            _, mqtt, sched = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
+            for minute, topic, subtopic in deliveries:
+                fake_dt.now.return_value = t0 + timedelta(minutes=minute)
+                payload = [get_a_lamp()] if subtopic == 'bridge/devices' else {}
+                mqtt.deliver(subtopic, payload, topic=topic)
+            with patch('zzmw_lib.z2m.z2mproxy.os.kill'):
+                self._run_connect_check(sched)
+            health_check, _, _ = sched.jobs[1]
+            fake_dt.now.return_value = t0 + timedelta(minutes=check_at_minute)
+            health_check()
+
+    def test_health_check_quiet_when_all_networks_recent(self):
+        with self.assertNoLogs('Z2M', level='ERROR'):
+            self._multi_topic_health_check(
+                [(0, 'net_a', 'bridge/devices'), (0, 'net_b', 'bridge/state'),
+                 (8, 'net_a', 'bridge/state'), (9, 'net_b', 'bridge/state')],
+                check_at_minute=10)
+
+    def test_health_check_names_only_the_stale_network(self):
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            self._multi_topic_health_check(
+                [(0, 'net_a', 'bridge/devices'), (0, 'net_b', 'bridge/state'), (8, 'net_a', 'bridge/state')],
+                check_at_minute=10)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("'net_b'", logs.output[0])
+
+    def test_health_check_complains_about_silent_network(self):
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            self._multi_topic_health_check([(0, 'net_a', 'bridge/devices')], check_at_minute=1)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("'net_b'", logs.output[0])
+        self.assertIn('since startup', logs.output[0])
 
 
 if __name__ == '__main__':
