@@ -112,6 +112,27 @@ class TestThings(unittest.TestCase):
         self.assertEqual(d['actions']['state']['value']['meta']['type'], 'binary')
         self.assertEqual(d['actions']['brightness']['value']['meta']['type'], 'numeric')
 
+    def test_address_from_unique_id(self):
+        # Matter bridges publish unique_id instead of ieee_address
+        lamp = get_a_lamp()
+        del lamp['ieee_address']
+        lamp['unique_id'] = '33BB8CBEDF2915E6'
+        t = parse_from_zigbee2mqtt(0, lamp, 'mt2m')
+        self.assertEqual(t.address, '33BB8CBEDF2915E6')
+        self.assertEqual(t.dictify()['address'], '33BB8CBEDF2915E6')
+
+    def test_ieee_address_wins_over_unique_id(self):
+        lamp = get_a_lamp()
+        lamp['unique_id'] = '33BB8CBEDF2915E6'
+        t = parse_from_zigbee2mqtt(0, lamp, 'zigbee2mqtt')
+        self.assertEqual(t.address, '0x847127fffecda276')
+
+    def test_thing_without_address_is_rejected(self):
+        lamp = get_a_lamp()
+        del lamp['ieee_address']
+        with self.assertRaises(ValueError):
+            parse_from_zigbee2mqtt(0, lamp, 'zigbee2mqtt')
+
     def test_topic_is_recorded(self):
         t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'some_net')
         self.assertEqual(t.z2m_topic, 'some_net')

@@ -68,6 +68,8 @@ class Zigbee2MqttThing:
     actions/reports/etc that a zigbee2mqtt object supports)
     """
     thing_id: int
+    # Stable per-device identifier: the IEEE address for Zigbee, unique_id for Matter. Not the network/node address
+    # (Zigbee's short network_address or Matter's node_id), which can change.
     address: str
     name: str
     real_name: str
@@ -736,6 +738,15 @@ def _parse_zigbee2mqtt_actions(thing_name, definition):
     return thing_type, ActionDict(actions)
 
 
+def _get_thing_address(thing):
+    """ Stable device identifier from a bridge/devices entry: Zigbee2MQTT publishes ieee_address, Matter bridges
+    publish unique_id. If both are present, ieee_address wins. """
+    for key in ('ieee_address', 'unique_id'):
+        if thing.get(key):
+            return thing[key]
+    raise ValueError(f"Thing has no ieee_address or unique_id, can't identify it: {thing.get('friendly_name')!r}")
+
+
 def parse_from_zigbee2mqtt(thing_id, thing, z2m_topic, known_aliases=None):
     """
     Parses a message from zigbee2mqtt to create a local replica, with
@@ -743,7 +754,7 @@ def parse_from_zigbee2mqtt(thing_id, thing, z2m_topic, known_aliases=None):
     that published this thing.
     """
     known_aliases = known_aliases or {}
-    addr = thing['ieee_address']
+    addr = _get_thing_address(thing)
     real_name = thing.get('friendly_name', addr)  # Unaliased name
     name = known_aliases.get(real_name, known_aliases.get(addr, real_name))
     if real_name != name:
