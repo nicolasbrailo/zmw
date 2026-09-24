@@ -765,8 +765,9 @@ def parse_from_zigbee2mqtt(thing_id, thing, z2m_topic, known_aliases=None):
             addr)
 
     definition = thing.get('definition', {}) or {}
-    model_id = thing.get('model_id', None)
-    model = definition.get('model', model_id)
+    # definition.model is Z2M's catalogue model, if Z2M knows this device. Otherwise use what the device reports about
+    # itself: model_id for Zigbee, model for Matter (the translator has no catalogue, so it publishes no definition)
+    model = definition.get('model') or thing.get('model_id') or thing.get('model')
     thing_type, actions = _parse_zigbee2mqtt_actions(name, definition)
     return Zigbee2MqttThing(
         thing_id=thing_id,

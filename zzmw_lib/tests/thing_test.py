@@ -4,6 +4,8 @@ from z2m_fixtures import get_contact_sensor
 from z2m_fixtures import get_lamp_multiple_types
 from z2m_fixtures import get_lamp_with_composite_action
 from z2m_fixtures import get_motion_sensor
+from z2m_fixtures import get_matter_color_light
+from z2m_fixtures import get_matter_temp_light
 
 import json
 import unittest
@@ -111,6 +113,12 @@ class TestThings(unittest.TestCase):
         self.assertEqual(d['actions']['state']['can_get'], True)
         self.assertEqual(d['actions']['state']['value']['meta']['type'], 'binary')
         self.assertEqual(d['actions']['brightness']['value']['meta']['type'], 'numeric')
+
+    def test_model_falls_back_to_model_id_without_definition(self):
+        # Z2M devices not in its catalogue have no definition, only what the device reports
+        lamp = get_a_lamp()
+        lamp['definition'] = None
+        self.assertEqual(parse_from_zigbee2mqtt(0, lamp, 'zigbee2mqtt').model, 'TRADFRI bulb E27 WS opal 1000lm')
 
     def test_address_from_unique_id(self):
         # Matter bridges publish unique_id instead of ieee_address
@@ -660,6 +668,74 @@ class TestThings(unittest.TestCase):
     def test_multiple_types(self):
         t = parse_from_zigbee2mqtt(42, get_lamp_multiple_types(), 'zigbee2mqtt')
         self.assertEqual(t.thing_type, 'first_thing_type')
+
+
+
+
+class TestMatterMapping(unittest.TestCase):
+    """ Things published by the matter2mqtt translator (mt2m), which follows the zigbee2mqtt schema with some
+    differences (eg unique_id instead of ieee_address) """
+
+    def test_identity(self):
+        t = parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m')
+        self.assertEqual(t.address, '33BB8CBEDF2915E6')
+        self.assertEqual(t.name, 'matter_1')
+        self.assertEqual(t.real_name, 'matter_1')
+        self.assertEqual(t.z2m_topic, 'mt2m')
+        self.assertEqual(t.broken, False)
+        self.assertEqual(t.manufacturer, 'IKEA of Sweden')
+
+    def test_model(self):
+        self.assertEqual(parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m').model,
+                         'KAJPLATS E27 CWS globe 1055lm')
+        self.assertEqual(parse_from_zigbee2mqtt(6, get_matter_temp_light(), 'mt2m').model,
+                         'KAJPLATS E27 WS globe 1521lm')
+
+    def test_is_a_light(self):
+        self.assertEqual(parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m').thing_type, 'light')
+        self.assertEqual(parse_from_zigbee2mqtt(6, get_matter_temp_light(), 'mt2m').thing_type, 'light')
+
+    def test_color_light_actions(self):
+        t = parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m')
+        expected = {'state', 'brightness', 'color_temp', 'color_xy', 'color_hs'}
+        self.assertEqual(expected.intersection(t.actions), expected)
+
+    def test_temp_light_actions(self):
+        t = parse_from_zigbee2mqtt(6, get_matter_temp_light(), 'mt2m')
+        expected = {'state', 'brightness', 'color_temp', 'color_xy'}
+        self.assertEqual(expected.intersection(t.actions), expected)
+        self.assertNotIn('color_hs', t.actions)
+
+    def test_action_metadata(self):
+        t = parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m')
+        for name in ('state', 'brightness', 'color_temp'):
+            self.assertTrue(t.actions[name].can_set, name)
+            self.assertTrue(t.actions[name].can_get, name)
+        self.assertEqual(t.actions['state'].value.meta['type'], 'binary')
+        self.assertEqual(t.actions['state'].value.meta['value_on'], 'ON')
+        self.assertEqual(t.actions['state'].value.meta['value_off'], 'OFF')
+        self.assertEqual(t.actions['brightness'].value.meta['value_min'], 1)
+        self.assertEqual(t.actions['brightness'].value.meta['value_max'], 254)
+        self.assertEqual(t.actions['color_temp'].value.meta['value_min'], 153)
+        self.assertEqual(t.actions['color_temp'].value.meta['value_max'], 555)
+        self.assertEqual(t.actions['color_xy'].value.meta['type'], 'composite')
+        self.assertEqual(t.actions['color_hs'].value.meta['type'], 'composite')
+        t6 = parse_from_zigbee2mqtt(6, get_matter_temp_light(), 'mt2m')
+        self.assertEqual(t6.actions['color_temp'].value.meta['value_max'], 454)
+
+    def test_values_update_from_mqtt(self):
+        t = parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m')
+        t.on_mqtt_update('matter_1', {'state': 'ON', 'brightness': 100, 'color_temp': 300})
+        state = t.get_json_state()
+        self.assertEqual(state['state'], True)
+        self.assertEqual(state['brightness'], 100)
+        self.assertEqual(state['color_temp'], 300)
+
+    def test_user_changes_propagate(self):
+        t = parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m')
+        t.set('state', True)
+        t.set('brightness', 50)
+        self.assertEqual(t.make_mqtt_status_update(), {'state': 'ON', 'brightness': 50})
 
 
 if __name__ == '__main__':

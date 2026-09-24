@@ -1,6 +1,7 @@
 from z2m_fixtures import get_a_lamp
 from z2m_fixtures import get_contact_sensor
 from z2m_fixtures import get_motion_sensor
+from z2m_fixtures import get_matter_bridge_devices
 
 import os
 import signal
@@ -534,6 +535,51 @@ class TestZ2MProxyNameCollisions(unittest.TestCase):
         with self.assertNoLogs('Z2M', level='WARNING'):
             self.mqtt.deliver('Oficina', {'state': 'ON'}, topic='net_a')
         self.assertIs(self.proxy.get_thing('Oficina'), vt)
+
+
+class TestZ2MProxyMatterMapping(unittest.TestCase):
+    """ zmw_lights-like proxy, with the matter2mqtt translator (mt2m) as a second network """
+    def setUp(self):
+        self.discovered = []
+        self.proxy, self.mqtt, _ = make_proxy(
+            cfg={'z2m_topics': ['zigbee2mqtt', 'mt2m']},
+            cb_on_z2m_network_discovery=lambda _first, known: self.discovered.append(set(known.keys())),
+            cb_is_device_interesting=lambda t: t.thing_type in ('light', 'switch'))
+        self.mqtt.deliver('bridge/state', {'state': 'online'}, topic='mt2m')
+        self.mqtt.deliver('bridge/devices', get_matter_bridge_devices(), topic='mt2m')
+
+    def test_devices_are_registered(self):
+        self.assertEqual(set(self.proxy.get_thing_names()), {'matter_1', 'matter_6'})
+        self.assertEqual(self.discovered, [{'matter_1', 'matter_6'}])
+
+    def test_devices_belong_to_the_matter_network(self):
+        for name, addr in (('matter_1', '33BB8CBEDF2915E6'), ('matter_6', '874A835C29EA645A')):
+            meta = self.proxy.get_thing_meta(name)
+            self.assertEqual(meta['z2m_topic'], 'mt2m', name)
+            self.assertEqual(meta['address'], addr, name)
+            self.assertEqual(meta['thing_type'], 'light', name)
+
+    def test_lights_are_monkeypatched(self):
+        for name in ('matter_1', 'matter_6'):
+            light = self.proxy.get_thing(name)
+            self.assertTrue(hasattr(light, 'set_brightness_pct'), name)
+            self.assertIn('color_rgb', light.actions, name)
+
+    def test_state_updates_by_name_and_address(self):
+        self.mqtt.deliver('matter_6', {'state': 'ON', 'brightness': 200, 'color_temp': 300}, topic='mt2m')
+        light = self.proxy.get_thing('matter_6')
+        self.assertEqual(light.get('state'), True)
+        self.assertEqual(light.get('brightness'), 200)
+        self.assertEqual(light.get('color_temp'), 300)
+        self.mqtt.deliver('874A835C29EA645A', {'state': 'OFF'}, topic='mt2m')
+        self.assertEqual(light.get('state'), False)
+
+    def test_commands_go_to_the_matter_network(self):
+        light = self.proxy.get_thing('matter_1')
+        light.turn_on()
+        light.set('brightness', 100)
+        self.proxy.broadcast_thing(light)
+        self.assertEqual(self.mqtt.broadcasts, [('mt2m/matter_1/set', {'state': 'ON', 'brightness': 100})])
 
 
 class TestZ2MProxyQueries(unittest.TestCase):
