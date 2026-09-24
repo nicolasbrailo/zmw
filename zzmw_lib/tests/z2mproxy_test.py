@@ -396,7 +396,18 @@ class TestZ2MProxyHealth(unittest.TestCase):
         _, trigger, kwargs = sched.jobs[1]
         self.assertEqual(trigger, 'interval')
         self.assertEqual(kwargs['minutes'], 5)
-        self.assertEqual(kwargs['id'], 'recurring_job')
+        self.assertEqual(kwargs['id'], 'z2m_health_check_zigbee2mqtt')
+
+    def test_health_check_job_ids_are_unique_per_topic(self):
+        sched = FakeScheduler()
+        for topic in ('zigbee2mqtt', 'custom_z2m'):
+            mqtt = FakeMqtt()
+            Z2MProxy({}, mqtt, sched, topic=topic)
+            mqtt.deliver('bridge/devices', [get_a_lamp()], topic=topic)
+        for connect_check in [job[0] for job in sched.jobs if job[1] == 'date']:
+            connect_check()
+        ids = [kwargs['id'] for _, trigger, kwargs in sched.jobs if trigger == 'interval']
+        self.assertEqual(sorted(ids), ['z2m_health_check_custom_z2m', 'z2m_health_check_zigbee2mqtt'])
 
     @patch('zzmw_lib.z2m.z2mproxy.os.kill')
     def test_connect_check_is_not_fooled_by_other_messages(self, kill):

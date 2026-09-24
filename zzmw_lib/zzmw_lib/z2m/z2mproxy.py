@@ -94,7 +94,7 @@ class Z2MProxy:
             self._z2m_health_check,
             'interval',
             minutes=self._z2m_ping_timeout_minutes,
-            id='recurring_job'
+            id=f'z2m_health_check_{self._z2m_topic}'
         )
 
     def _z2m_health_check(self):
