@@ -109,6 +109,8 @@ chmod +x "$SVC_RUN_BASE/"*.sh
 
 # Add a variable to logs.sh to let it know where the project root is, so that jq can print journal logs and strip the full path
 sed -i "2i ZMW_PROJECT_ROOT='$ZMW_PROJECT_ROOT'" "$SVC_RUN_BASE/logs.sh"
+# Same for restart_all.sh, so it can find and run the zzmw_lib tests
+sed -i "2i ZMW_PROJECT_ROOT='$ZMW_PROJECT_ROOT'" "$SVC_RUN_BASE/restart_all.sh"
 
 if [ ! -f "/etc/systemd/system/$TGT_SVC_NAME.service" ]; then
   sudo ln -s "$TGT_SVC_RUN/$TGT_SVC_NAME.service" "/etc/systemd/system/$TGT_SVC_NAME.service" || true

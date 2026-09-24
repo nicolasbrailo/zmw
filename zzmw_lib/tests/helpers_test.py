@@ -1,4 +1,4 @@
-from setup import get_a_lamp
+from z2m_fixtures import get_a_lamp
 
 import json
 import unittest

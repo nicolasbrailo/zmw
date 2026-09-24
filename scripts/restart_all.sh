@@ -21,11 +21,17 @@ if [ ${#services[@]} -eq 0 ]; then
     exit 1
 fi
 
-echo "Will restart all services, Ctrl-C to cancel. Services: ${services[*]}"
-read
+# All services use zzmw_lib, so its tests gate restarts too. ZMW_PROJECT_ROOT is injected by install_svc.sh
+ZZMW_LIB_DIR="${ZMW_PROJECT_ROOT:?not set, re-run install_svc.sh to set it}/zzmw_lib"
+echo "Running unit tests for zzmw_lib..."
+if ! output=$(make -C "$ZZMW_LIB_DIR" test 2>&1); then
+    echo "$output"
+    echo "zzmw_lib has unit test failures, cowardly refusing to restart services"
+    exit 1
+fi
 
 # Run unit tests before restarting
-echo "Running unit tests..."
+echo "Running unit tests for services:"
 for svc in "${services[@]}"; do
     echo "Running unit tests for $svc..."
     if ! output=$("$THIS_SCRIPT_DIR/$svc/run_unit_tests.sh" 2>&1); then
@@ -34,6 +40,9 @@ for svc in "${services[@]}"; do
         exit 1
     fi
 done
+
+echo "Will restart all services, Ctrl-C to cancel. Services: ${services[*]}"
+read
 
 # Stop all services together
 echo "Stopping all services..."

@@ -1,9 +1,9 @@
-from setup import get_a_lamp
-from setup import get_broken_thing
-from setup import get_contact_sensor
-from setup import get_lamp_multiple_types
-from setup import get_lamp_with_composite_action
-from setup import get_motion_sensor
+from z2m_fixtures import get_a_lamp
+from z2m_fixtures import get_broken_thing
+from z2m_fixtures import get_contact_sensor
+from z2m_fixtures import get_lamp_multiple_types
+from z2m_fixtures import get_lamp_with_composite_action
+from z2m_fixtures import get_motion_sensor
 
 import json
 import unittest
@@ -118,15 +118,16 @@ class TestThings(unittest.TestCase):
 
     def test_values_are_actions(self):
         t = parse_from_zigbee2mqtt(0, get_a_lamp())
-        values_names = set(t.get_json_state().keys()) - {'thing_name'}
+        values_names = set(t.get_json_state().keys()) - {'thing_name', 'extras'}
         actions = set(t.actions)
         self.assertEqual(actions.intersection(values_names), values_names)
 
     def test_default_values_are_null(self):
         t = parse_from_zigbee2mqtt(0, get_a_lamp())
         state = t.get_json_state()
+        self.assertEqual(state['extras'], {})
         for k in state.keys():
-            if k == 'thing_name':
+            if k in ('thing_name', 'extras'):
                 continue
             self.assertEqual(state[k], None)
             self.assertEqual(t.get(k), None)
@@ -196,8 +197,12 @@ class TestThings(unittest.TestCase):
             '{"brightness":5321,"state":"FOO","effect":"BAR"}'))
         state = t.get_json_state()
         self.assertEqual(state['state'], True)
-        self.assertEqual(state['brightness'], 145)
         self.assertEqual(state['effect'], 'blink')
+        # MQTT is the source of truth: out-of-range numerics are clamped instead of rejected
+        self.assertEqual(state['brightness'], 254)
+
+        t.on_mqtt_update('topic', json.loads('{"brightness":-5}'))
+        self.assertEqual(t.get_json_state()['brightness'], 0)
 
     def test_update_from_mqtt_triggers_cb(self):
         t = parse_from_zigbee2mqtt(0, get_a_lamp())
