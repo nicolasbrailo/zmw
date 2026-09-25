@@ -684,9 +684,10 @@ def _get_action_metadata(thing_name, action):
         return meta
 
     if meta['type'] == 'numeric':
-        meta['value_min'] = int(
+        # Limits may be fractional (eg a thermostat setpoint from 4.5 to 30.5): don't truncate them
+        meta['value_min'] = _parse_number(
             action['value_min']) if 'value_min' in action else None
-        meta['value_max'] = int(
+        meta['value_max'] = _parse_number(
             action['value_max']) if 'value_max' in action else None
         return meta
 

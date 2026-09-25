@@ -16,6 +16,20 @@ from zzmw_lib.z2m.thing import Zigbee2MqttAction
 from zzmw_lib.z2m.thing import Zigbee2MqttActionValue
 
 
+def get_thermostat(value_min=4.5, value_max=30.5):
+    """ A radiator valve with a fractional setpoint range """
+    return {
+        'ieee_address': '0x0000000000000042', 'friendly_name': 'Radiator',
+        'interview_completed': True, 'interviewing': False,
+        'definition': {'model': 'TRV1', 'description': 'Thermostatic radiator valve', 'exposes': [
+            {'type': 'climate', 'features': [
+                {'type': 'numeric', 'name': 'current_heating_setpoint', 'property': 'current_heating_setpoint',
+                 'access': 7, 'value_min': value_min, 'value_max': value_max, 'value_step': 0.5, 'unit': '°C'},
+            ]},
+        ]},
+    }
+
+
 class TestThings(unittest.TestCase):
     def test_lamp(self):
         t = parse_from_zigbee2mqtt(42, get_a_lamp(), 'zigbee2mqtt')
@@ -136,6 +150,39 @@ class TestThings(unittest.TestCase):
         t.on_any_change_from_mqtt = lambda thing: any_change.append(thing.name)
         t.on_availability_update(False)
         self.assertEqual(any_change, [])
+
+    def test_fractional_limits_are_kept(self):
+        meta = parse_from_zigbee2mqtt(0, get_thermostat(), 'z2m').actions['current_heating_setpoint'].value.meta
+        self.assertEqual(meta['value_min'], 4.5)
+        self.assertEqual(meta['value_max'], 30.5)
+
+    def test_integer_limits_stay_integers(self):
+        meta = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt').actions['brightness'].value.meta
+        self.assertIsInstance(meta['value_min'], int)
+        self.assertIsInstance(meta['value_max'], int)
+
+    def test_string_limits_are_parsed(self):
+        meta = parse_from_zigbee2mqtt(0, get_thermostat('5', '30.5'), 'z2m').actions['current_heating_setpoint'].value.meta
+        self.assertEqual(meta['value_min'], 5)
+        self.assertEqual(meta['value_max'], 30.5)
+
+    def test_fractional_limits_from_user(self):
+        # With truncated limits (4, 30), 4.2 was accepted and 30.4 rejected
+        t = parse_from_zigbee2mqtt(0, get_thermostat(), 'z2m')
+        for val in (4.5, 4.7, 30.4, 30.5, '21.5'):
+            with self.subTest(val=val):
+                t.set('current_heating_setpoint', val)
+        for val in (4.2, 30.6):
+            with self.subTest(val=val):
+                with self.assertRaises(ValueError):
+                    t.set('current_heating_setpoint', val)
+
+    def test_fractional_limits_from_mqtt_clamp(self):
+        t = parse_from_zigbee2mqtt(0, get_thermostat(), 'z2m')
+        t.on_mqtt_update('Radiator', {'current_heating_setpoint': 4})
+        self.assertEqual(t.get('current_heating_setpoint'), 4.5)
+        t.on_mqtt_update('Radiator', {'current_heating_setpoint': 31})
+        self.assertEqual(t.get('current_heating_setpoint'), 30.5)
 
     def test_numeric_string_from_user_is_stored_as_number(self):
         # UIs and REST calls send numbers as strings; MQTT must get the type the schema declares
