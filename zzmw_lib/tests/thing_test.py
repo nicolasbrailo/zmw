@@ -222,6 +222,19 @@ class TestThings(unittest.TestCase):
         self.assertEqual(t.address, 'bar')
         self.assertEqual(t.name, 'foo')
 
+    def test_interview_fields(self):
+        # (interview_completed, interviewing) -> broken; None means the field is missing
+        for completed, interviewing, broken in ((True, False, False), (False, True, False), (False, False, True),
+                                                 (None, None, False), (False, None, True), (None, False, False)):
+            with self.subTest(interview_completed=completed, interviewing=interviewing):
+                lamp = get_a_lamp()
+                for key, val in (('interview_completed', completed), ('interviewing', interviewing)):
+                    if val is None:
+                        del lamp[key]
+                    else:
+                        lamp[key] = val
+                self.assertEqual(parse_from_zigbee2mqtt(0, lamp, 'zigbee2mqtt').broken, broken)
+
     def test_values_are_actions(self):
         t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         values_names = set(t.get_json_state().keys()) - {'thing_name', 'extras', 'available'}
@@ -746,6 +759,14 @@ class TestMatterMapping(unittest.TestCase):
         self.assertEqual(t.z2m_topic, 'mt2m')
         self.assertEqual(t.broken, False)
         self.assertEqual(t.manufacturer, 'IKEA of Sweden')
+
+    def test_without_interview_fields(self):
+        light = get_matter_color_light()
+        del light['interview_completed']
+        del light['interviewing']
+        t = parse_from_zigbee2mqtt(1, light, 'mt2m')
+        self.assertEqual(t.broken, False)
+        self.assertEqual(t.thing_type, 'light')
 
     def test_model(self):
         self.assertEqual(parse_from_zigbee2mqtt(1, get_matter_color_light(), 'mt2m').model,

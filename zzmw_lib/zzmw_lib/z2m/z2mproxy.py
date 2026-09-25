@@ -175,14 +175,20 @@ class Z2MProxy:
         device_added = False
         for jsonthing in payload:
             self._last_device_id += 1
-            thing = parse_from_zigbee2mqtt(self._last_device_id, jsonthing, z2m_topic,
-                                           known_aliases=self._aliases)
-            if self._is_thing_unknown(thing):
-                if self._cb_is_device_interesting(thing):
-                    self._register(thing)
-                    device_added = True
-                else:
-                    self._reg_to_ignore(thing)
+            # One device we can't handle shouldn't take down the rest of its network: skip it and continue
+            try:
+                thing = parse_from_zigbee2mqtt(self._last_device_id, jsonthing, z2m_topic,
+                                               known_aliases=self._aliases)
+                if self._is_thing_unknown(thing):
+                    if self._cb_is_device_interesting(thing):
+                        self._register(thing)
+                        device_added = True
+                    else:
+                        self._reg_to_ignore(thing)
+            except Exception as ex:  # pylint: disable=broad-except
+                name = jsonthing.get('friendly_name') if isinstance(jsonthing, dict) else None
+                log.error("Skipping device %s from network '%s', can't register it: %s",
+                          name or str(jsonthing)[:100], z2m_topic, ex, exc_info=True)
 
         self._z2m_topics_discovered.add(z2m_topic)
 

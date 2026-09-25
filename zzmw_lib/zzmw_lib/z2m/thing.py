@@ -810,7 +810,9 @@ def parse_from_zigbee2mqtt(thing_id, thing, z2m_topic, known_aliases=None):
         address=addr,
         name=name,
         real_name=real_name,
-        broken=(not thing['interview_completed']) and (not thing['interviewing']),
+        # Broken: Z2M couldn't finish interviewing it (and isn't retrying). Producers that don't report interviews
+        # (eg a bridge that only publishes fully set-up devices) omit these, so their devices aren't broken.
+        broken=(not thing.get('interview_completed', True)) and (not thing.get('interviewing', False)),
         manufacturer=thing.get('manufacturer', None),
         model=model,
         description=definition.get('description', None),

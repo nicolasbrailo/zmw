@@ -118,6 +118,40 @@ class TestZ2MProxyDiscovery(unittest.TestCase):
         mqtt.deliver('bridge/devices', [get_a_lamp()])
         self.assertIs(received['Oficina'], proxy.get_thing('Oficina'))
 
+    def test_bad_devices_are_skipped(self):
+        found = []
+        _, mqtt, _ = make_proxy(cb_on_z2m_network_discovery=lambda _first, known: found.append(set(known.keys())))
+        no_address = get_a_lamp()
+        del no_address['ieee_address']
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            mqtt.deliver('bridge/devices', [no_address, get_contact_sensor(), 'not a device', get_motion_sensor()])
+        errors = [line for line in logs.output if 'Skipping device' in line]
+        self.assertEqual(len(errors), 2)
+        self.assertIn('Oficina', errors[0])
+        self.assertIn('not a device', errors[1])
+        # The network was still discovered, with every device that could be registered
+        self.assertEqual(found, [{'SensorPuertaEntrada', 'MotionSensor1'}])
+
+    def test_bad_device_doesnt_block_startup(self):
+        _, mqtt, sched = make_proxy()
+        no_address = get_a_lamp()
+        del no_address['ieee_address']
+        with self.assertLogs('Z2M', level='ERROR'):
+            mqtt.deliver('bridge/devices', [no_address, get_contact_sensor()])
+        # os.kill is guarded in this module: this would fail if the connect check thought the network is missing
+        sched.jobs[0][0]()
+        self.assertEqual([trigger for _, trigger, _ in sched.jobs], ['date', 'interval'])
+
+    def test_failing_interest_filter_skips_only_that_device(self):
+        def _interesting(thing):
+            if thing.name == 'Oficina':
+                raise RuntimeError('service bug')
+            return True
+        proxy, mqtt, _ = make_proxy(cb_is_device_interesting=_interesting)
+        with self.assertLogs('Z2M', level='ERROR'):
+            mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
+        self.assertEqual(proxy.get_thing_names(), ['SensorPuertaEntrada'])
+
     def test_republish_keeps_existing_thing_objects(self):
         # Services hold references to things (and attach callbacks to them), so a network republish must not
         # replace known things
