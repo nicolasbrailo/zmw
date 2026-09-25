@@ -392,16 +392,26 @@ def identify_sensors(z2m):
 
 def any_light_on(z2m, light_names):
     """ Returns true if any of the lights in light_names is turned on. Will
-    throw an error if any of the things in light_names is not a light. Will throw if not a light, or thing doesn't exist """
+    throw an error if any of the things in light_names is not a light. Will throw if not a light, or thing doesn't exist.
+    Unavailable lights don't count: their state is the last one they reported, which may be stale. """
     for name in light_names:
-        if z2m.get_thing(name).is_light_on():
+        light = z2m.get_thing(name)
+        if light.available and light.is_light_on():
             return True
     return False
 
 def light_group_toggle_brightness_pct(z2m, light_group):
     """ Will toggle a set of lights as if they were a group (ie all on, or all
     off). If any of the lights in the group are on, it will try to turn them
-    all off. """
+    all off. Unavailable lights are left out (they can't be controlled, and their state may be stale). Returns True if
+    the group was turned on, False if off, None if no light in the group is available. """
+    unavailable = [name for name, _ in light_group if not z2m.get_thing(name).available]
+    if unavailable:
+        log.info('Group toggle: skipping unavailable lights %s', unavailable)
+    light_group = [(name, brightness) for name, brightness in light_group if name not in unavailable]
+    if not light_group:
+        return None
+
     light_names = [name for name, _ in light_group]
     turned_on = None
     if any_light_on(z2m, light_names):
@@ -419,8 +429,8 @@ def light_group_toggle_brightness_pct(z2m, light_group):
     return turned_on
 
 def turn_all_lights_off(z2m, transition_secs=None):
-    """ Turns ALL lights off (even lights that are already off, just in case) """
-    lights = z2m.get_things_if(lambda t: t.thing_type == 'light')
+    """ Turns ALL available lights off (even lights that are already off, just in case) """
+    lights = z2m.get_things_if(lambda t: t.thing_type == 'light' and t.available)
     for light in lights:
         light.set('state', False)
         if 'brightness' in light.actions:
@@ -445,8 +455,12 @@ def toggle_ensure_color(lamp, wanted_col):
         * Light was off -> turn on in right color
         * Light was on, but wrong color -> set correct color
         * Light was on, correct color -> turn off
-    Returns True if lamp is on after calling this method, False otherwise
+    Returns True if lamp is on after calling this method, False otherwise. An unavailable lamp isn't changed, and
+    returns False.
     """
+    if not lamp.available:
+        log.info('Not toggling %s, it is unavailable', lamp.name)
+        return False
     # The color mapping between CIE and RGB isn't bijective, going from RGB to CIE will map several RGB points to
     # the same CIE coords. So, rgb(cie(rbg_val)) != rgb_val. To work around this, we first map the user wanted color
     # to CIE, and then back, to check if the light reports that color.
