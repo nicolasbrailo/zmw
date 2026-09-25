@@ -16,6 +16,17 @@ from zzmw_lib.z2m.z2mproxy import Z2MProxy
 
 LAMP_ADDR = '0x847127fffecda276'
 
+# The connect check SIGTERMs the process when a network is missing. Tests that expect it patch os.kill themselves;
+# anywhere else, fail the test instead of killing the test runner.
+_os_kill_guard = patch('zzmw_lib.z2m.z2mproxy.os.kill',
+                       side_effect=AssertionError('Z2MProxy tried to kill the process (unexpected missing network?)'))
+
+def setUpModule():
+    _os_kill_guard.start()
+
+def tearDownModule():
+    _os_kill_guard.stop()
+
 
 class FakeMqtt:
     """ Records subscriptions and broadcasts; lets tests deliver messages as if they came from the broker. Topics
@@ -347,6 +358,7 @@ class TestZ2MProxyMultiTopicConfig(unittest.TestCase):
     def test_single_health_check_job_for_all_topics(self):
         _, mqtt, sched = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
         mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
         sched.jobs[0][0]()
         interval_jobs = [kwargs for _, trigger, kwargs in sched.jobs if trigger == 'interval']
         self.assertEqual(len(interval_jobs), 1)
@@ -383,18 +395,12 @@ class TestZ2MProxyMultiTopic(unittest.TestCase):
 
     def test_discovery_cb_sees_merged_things(self):
         self._discover_both()
-        self.assertEqual(self.calls, [
-            (True, {'Oficina'}),
-            (False, {'Oficina', 'OtherLamp'}),
-        ])
+        self.assertEqual(self.calls, [(True, {'Oficina', 'OtherLamp'})])
 
     def test_discovery_on_secondary_first(self):
         self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
         self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
-        self.assertEqual(self.calls, [
-            (True, {'OtherLamp'}),
-            (False, {'Oficina', 'OtherLamp'}),
-        ])
+        self.assertEqual(self.calls, [(True, {'Oficina', 'OtherLamp'})])
 
     def test_updates_are_routed_by_name(self):
         self._discover_both()
@@ -436,20 +442,21 @@ class TestZ2MProxyMultiTopic(unittest.TestCase):
         self.assertEqual(self.mqtt.broadcasts, [('zmw_thing_extras/Weather', {'temp': 12})])
 
     @patch('zzmw_lib.z2m.z2mproxy.os.kill')
-    def test_connect_check_kills_if_primary_is_silent(self, kill):
+    def test_connect_check_kills_if_first_network_is_silent(self, kill):
         self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
-        with self.assertLogs('Z2M', level='CRITICAL'):
+        with self.assertLogs('Z2M', level='CRITICAL') as logs:
             self.sched.jobs[0][0]()
         kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+        self.assertIn("'zigbee2mqtt'", logs.output[0])
 
     @patch('zzmw_lib.z2m.z2mproxy.os.kill')
-    def test_connect_check_only_warns_if_secondary_is_silent(self, kill):
+    def test_connect_check_kills_if_second_network_is_silent(self, kill):
         self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
-        with self.assertLogs('Z2M', level='WARNING') as logs:
+        with self.assertLogs('Z2M', level='CRITICAL') as logs:
             self.sched.jobs[0][0]()
-        kill.assert_not_called()
-        self.assertTrue(any("'net_b'" in line for line in logs.output))
-        self.assertEqual(self.sched.jobs[1][1], 'interval')
+        kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+        self.assertIn("'net_b'", logs.output[0])
+        self.assertEqual(len(self.sched.jobs), 1)
 
     @patch('zzmw_lib.z2m.z2mproxy.os.kill')
     def test_connect_check_quiet_when_all_networks_up(self, kill):
@@ -457,6 +464,69 @@ class TestZ2MProxyMultiTopic(unittest.TestCase):
         with self.assertNoLogs('Z2M', level='WARNING'):
             self.sched.jobs[0][0]()
         kill.assert_not_called()
+
+
+class TestZ2MProxyDiscoverySettle(unittest.TestCase):
+    """ The first discovery callback waits until every network published its devices (the connect check kills the
+    service if some never do); later publishes are notified as updates """
+    def setUp(self):
+        self.calls = []
+        self.proxy, self.mqtt, self.sched = make_proxy(
+            cfg={'z2m_topics': ['zigbee2mqtt', 'net_b']},
+            cb_on_z2m_network_discovery=lambda first, known: self.calls.append((first, set(known.keys()))))
+
+    def _connect_check(self):
+        self.sched.jobs[0][0]()
+
+    def test_waits_for_all_networks(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.assertEqual(self.calls, [])
+        self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        self.assertEqual(self.calls, [(True, {'Oficina', 'OtherLamp'})])
+
+    def test_things_are_usable_while_waiting(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.assertEqual(self.calls, [])
+        self.mqtt.deliver('Oficina', {'state': 'ON'}, topic='zigbee2mqtt')
+        self.assertEqual(self.proxy.get_thing('Oficina').get('state'), True)
+
+    def test_later_publishes_are_updates(self):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.assertEqual(self.calls, [
+            (True, {'Oficina', 'OtherLamp'}),
+            (False, {'Oficina', 'OtherLamp'}),
+        ])
+
+    @patch('zzmw_lib.z2m.z2mproxy.os.kill')
+    def test_connect_check_does_not_notify_again(self, _kill):
+        self.mqtt.deliver('bridge/devices', [get_a_lamp()], topic='zigbee2mqtt')
+        self.mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        self._connect_check()
+        self.assertEqual(self.calls, [(True, {'Oficina', 'OtherLamp'})])
+
+    @patch('zzmw_lib.z2m.z2mproxy.os.kill')
+    def test_missing_network_kills_without_notifying(self, kill):
+        for published, silent in (('net_b', 'zigbee2mqtt'), ('zigbee2mqtt', 'net_b')):
+            with self.subTest(silent=silent):
+                calls = []
+                _, mqtt, sched = make_proxy(
+                    cfg={'z2m_topics': ['zigbee2mqtt', 'net_b']},
+                    cb_on_z2m_network_discovery=lambda first, known: calls.append(first))
+                mqtt.deliver('bridge/devices', [get_a_lamp()], topic=published)
+                kill.reset_mock()
+                with self.assertLogs('Z2M', level='CRITICAL') as logs:
+                    sched.jobs[0][0]()
+                kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+                self.assertIn(f"'{silent}'", logs.output[0])
+                self.assertEqual(calls, [])
+
+    def test_single_network_notifies_immediately(self):
+        calls = []
+        _, mqtt, _ = make_proxy(cb_on_z2m_network_discovery=lambda first, known: calls.append(first))
+        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        self.assertEqual(calls, [True])
 
 
 class TestZ2MProxyNameCollisions(unittest.TestCase):
@@ -547,6 +617,7 @@ class TestZ2MProxyMatterMapping(unittest.TestCase):
             cb_is_device_interesting=lambda t: t.thing_type in ('light', 'switch'))
         self.mqtt.deliver('bridge/state', {'state': 'online'}, topic='mt2m')
         self.mqtt.deliver('bridge/devices', get_matter_bridge_devices(), topic='mt2m')
+        self.mqtt.deliver('bridge/devices', [], topic='zigbee2mqtt')
 
     def test_devices_are_registered(self):
         self.assertEqual(set(self.proxy.get_thing_names()), {'matter_1', 'matter_6'})
@@ -738,18 +809,18 @@ class TestZ2MProxyHealth(unittest.TestCase):
             self._health_check_at(minutes_since_last_msg=10)
 
     def _multi_topic_health_check(self, deliveries, check_at_minute):
-        """ Proxy on net_a (primary) and net_b. deliveries is a list of (minute, topic, subtopic); runs the connect
-        check after the first delivery, and the health check at check_at_minute """
+        """ Proxy on net_a and net_b; both publish their devices at minute 0. deliveries is a list of
+        (minute, topic, subtopic); the health check runs at check_at_minute """
         t0 = datetime(2026, 1, 1, 12, 0, 0)
         with patch('zzmw_lib.z2m.z2mproxy.datetime') as fake_dt:
             fake_dt.now.return_value = t0
             _, mqtt, sched = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
+            mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+            mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+            self._run_connect_check(sched)
             for minute, topic, subtopic in deliveries:
                 fake_dt.now.return_value = t0 + timedelta(minutes=minute)
-                payload = [get_a_lamp()] if subtopic == 'bridge/devices' else {}
-                mqtt.deliver(subtopic, payload, topic=topic)
-            with patch('zzmw_lib.z2m.z2mproxy.os.kill'):
-                self._run_connect_check(sched)
+                mqtt.deliver(subtopic, {}, topic=topic)
             health_check, _, _ = sched.jobs[1]
             fake_dt.now.return_value = t0 + timedelta(minutes=check_at_minute)
             health_check()
@@ -757,24 +828,14 @@ class TestZ2MProxyHealth(unittest.TestCase):
     def test_health_check_quiet_when_all_networks_recent(self):
         with self.assertNoLogs('Z2M', level='ERROR'):
             self._multi_topic_health_check(
-                [(0, 'net_a', 'bridge/devices'), (0, 'net_b', 'bridge/state'),
-                 (8, 'net_a', 'bridge/state'), (9, 'net_b', 'bridge/state')],
+                [(8, 'net_a', 'bridge/state'), (9, 'net_b', 'bridge/state')],
                 check_at_minute=10)
 
     def test_health_check_names_only_the_stale_network(self):
         with self.assertLogs('Z2M', level='ERROR') as logs:
-            self._multi_topic_health_check(
-                [(0, 'net_a', 'bridge/devices'), (0, 'net_b', 'bridge/state'), (8, 'net_a', 'bridge/state')],
-                check_at_minute=10)
+            self._multi_topic_health_check([(8, 'net_a', 'bridge/state')], check_at_minute=10)
         self.assertEqual(len(logs.output), 1)
         self.assertIn("'net_b'", logs.output[0])
-
-    def test_health_check_complains_about_silent_network(self):
-        with self.assertLogs('Z2M', level='ERROR') as logs:
-            self._multi_topic_health_check([(0, 'net_a', 'bridge/devices')], check_at_minute=1)
-        self.assertEqual(len(logs.output), 1)
-        self.assertIn("'net_b'", logs.output[0])
-        self.assertIn('since startup', logs.output[0])
 
 
 if __name__ == '__main__':

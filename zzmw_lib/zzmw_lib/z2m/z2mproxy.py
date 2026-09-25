@@ -50,14 +50,11 @@ class Z2MProxy:
 
     Args:
         cfg: Configuration dict. 'z2m_topics' is a list of MQTT base topics, one per network (device names must be
-             unique across networks). The first one is the primary network. Defaults to ['zigbee2mqtt'].
+             unique across networks). All networks must be up on startup. Defaults to ['zigbee2mqtt'].
         mqtt: MqttProxy instance for MQTT communication
     """
     def __init__(self, cfg, mqtt, scheduler, cb_on_z2m_network_discovery=None, cb_is_device_interesting=None):
         self._z2m_topics = _get_z2m_topics(cfg)
-        # Primary network: must be up on startup. We monitor this one is up.
-        # TODO: Remove the main z2m topic once multi topic support is complete, so that we monitor ALL topics.
-        self._main_z2m_topic = self._z2m_topics[0]
         self._z2m_topics_discovered = set()
         self._known_things = {}
         # Full MQTT topic ('<z2m_topic>/<subtopic>') -> list of callbacks, called as cb(subtopic, payload)
@@ -68,7 +65,8 @@ class Z2MProxy:
 
         self._aliases = {} # Can be used to set up aliases to things if needed
         self._last_device_id = 0
-        self._z2m_devices_discovered = False
+        # The first discovery callback waits until all networks published their devices
+        self._first_discovery_notified = False
         self._cb_on_z2m_network_discovery = cb_on_z2m_network_discovery
         self._cb_is_device_interesting = cb_is_device_interesting or (lambda x: True)
 
@@ -114,21 +112,17 @@ class Z2MProxy:
 
 
     def _z2m_connect_check(self):
-        if self._main_z2m_topic not in self._z2m_topics_discovered:
-            # If Z2M didn't publish its network, crash so that we try again.
+        missing = [t for t in self._z2m_topics if t not in self._z2m_topics_discovered]
+        if missing:
+            # If a network didn't publish its devices, crash so that we try again. This also means the service never
+            # got its first discovery callback, since that waits for all networks.
             # We could unsubscribe and subscribe to z2m/bridge/devices, but since this
             # hasn't ever happend it's probably safe to kill and restart instead of retrying
-            log.critical("Z2M didn't publish a network on '%s'. Is Z2M down? "
+            log.critical("Z2M didn't publish a network on %s. Is Z2M down? "
                          "This can happen if an mqtt message is lost, "
-                         "and it's typically benign if a restart of the service fixes the problem.", self._main_z2m_topic)
+                         "and it's typically benign if a restart of the service fixes the problem.", missing)
             os.kill(os.getpid(), signal.SIGTERM)
             return
-
-        # Only the primary network is required: others may come up later (or be test topics with no network)
-        for z2m_topic in self._z2m_topics:
-            if z2m_topic not in self._z2m_topics_discovered:
-                log.warning("Z2M network on '%s' hasn't published its devices yet, its things will be missing "
-                            "until it does", z2m_topic)
 
         self._scheduler.add_job(
             self._z2m_health_check,
@@ -141,10 +135,9 @@ class Z2MProxy:
         """ Single job for all networks: complain about each one that has gone quiet """
         now = datetime.now()
         for z2m_topic in self._z2m_topics:
-            last_msg_t = self._z2m_last_msg_t.get(z2m_topic)
-            if last_msg_t is None:
-                log.error("Z2M network on '%s' hasn't sent any message since startup, is it alive?", z2m_topic)
-            elif now - last_msg_t > timedelta(minutes=self._z2m_ping_timeout_minutes):
+            # Every network sent at least bridge/devices, or the connect check would have killed the service
+            last_msg_t = self._z2m_last_msg_t[z2m_topic]
+            if now - last_msg_t > timedelta(minutes=self._z2m_ping_timeout_minutes):
                 log.error("Z2M network on '%s' hasn't sent a message in more than %d minutes, is it alive?",
                           z2m_topic, self._z2m_ping_timeout_minutes)
 
@@ -175,8 +168,6 @@ class Z2MProxy:
                 else:
                     self._reg_to_ignore(thing)
 
-        is_first_discovery = not self._z2m_devices_discovered
-        self._z2m_devices_discovered = True
         self._z2m_topics_discovered.add(z2m_topic)
 
         if not device_added:
@@ -186,6 +177,22 @@ class Z2MProxy:
         monkeypatch_switches(self)
         identify_buttons(self)
         identify_sensors(self)
+
+        if self._first_discovery_notified:
+            self._notify_discovery(is_first_discovery=False)
+            return
+
+        # Hold the first notification until every network published its devices (bridge/devices is retained, so
+        # they should all arrive right after connecting). If some never do, the connect check kills the service.
+        missing = [t for t in self._z2m_topics if t not in self._z2m_topics_discovered]
+        if missing:
+            log.info('Waiting for networks %s to publish their devices before notifying discovery', missing)
+            return
+        self._first_discovery_notified = True
+        self._notify_discovery(is_first_discovery=True)
+
+    def _notify_discovery(self, is_first_discovery):
+        """ Tell the service about the known things """
         if not self._cb_on_z2m_network_discovery:
             log.info('Zigbee2Mqtt network,%s device definition published. Discovered %d things.',
                      " first" if is_first_discovery else "", len(self._known_things.keys()))
