@@ -104,6 +104,9 @@ class Zigbee2MqttThing:
     on_state_change_from_mqtt: Callable = None
     _last_notified_state: str = None
     user_defined: map = None
+    # False while the network reports the device as offline (<topic>/<name>/availability). Devices that never report
+    # availability are always available.
+    available: bool = True
 
     def dictify(self):
         """ Get metadata on this thing """
@@ -121,6 +124,7 @@ class Zigbee2MqttThing:
             "is_zigbee_mqtt": self.is_zigbee_mqtt,
             "user_defined": self.user_defined,
             "z2m_topic": self.z2m_topic,
+            "available": self.available,
         }
 
     def debug_str(self):
@@ -214,11 +218,24 @@ class Zigbee2MqttThing:
         if thing_updated and self.on_any_change_from_mqtt is not None:
             self.on_any_change_from_mqtt(self)
 
-        if thing_updated and self.on_state_change_from_mqtt is not None:
-            snapshot = json.dumps(self.get_json_state(), sort_keys=True)
-            if snapshot != self._last_notified_state:
-                self._last_notified_state = snapshot
-                self.on_state_change_from_mqtt(self)
+        if thing_updated:
+            self._notify_state_change()
+
+    def on_availability_update(self, available):
+        """ The network reported this device as online (True) or offline (False) """
+        if available == self.available:
+            return
+        self.available = available
+        self._notify_state_change()
+
+    def _notify_state_change(self):
+        """ Invoke on_state_change_from_mqtt, if the thing's state changed since the last time it was invoked """
+        if self.on_state_change_from_mqtt is None:
+            return
+        snapshot = json.dumps(self.get_json_state(), sort_keys=True)
+        if snapshot != self._last_notified_state:
+            self._last_notified_state = snapshot
+            self.on_state_change_from_mqtt(self)
 
     def set(self, key, val):
         """ Set value (by user). Propagates to value object, applies metadata-validation """
@@ -258,6 +275,7 @@ class Zigbee2MqttThing:
                 state.update(val)
         state['thing_name'] = self.name
         state['extras'] = self.extras.get_all()
+        state['available'] = self.available
         return state
 
     def make_mqtt_status_update(self):

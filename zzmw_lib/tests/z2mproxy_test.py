@@ -652,6 +652,12 @@ class TestZ2MProxyMatterMapping(unittest.TestCase):
         self.proxy.broadcast_thing(light)
         self.assertEqual(self.mqtt.broadcasts, [('mt2m/matter_1/set', {'state': 'ON', 'brightness': 100})])
 
+    def test_availability(self):
+        self.mqtt.deliver('matter_1/availability', {'state': 'offline'}, topic='mt2m')
+        self.mqtt.deliver('matter_6/availability', {'state': 'online'}, topic='mt2m')
+        self.assertFalse(self.proxy.get_thing('matter_1').available)
+        self.assertTrue(self.proxy.get_thing('matter_6').available)
+
     def test_ui_numeric_strings_are_sent_as_numbers(self):
         # The matter bridge rejects '{"brightness": "223"}': expected a number
         light = self.proxy.get_thing('matter_6')
@@ -659,6 +665,82 @@ class TestZ2MProxyMatterMapping(unittest.TestCase):
         self.proxy.broadcast_thing(light)
         self.assertEqual(self.mqtt.broadcasts, [('mt2m/matter_6/set', {'brightness': 223})])
         self.assertIsInstance(self.mqtt.broadcasts[0][1]['brightness'], int)
+
+
+class TestZ2MProxyAvailability(unittest.TestCase):
+    """ <topic>/<name>/availability reports, as {"state": "online"|"offline"} """
+    def setUp(self):
+        self.proxy, self.mqtt, _ = make_proxy(cb_is_device_interesting=lambda t: t.thing_type == 'light')
+        self.mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
+        self.lamp = self.proxy.get_thing('Oficina')
+
+    def test_offline_and_online(self):
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.assertFalse(self.lamp.available)
+        self.assertFalse(self.proxy.get_thing_meta('Oficina')['available'])
+        self.mqtt.deliver('Oficina/availability', {'state': 'online'})
+        self.assertTrue(self.lamp.available)
+
+    def test_availability_change_is_pushed_as_state_change(self):
+        pushed = []
+        self.lamp.on_state_change_from_mqtt = lambda t: pushed.append(t.get_json_state()['available'])
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.mqtt.deliver('Oficina/availability', {'state': 'online'})
+        self.assertEqual(pushed, [False, True])
+
+    def test_availability_values(self):
+        for state, available in (('online', True), ('offline', False), ('ONLINE', True), ('Offline', False),
+                                 (' offline ', False), ('true', True), ('FALSE', False), ('1', True), ('0', False),
+                                 (True, True), (False, False), (1, True), (0, False)):
+            with self.subTest(state=state):
+                with self.assertNoLogs('Z2M', level='WARNING'):
+                    self.mqtt.deliver('Oficina/availability', {'state': state})
+                self.assertEqual(self.lamp.available, available)
+
+    def test_unknown_availability_is_ignored(self):
+        for payload in ({'state': 'sleepy'}, {'state': 'yes'}, {'state': 2}, {'state': 1.0}, {'state': None}, {},
+                        ['offline']):
+            with self.subTest(payload=payload):
+                with self.assertLogs('Z2M', level='WARNING'):
+                    self.mqtt.deliver('Oficina/availability', payload)
+                self.assertTrue(self.lamp.available)
+
+    def test_uninteresting_device_availability_is_silent(self):
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('SensorPuertaEntrada/availability', {'state': 'offline'})
+
+    def test_commands_to_unavailable_thing_are_dropped(self):
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.lamp.set('state', True)
+        with self.assertLogs('Z2M', level='WARNING') as logs:
+            self.proxy.broadcast_thing(self.lamp)
+        self.assertIn('unavailable', logs.output[0])
+        self.assertEqual(self.mqtt.broadcasts, [])
+
+    def test_dropped_commands_are_not_replayed(self):
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.lamp.set('state', True)
+        with self.assertLogs('Z2M', level='WARNING'):
+            self.proxy.broadcast_thing(self.lamp)
+        self.mqtt.deliver('Oficina/availability', {'state': 'online'})
+        self.proxy.broadcast_thing(self.lamp)
+        self.assertEqual(self.mqtt.broadcasts, [])
+        self.lamp.set('state', False)
+        self.proxy.broadcast_thing(self.lamp)
+        self.assertEqual(self.mqtt.broadcasts, [('zigbee2mqtt/Oficina/set', {'state': 'OFF'})])
+
+    def test_extras_are_broadcast_while_unavailable(self):
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.lamp.extras.set('foo', 1)
+        self.proxy.broadcast_thing(self.lamp)
+        self.assertEqual(self.mqtt.broadcasts, [('zmw_thing_extras/Oficina', {'foo': 1})])
+
+    def test_state_reports_still_apply_while_unavailable(self):
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.mqtt.deliver('Oficina', {'state': 'ON'})
+        self.assertEqual(self.lamp.get('state'), True)
 
 
 class TestZ2MProxyQueries(unittest.TestCase):

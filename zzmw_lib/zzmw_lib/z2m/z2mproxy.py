@@ -34,6 +34,22 @@ def _get_z2m_topics(cfg):
                 raise ValueError(f"z2m_topics entries {a!r} and {b!r} overlap, base topics must be distinct")
     return list(topics)
 
+_AVAILABILITY_VALUES = {
+    'online': True, 'true': True, '1': True,
+    'offline': False, 'false': False, '0': False,
+}
+
+def _parse_availability(state):
+    """ True/False for the state of an availability report, or None if it isn't one we know. Z2M sends
+    'online'/'offline'; also accepts true/false and 1/0, as booleans, numbers or strings, in any case. """
+    if isinstance(state, bool):
+        return state
+    if isinstance(state, int):
+        state = str(state)
+    if isinstance(state, str):
+        return _AVAILABILITY_VALUES.get(state.strip().lower())
+    return None
+
 def _describe_origin(thing):
     """ Where a thing comes from, for logs """
     if thing.z2m_topic == ZMW_NO_MQTT_BACKING:
@@ -257,7 +273,7 @@ class Z2MProxy:
     def _register_or_replace(self, thing):
         """ Add or replace a thing to the MQTT registry """
         self._known_things[thing.name] = thing
-        self._add_thing_topic_cbs(thing, thing.on_mqtt_update)
+        self._add_thing_topic_cbs(thing, thing.on_mqtt_update, functools.partial(self._on_thing_availability, thing))
 
         # We're never unsubscribing if the thing goes away, but the entire service will never forget unreg'ed things either
         # so it's fine. It'd require a bit of refactoring to properly track registered objects, and since this should very
@@ -270,15 +286,29 @@ class Z2MProxy:
         register only to interesting messages. """
         def _ignore_msg(_topic, _payload):
             pass
-        self._add_thing_topic_cbs(thing, _ignore_msg)
+        self._add_thing_topic_cbs(thing, _ignore_msg, _ignore_msg)
 
-    def _add_thing_topic_cbs(self, thing, cb):
+    def _add_thing_topic_cbs(self, thing, cb, availability_cb):
         """ Register cb for every topic a thing may use: its name, its unaliased name and its address, plus their
-        /set echoes. These often coincide (no alias; unnamed devices are named after their address), so register each
-        distinct topic once, otherwise cb would run more than once per message. """
+        /set echoes; and availability_cb for their /availability reports. These often coincide (no alias; unnamed
+        devices are named after their address), so register each distinct topic once, otherwise cb would run more
+        than once per message. """
         for subtopic in dict.fromkeys((thing.name, thing.real_name, thing.address)):
             self._add_topic_cb(thing.z2m_topic, subtopic, cb)
             self._add_topic_cb(thing.z2m_topic, f'{subtopic}/set', cb)
+            self._add_topic_cb(thing.z2m_topic, f'{subtopic}/availability', availability_cb)
+
+    def _on_thing_availability(self, thing, _topic, payload):
+        """ <topic>/<name>/availability report, as {"state": "online"|"offline"} (or a common alternative, see
+        _parse_availability) """
+        available = _parse_availability(payload.get('state') if isinstance(payload, dict) else None)
+        if available is None:
+            log.warning("Thing %s on '%s' reported an unknown availability %s, ignoring it",
+                        thing.name, thing.z2m_topic, payload)
+            return
+        if available != thing.available:
+            log.info("Thing %s on '%s' is now %s", thing.name, thing.z2m_topic, 'online' if available else 'offline')
+        thing.on_availability_update(available)
 
     def register_virtual_thing(self, thing):
         """Register a virtual (non-zigbee) thing.
@@ -363,6 +393,9 @@ class Z2MProxy:
         status = thing.make_mqtt_status_update()
         if len(status.keys()) != 0 and thing.z2m_topic == ZMW_NO_MQTT_BACKING:
             log.error('Thing %s has no MQTT network, dropping update %s', thing.name, status)
+        elif len(status.keys()) != 0 and not thing.available:
+            # Don't queue it for when the device is back: by then it's probably not wanted any more
+            log.warning('Thing %s is unavailable, dropping update %s', thing.name, status)
         elif len(status.keys()) != 0:
             self._mqtt.broadcast(topic, status)
             log.debug(

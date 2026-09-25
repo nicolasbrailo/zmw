@@ -103,6 +103,17 @@ function buildGroupedThings(serverGroups, lights, switches, buttons) {
   return { groups, sortedPrefixes };
 }
 
+// Props for the <li> of a thing: greyed out and not interactive while its network reports it offline
+function thingAvailabilityProps(thing) {
+  if (thing.available !== false) {
+    return {};
+  }
+  return {
+    style: { opacity: 0.4, pointerEvents: 'none' },
+    title: `${thing.thing_name} is unavailable`,
+  };
+}
+
 class ZmwLight extends React.Component {
   constructor(props) {
     super(props);
@@ -252,7 +263,7 @@ class ZmwLight extends React.Component {
       ? light.thing_name.slice(this.props.prefix.length)
       : light.thing_name;
     return (
-      <li>
+      <li {...thingAvailabilityProps(light)}>
         <input
           id={`${light.thing_name}_light_is_on`}
           type="checkbox"
@@ -317,7 +328,7 @@ class ZmwSwitch extends React.Component {
       ? sw.thing_name.slice(this.props.prefix.length)
       : sw.thing_name;
     return (
-      <li>
+      <li {...thingAvailabilityProps(sw)}>
         <input
           id={`${sw.thing_name}_switch_is_on`}
           type="checkbox"

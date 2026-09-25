@@ -114,6 +114,29 @@ class TestThings(unittest.TestCase):
         self.assertEqual(d['actions']['state']['value']['meta']['type'], 'binary')
         self.assertEqual(d['actions']['brightness']['value']['meta']['type'], 'numeric')
 
+    def test_available_by_default(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        self.assertTrue(t.available)
+        self.assertEqual(t.get_json_state()['available'], True)
+        self.assertEqual(t.dictify()['available'], True)
+
+    def test_availability_change_notifies_state_change(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        notified = []
+        t.on_state_change_from_mqtt = lambda thing: notified.append(thing.get_json_state()['available'])
+        t.on_availability_update(False)
+        self.assertFalse(t.available)
+        t.on_availability_update(False)
+        t.on_availability_update(True)
+        self.assertEqual(notified, [False, True])
+
+    def test_availability_change_is_not_an_action_change(self):
+        t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
+        any_change = []
+        t.on_any_change_from_mqtt = lambda thing: any_change.append(thing.name)
+        t.on_availability_update(False)
+        self.assertEqual(any_change, [])
+
     def test_numeric_string_from_user_is_stored_as_number(self):
         # UIs and REST calls send numbers as strings; MQTT must get the type the schema declares
         t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
@@ -201,7 +224,7 @@ class TestThings(unittest.TestCase):
 
     def test_values_are_actions(self):
         t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
-        values_names = set(t.get_json_state().keys()) - {'thing_name', 'extras'}
+        values_names = set(t.get_json_state().keys()) - {'thing_name', 'extras', 'available'}
         actions = set(t.actions)
         self.assertEqual(actions.intersection(values_names), values_names)
 
@@ -209,8 +232,9 @@ class TestThings(unittest.TestCase):
         t = parse_from_zigbee2mqtt(0, get_a_lamp(), 'zigbee2mqtt')
         state = t.get_json_state()
         self.assertEqual(state['extras'], {})
+        self.assertEqual(state['available'], True)
         for k in state.keys():
-            if k in ('thing_name', 'extras'):
+            if k in ('thing_name', 'extras', 'available'):
                 continue
             self.assertEqual(state[k], None)
             self.assertEqual(t.get(k), None)
