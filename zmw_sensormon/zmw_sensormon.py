@@ -6,7 +6,7 @@ from zzmw_lib.service_runner import service_runner
 from zzmw_lib.z2m.z2mproxy import Z2MProxy
 from zzmw_lib.z2m.www import Z2Mwebservice
 
-from sensors import SensorsHistory
+from sensors import SensorsHistory, sanitize_sql_identifier
 from virtual_metrics import get_virtual_metrics, compute_virtual_metrics
 from outside_weather import OutsideWeatherSensor
 
@@ -128,6 +128,8 @@ class HomeboardMonitor:
             # Commands and reply topics (e.g. 'next', 'get_mqtt_description_reply') don't match
             return
         name, action = parts
+        # Homeboard names may contain chars that aren't valid in a sensor (table) name, eg '-'
+        name = sanitize_sql_identifier(name)
 
         if action == 'occupancy':
             if not isinstance(payload, dict):

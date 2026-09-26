@@ -61,6 +61,20 @@ def _validate_sql_identifier(identifier, identifier_type="identifier"):
 
     return identifier
 
+def sanitize_sql_identifier(name):
+    """
+    Transforms an arbitrary name (eg 'portaloft-portal') into something that passes
+    _validate_sql_identifier (eg 'portaloft_portal'). Invalid chars become underscores,
+    a leading digit or reserved keyword gets an underscore added, and the result is
+    truncated to the max length. Different names may map to the same identifier.
+    """
+    ident = re.sub(r'[^a-zA-Z0-9_]', '_', str(name))
+    if not ident or ident[0].isdigit():
+        ident = '_' + ident
+    if ident.lower() in _SQLITE_KEYWORDS:
+        ident = ident + '_'
+    return ident[:_MAX_IDENTIFIER_LENGTH]
+
 def _validate_time_unit(unit):
     """Validates time units used in SQLite datetime() function to prevent injection."""
     valid_units = {'years', 'months', 'days', 'hours', 'minutes', 'seconds'}
