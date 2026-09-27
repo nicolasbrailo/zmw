@@ -165,7 +165,8 @@ class TestZ2MProxyDiscovery(unittest.TestCase):
     def test_devices_missing_from_republish_are_kept(self):
         proxy, mqtt, _ = make_proxy()
         mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
-        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        with self.assertLogs('Z2M', level='WARNING'):
+            mqtt.deliver('bridge/devices', [get_a_lamp()])
         self.assertEqual(set(proxy.get_thing_names()), {'Oficina', 'SensorPuertaEntrada'})
 
     def test_lights_are_monkeypatched(self):
@@ -776,6 +777,119 @@ class TestZ2MProxyAvailability(unittest.TestCase):
         self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
         self.mqtt.deliver('Oficina', {'state': 'ON'})
         self.assertEqual(self.lamp.get('state'), True)
+
+
+class TestZ2MProxyMissingDevices(unittest.TestCase):
+    """ Known things that their network stops listing in bridge/devices are marked unavailable, until listed again """
+    def setUp(self):
+        self.proxy, self.mqtt, _ = make_proxy()
+        self.mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
+        self.lamp = self.proxy.get_thing('Oficina')
+        self.sensor = self.proxy.get_thing('SensorPuertaEntrada')
+
+    def _remove_lamp(self):
+        with self.assertLogs('Z2M', level='WARNING') as logs:
+            self.mqtt.deliver('bridge/devices', [get_contact_sensor()])
+        return logs.output
+
+    def test_listed_things_are_available(self):
+        self.assertTrue(self.lamp.available)
+        self.assertTrue(self.sensor.available)
+
+    def test_missing_thing_is_unavailable_but_kept(self):
+        logs = self._remove_lamp()
+        self.assertIn('Oficina', logs[0])
+        self.assertFalse(self.lamp.available)
+        self.assertTrue(self.sensor.available)
+        self.assertIs(self.proxy.get_thing('Oficina'), self.lamp)
+
+    def test_missing_is_logged_once(self):
+        self._remove_lamp()
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('bridge/devices', [get_contact_sensor()])
+
+    def test_thing_listed_again_is_available(self):
+        self._remove_lamp()
+        self.mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
+        self.assertTrue(self.lamp.available)
+
+    def test_missing_and_back_are_pushed_as_state_changes(self):
+        pushed = []
+        self.lamp.on_state_change_from_mqtt = lambda t: pushed.append(t.get_json_state()['available'])
+        self._remove_lamp()
+        self.mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
+        self.assertEqual(pushed, [False, True])
+
+    def test_commands_to_missing_thing_are_dropped(self):
+        self._remove_lamp()
+        self.lamp.set('state', True)
+        with self.assertLogs('Z2M', level='WARNING'):
+            self.proxy.broadcast_thing(self.lamp)
+        self.assertEqual(self.mqtt.broadcasts, [])
+
+    def test_availability_reports_are_ignored_while_missing(self):
+        self._remove_lamp()
+        self.mqtt.deliver('Oficina/availability', {'state': 'online'})
+        self.assertFalse(self.lamp.available)
+
+    def test_reported_offline_thing_stays_offline_on_republish(self):
+        self.mqtt.deliver('Oficina/availability', {'state': 'offline'})
+        self.mqtt.deliver('bridge/devices', [get_a_lamp(), get_contact_sensor()])
+        self.assertFalse(self.lamp.available)
+
+    def test_replaced_device_with_same_name_is_not_missing(self):
+        replaced = get_a_lamp()
+        replaced['ieee_address'] = '0x0000000000000003'
+        self.mqtt.deliver('bridge/devices', [replaced, get_contact_sensor()])
+        self.assertTrue(self.lamp.available)
+
+    def test_renamed_device_is_missing(self):
+        renamed = get_a_lamp()
+        renamed['friendly_name'] = 'OficinaNueva'
+        with self.assertLogs('Z2M', level='WARNING'):
+            self.mqtt.deliver('bridge/devices', [renamed, get_contact_sensor()])
+        self.assertFalse(self.lamp.available)
+        self.assertTrue(self.proxy.get_thing('OficinaNueva').available)
+
+    def test_unparseable_entry_counts_as_listed(self):
+        broken = get_a_lamp()
+        del broken['ieee_address']
+        with self.assertLogs('Z2M', level='WARNING') as logs:
+            self.mqtt.deliver('bridge/devices', [broken, get_contact_sensor()])
+        self.assertFalse(any('no longer listed' in l for l in logs.output), logs.output)
+        self.assertTrue(self.lamp.available)
+
+    def test_non_list_device_list_is_ignored(self):
+        with self.assertLogs('Z2M', level='ERROR'):
+            self.mqtt.deliver('bridge/devices', {'not': 'a list'})
+        self.assertTrue(self.lamp.available)
+        self.assertTrue(self.sensor.available)
+
+    def test_aliased_thing_is_matched_by_real_name(self):
+        proxy, mqtt, _ = make_proxy()
+        proxy._aliases = {'Oficina': 'Office'}
+        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        office = proxy.get_thing('Office')
+        mqtt.deliver('bridge/devices', [get_a_lamp()])
+        self.assertTrue(office.available)
+        with self.assertLogs('Z2M', level='WARNING'):
+            mqtt.deliver('bridge/devices', [])
+        self.assertFalse(office.available)
+
+    def test_other_networks_and_virtual_things_are_unaffected(self):
+        proxy, mqtt, _ = make_proxy(cfg={'z2m_topics': ['net_a', 'net_b']})
+        vt = create_virtual_thing('Weather', 'virtual', 'sensor', 'SomeApi')
+        proxy.register_virtual_thing(vt)
+        mqtt.deliver('bridge/devices', [get_a_lamp()], topic='net_a')
+        mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        mqtt.deliver('bridge/devices', [get_other_lamp()], topic='net_b')
+        self.assertTrue(proxy.get_thing('Oficina').available)
+        self.assertTrue(vt.available)
+        with self.assertLogs('Z2M', level='WARNING'):
+            mqtt.deliver('bridge/devices', [], topic='net_b')
+        self.assertFalse(proxy.get_thing('OtherLamp').available)
+        self.assertTrue(proxy.get_thing('Oficina').available)
+        self.assertTrue(vt.available)
 
 
 class TestZ2MProxyQueries(unittest.TestCase):

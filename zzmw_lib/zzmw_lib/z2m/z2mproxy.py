@@ -75,6 +75,8 @@ class Z2MProxy:
         self._known_things = {}
         # Things we refused to register because their name is taken, already logged: {(z2m_topic, name, address)}
         self._rejected_things = set()
+        # Names of known things that their network stopped listing in bridge/devices (marked unavailable)
+        self._missing_things = set()
         # Routes each network's messages to things; bridge rules go first, so the first message already has them
         self._router = Z2MTopicRouter()
         for z2m_topic in self._z2m_topics:
@@ -100,6 +102,11 @@ class Z2MProxy:
 
     def _on_msg_device_list_published(self, z2m_topic, _topic, payload):
         log.info('Zigbee2Mqtt bridge on %s published list of devices', z2m_topic)
+        if not isinstance(payload, list):
+            log.error("Network '%s' published a device list that isn't a list, ignoring it: %s",
+                      z2m_topic, str(payload)[:100])
+            return
+
         device_added = False
         for jsonthing in payload:
             self._last_device_id += 1
@@ -119,6 +126,7 @@ class Z2MProxy:
                           name or str(jsonthing)[:100], z2m_topic, ex, exc_info=True)
 
         self._networks_health.on_devices_published(z2m_topic)
+        self._update_missing_things(z2m_topic, payload)
 
         if not device_added:
             log.info('Bridge published network definition. No new devices were found.')
@@ -140,6 +148,33 @@ class Z2MProxy:
             return
         self._first_discovery_notified = True
         self._notify_discovery(is_first_discovery=True)
+
+    def _update_missing_things(self, z2m_topic, payload):
+        """ Mark known things of z2m_topic that aren't in its device list as unavailable, and things we marked
+        before as available again once they're back. Things are never unregistered (services hold references to
+        them), so a device that's gone stays known until the service restarts. """
+        # Match by the name the network uses for the device (commands go to <z2m_topic>/<real_name>/set), so a device
+        # replaced under the same name counts as present, and a renamed one as gone. Entries we failed to parse
+        # still count as present.
+        listed_names = set()
+        for jsonthing in payload:
+            if isinstance(jsonthing, dict):
+                listed_names.add(jsonthing.get('friendly_name',
+                                               jsonthing.get('ieee_address', jsonthing.get('unique_id'))))
+
+        for thing in self._known_things.values():
+            if thing.z2m_topic != z2m_topic:
+                continue
+            listed = thing.real_name in listed_names
+            if not listed and thing.name not in self._missing_things:
+                log.warning("Thing %s is no longer listed by network '%s', marking it unavailable",
+                            thing.name, z2m_topic)
+                self._missing_things.add(thing.name)
+                thing.on_availability_update(False)
+            elif listed and thing.name in self._missing_things:
+                log.info("Thing %s is listed again by network '%s', marking it available", thing.name, z2m_topic)
+                self._missing_things.discard(thing.name)
+                thing.on_availability_update(True)
 
     def _notify_discovery(self, is_first_discovery):
         """ Tell the service about the known things """
@@ -221,6 +256,11 @@ class Z2MProxy:
         if available is None:
             log.warning("Thing %s on '%s' reported an unknown availability %s, ignoring it",
                         thing.name, thing.z2m_topic, payload)
+            return
+        if thing.name in self._missing_things:
+            # Its network doesn't list it (eg a stale retained report): it becomes available once it's listed again
+            log.debug("Ignoring availability report for %s on '%s', its network doesn't list it",
+                      thing.name, thing.z2m_topic)
             return
         if available != thing.available:
             log.info("Thing %s on '%s' is now %s", thing.name, thing.z2m_topic, 'online' if available else 'offline')
