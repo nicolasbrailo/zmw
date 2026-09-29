@@ -32,12 +32,26 @@ class Homeboard extends React.Component {
     // The boxes are seeded once from whatever filter is in force; after that
     // they're the user's to type in, and the 5s refresh must not stomp them
     this._albumBoxesSeeded = false;
+    // The homeboard's QR code links here with ?hb_id=<id>: scroll to that
+    // board once, after the first load, and leave scrolling to the user after
+    this._scrollToHbId = new URLSearchParams(window.location.search).get('hb_id');
     this._timer = null;
   }
 
   componentDidMount() {
     this.on_app_became_visible();
     this._timer = setInterval(this.refresh, 5000);
+  }
+
+  componentDidUpdate() {
+    if (!this._scrollToHbId || this.state.loading) return;
+    const card = document.getElementById(Homeboard.cardId(this._scrollToHbId));
+    this._scrollToHbId = null;
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  static cardId(hbId) {
+    return `homeboard-${hbId}`;
   }
 
   componentWillUnmount() {
@@ -210,8 +224,10 @@ class Homeboard extends React.Component {
     this.sendAlbumFilter({});
   }
 
-  static describeAlbumFilter(f) {
-    if (!f) return 'not set since this service started';
+  // unset is what a missing filter means where it's shown: nothing sent from
+  // here yet, or a device that doesn't report the filter it runs
+  static describeAlbumFilter(f, unset = 'not set since this service started') {
+    if (!f || typeof f !== 'object') return unset;
     const parts = [];
     if (f.name) parts.push(`named ${f.name}`);
     if (f.exclude) parts.push(`except ${f.exclude}`);
@@ -223,7 +239,7 @@ class Homeboard extends React.Component {
   renderAlbumFilter() {
     const {
       albumName, albumExclude, albumFromYear, albumToYear,
-      albumFilter, albumFilterStatus,
+      albumFilter, albumFilterStatus, homeboards,
     } = this.state;
     return (
       <div className="card">
@@ -289,7 +305,19 @@ class Homeboard extends React.Component {
             Show all albums
           </button>
         </div>
-        <div>In force: <em>{Homeboard.describeAlbumFilter(albumFilter)}</em></div>
+        <div>Last sent from here: <em>{Homeboard.describeAlbumFilter(albumFilter)}</em></div>
+        {/* What each device says it runs, which is what's really in force: a
+            device keeps its filter across our restarts, and one that was
+            offline missed the last one we sent */}
+        <ul>
+          {homeboards.map((hb) => (
+            <li key={hb.id}>
+              {hb.id}: <em>{Homeboard.describeAlbumFilter(
+                Homeboard.part(Homeboard.part(hb.device_state, 'slideshow'), 'album_filter'),
+                'unknown')}</em>
+            </li>
+          ))}
+        </ul>
         {albumFilterStatus && (<div><em>{albumFilterStatus}</em></div>)}
       </div>
     );
@@ -324,20 +352,82 @@ class Homeboard extends React.Component {
     );
   }
 
+  // A device's state record is one JSON object whose values may all be null
+  // (unknown, or meaningless on that device), so every part of it is read
+  // through this: the sub-object, or null when it's absent or not an object
+  static part(obj, key) {
+    const v = (obj && typeof obj === 'object') ? obj[key] : null;
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null;
+  }
+
+  // Seconds from a device's unix timestamp until now, or null without one.
+  // Clamped because the device's clock and the browser's needn't agree.
+  static secsSince(ts) {
+    if (typeof ts !== 'number') return null;
+    return Math.max(0, Math.round(Date.now() / 1000 - ts));
+  }
+
   renderOccupancy(occ) {
-    if (!occ) {
+    if (!occ || typeof occ.occupied !== 'boolean') {
       return (<div>Occupancy: <em>unknown</em></div>);
     }
-    const state = occ.occupied ? 'Occupied' : 'Empty';
-    const distance = (typeof occ.distance_cm === 'number')
-      ? `${occ.distance_cm} cm`
-      : 'unknown';
-    const ago = (typeof occ.ts === 'number')
-      ? ` (${Math.max(0, Math.round(Date.now() / 1000 - occ.ts))}s ago)`
-      : '';
+    // distance_cm is the one extra key a device may add that we know by name
+    // (the homeboard's mmWave sensor); it's absent on a Portal
     return (
       <div>
-        Occupancy: <strong>{state}</strong> — distance {distance}{ago}
+        Occupancy: <strong>{occ.occupied ? 'Occupied' : 'Empty'}</strong>
+        {typeof occ.distance_cm === 'number' && (<> — distance {occ.distance_cm} cm</>)}
+        {occ.source && (<> (from {occ.source})</>)}
+      </div>
+    );
+  }
+
+  static describeSlideshow(ss) {
+    if (!ss || typeof ss.active !== 'boolean') return 'unknown';
+    const parts = [ss.active ? 'Active' : 'Not active'];
+    if (ss.shown_in) parts.push(`in ${ss.shown_in}`);
+    if (ss.night_cover === true) parts.push('covered for the night');
+    return parts.join(', ');
+  }
+
+  renderScreen(screen) {
+    if (!screen || typeof screen.on !== 'boolean') {
+      return (<div>Screen: <em>unknown</em></div>);
+    }
+    const since = Homeboard.secsSince(screen.since);
+    const reason = screen.wanted_reason ? ` (${screen.wanted_reason})` : '';
+    // wanted null means the platform decides; otherwise the device is holding
+    // the screen one way, and it not being that way is worth seeing
+    const wanted = (screen.wanted === 'on' || screen.wanted === 'off') ? screen.wanted : null;
+    const mismatch = wanted !== null && (wanted === 'on') !== screen.on;
+    return (
+      <div>
+        Screen: <strong>{screen.on ? 'On' : 'Off'}</strong>
+        {since !== null && (<> for {this.formatUptime(since)}</>)}
+        {screen.screensaver === true && (<>, screensaver running</>)}
+        {wanted !== null && !mismatch && (<> — held {wanted}{reason}</>)}
+        {mismatch && (
+          <> — <strong style={{ color: 'var(--cerror)' }}>should be {wanted}{reason}</strong></>
+        )}
+      </div>
+    );
+  }
+
+  // An empty list means the device is fine, so only a non-empty one shows
+  renderErrors(errors) {
+    if (!Array.isArray(errors) || errors.length === 0) return null;
+    return (
+      <div className="warn">
+        <strong>Errors:</strong>
+        <ul>
+          {errors.map((e, i) => (
+            <li key={i}>
+              {(e && typeof e === 'object')
+                ? (<>{e.source && (<strong>{e.source}: </strong>)}{String(e.message ?? '')}</>)
+                : String(e)}
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }
@@ -498,18 +588,113 @@ class Homeboard extends React.Component {
     );
   }
 
+  // [dotted key, value] for everything in the state record that isn't
+  // rendered by name. Devices add keys of their own, and those are still
+  // shown, generically, rather than dropped.
+  static unknownStateKeys(record) {
+    // Keys rendered by name, per part; null for a part that isn't an object
+    const known = {
+      occupancy: ['occupied', 'source', 'distance_cm'],
+      slideshow: ['active', 'shown_in', 'night_cover', 'album_filter'],
+      screen: ['on', 'since', 'screensaver', 'wanted', 'wanted_reason'],
+      errors: null,
+      battery: ['level', 'status', 'plugged', 'health', 'technology', 'temperature_c', 'voltage_v'],
+      wifi_rssi: null,
+      light_lux: null,
+      app: ['version', 'version_code', 'started_at', 'device_booted_at'],
+      ts: null,
+    };
+    const out = [];
+    Object.entries(record).forEach(([key, val]) => {
+      if (!(key in known)) {
+        out.push([key, val]);
+        return;
+      }
+      if (!known[key] || !val || typeof val !== 'object' || Array.isArray(val)) return;
+      Object.entries(val).forEach(([sub, subVal]) => {
+        if (!known[key].includes(sub)) out.push([`${key}.${sub}`, subVal]);
+      });
+    });
+    return out;
+  }
+
+  static describeBattery(b) {
+    const parts = [];
+    if (typeof b.level === 'number') parts.push(`${b.level}%`);
+    if (b.status) parts.push(b.status);
+    if (b.plugged) parts.push(`plugged into ${b.plugged}`);
+    if (b.health) parts.push(`health ${b.health}`);
+    if (b.technology) parts.push(b.technology);
+    if (typeof b.temperature_c === 'number') parts.push(`${b.temperature_c} °C`);
+    if (typeof b.voltage_v === 'number') parts.push(`${b.voltage_v} V`);
+    return parts.length ? parts.join(', ') : 'unknown';
+  }
+
+  renderDeviceState(record) {
+    if (!record) {
+      return (
+        <details>
+          <summary>Device state</summary>
+          <p>This device hasn't published a state record.</p>
+        </details>
+      );
+    }
+    const num = (v, unit = '') => (typeof v === 'number' ? `${v}${unit}` : '—');
+    const ago = (ts) => {
+      const secs = Homeboard.secsSince(ts);
+      return secs === null ? '—' : this.formatUptime(secs);
+    };
+    const battery = Homeboard.part(record, 'battery');
+    const app = Homeboard.part(record, 'app') || {};
+    const version = [app.version, (app.version_code != null) ? `(${app.version_code})` : null]
+      .filter((v) => v != null && v !== '').join(' ');
+    const unknown = Homeboard.unknownStateKeys(record);
+    return (
+      <details>
+        <summary>Device state</summary>
+        <dl>
+          {/* A device with no battery reports null, which isn't worth a row */}
+          {battery && (<><dt>Battery</dt><dd>{Homeboard.describeBattery(battery)}</dd></>)}
+          <dt>Wi-Fi signal</dt><dd>{num(record.wifi_rssi, ' dBm')}</dd>
+          <dt>Light</dt><dd>{num(record.light_lux, ' lux')}</dd>
+          <dt>App version</dt><dd>{version || '—'}</dd>
+          <dt>App uptime</dt><dd>{ago(app.started_at)}</dd>
+          <dt>Device uptime</dt><dd>{ago(app.device_booted_at)}</dd>
+          {/* ts only moves when something in the record changes, so an old
+              one means a quiet device, not a dead one: state/bridge says that */}
+          <dt>Last change</dt><dd>{typeof record.ts === 'number' ? `${ago(record.ts)} ago` : '—'}</dd>
+          {unknown.map(([key, val]) => (
+            <React.Fragment key={key}>
+              <dt>{key}</dt>
+              <dd>{(val === null || val === undefined) ? '—' : JSON.stringify(val)}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+        <details>
+          <summary>Raw state record</summary>
+          <pre>{JSON.stringify(record, null, 2)}</pre>
+        </details>
+      </details>
+    );
+  }
+
   renderHomeboard(hb) {
     const online = hb.state === 'online';
-    const slideshowActive = !!hb.slideshow_active;
+    const record = Homeboard.part(hb, 'device_state');
     return (
-      <div key={hb.id} className={online ? 'card' : 'card warn'}>
+      <div key={hb.id} id={Homeboard.cardId(hb.id)} className={online ? 'card' : 'card warn'}>
         <h3>{hb.id}</h3>
         <div>
           Bridge: <strong>{hb.state}</strong>
-          {online && (<> — Slideshow: <strong>{slideshowActive ? 'Active' : 'Not active'}</strong></>)}
+          {online && (
+            <> — Slideshow: <strong>{Homeboard.describeSlideshow(Homeboard.part(record, 'slideshow'))}</strong></>
+          )}
         </div>
+        {this.renderErrors(record && record.errors)}
         {this.renderControls(hb)}
-        {this.renderOccupancy(hb.occupancy)}
+        {this.renderOccupancy(Homeboard.part(record, 'occupancy'))}
+        {this.renderScreen(Homeboard.part(record, 'screen'))}
+        {this.renderDeviceState(record)}
         {this.renderDeviceHealth(hb.doctor)}
         {hb.displayed_photo && (
           <>

@@ -1,7 +1,7 @@
 include ../common.mk
 
 rebuild_deps: pipenv_rebuild_deps_base
-	pipenv install -e "$(shell readlink -f "$(PWD)/../zext_libs/wwwslide/HomeboardRemoteControl")"
+	pipenv install qrcode
 	pipenv install picosvg
 	pipenv install fonttools
 

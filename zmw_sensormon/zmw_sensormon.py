@@ -102,8 +102,19 @@ class ShellyPlugMonitor:
 
 
 class HomeboardMonitor:
-    """Monitors Homeboard occupancy and slideshow_active messages and records them to sensor history."""
-    METRICS = ['occupied', 'distance_cm', 'slideshow_active']
+    """Monitors the Homeboard state republished by ZmwHomeboard and records it to sensor history."""
+    METRICS = ['occupied', 'distance_cm', 'slideshow_active',
+               'battery', 'battery_temperature_c', 'battery_voltage_v',
+               'wifi_rssi', 'light_lux']
+    # Battery payload key -> metric. The level is named like z2m's battery %,
+    # so homeboards show up next to z2m devices when querying 'battery'.
+    BATTERY_TO_METRIC = {
+        'level': 'battery',
+        'temperature_c': 'battery_temperature_c',
+        'voltage_v': 'battery_voltage_v',
+    }
+    # Subtopics whose payload is a single number, stored under the same name
+    NUMERIC_ACTIONS = ('wifi_rssi', 'light_lux')
 
     def __init__(self, sensors):
         self._sensors = sensors
@@ -154,6 +165,18 @@ class HomeboardMonitor:
             if not self._ensure_registered(name):
                 return
             self._sensors.save_reading(name, {'slideshow_active': 1 if payload else 0})
+        elif action == 'battery':
+            values = {metric: payload[key] for key, metric in self.BATTERY_TO_METRIC.items()
+                      if key in payload}
+            if not values:
+                return
+            if not self._ensure_registered(name):
+                return
+            self._sensors.save_reading(name, values)
+        elif action in self.NUMERIC_ACTIONS:
+            if not self._ensure_registered(name):
+                return
+            self._sensors.save_reading(name, {action: payload})
 
 
 class ZmwSensormon(ZmwMqttService):

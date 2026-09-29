@@ -9,7 +9,8 @@ from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
-from homeboard_remote_control import RemoteControlCore, as_year
+from homeboard_janitor import HomeboardJanitor, is_gone
+from homeboard_mqtt import HomeboardMqtt, as_year
 
 from announce_overlay import AnnounceOverlay
 from overlay import Overlay
@@ -29,24 +30,19 @@ _WEATHER_HOURS = range(7, 23)        # 07:00 – 22:59
 # hours produce an empty overlay so any extra trigger doesn't bring it back.
 _OVERLAY_OFF_HOURS = set(range(0, 7)) | {23}
 
-_QR_URL_TEMPLATE = "{rc_url}/remote_control?hb_id={hb_id}"
+_QR_URL_TEMPLATE = "{www_url}/index.html?hb_id={hb_id}"
 
 # How long a mirrored speaker announcement stays on the overlay, in seconds.
 _SPEAKER_ANNOUNCE_OVERLAY_SECS = 60
-
-# A homeboard that's been offline (last boot older than this) is presumed gone;
-# we stop composing/pushing overlays to it. Mirrors the remote-control janitor's
-# stale threshold so both agree on when a device is "dead".
-_OFFLINE_GRACE_SECS = 3 * 24 * 3600
 
 
 class ZmwHomeboard(ZmwMqttService):
     """
     Bridge between the homeboard MQTT broker and the ZMW bus.
 
-    Uses homeboard_remote_control.RemoteControlCore to talk to homeboards.
-    Republishes selected homeboard state onto the ZMW bus so other ZMW
-    services can consume it. Accepts ZMW-bus commands and forwards them to
+    Uses homeboard_mqtt.HomeboardMqtt to talk to homeboards. Republishes
+    selected homeboard state onto the ZMW bus so other ZMW services can
+    consume it. Accepts ZMW-bus commands and forwards them to
     the target homeboard. Composes per-homeboard SVG overlays (weather +
     QR + announcements) and pushes them via set_svg_overlay.
     """
@@ -74,19 +70,23 @@ class ZmwHomeboard(ZmwMqttService):
         # this is only what we last asked for, not what they're running.
         self._album_filter = None
 
-        self._core = RemoteControlCore(
+        # hb_id -> what we last republished on the ZMW bus from its state
+        # record, per subtopic. Only touched from the MQTT loop thread.
+        self._republished = {}
+
+        # Registered before the MQTT link starts: its callbacks build overlays,
+        # and the overlay's QR code points at this UI.
+        www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
+        self._public_url_base = www.register_www_dir(www_path)
+
+        self._core = HomeboardMqtt(
             cfg['homeboard']['mqtt_ip'],
             int(cfg['homeboard']['mqtt_port']),
-            on_occupancy=lambda prefix, data:
-                self.publish_own_svc_message(f'{prefix}/occupancy', data),
-            on_slideshow_active=lambda prefix, active:
-                self.publish_own_svc_message(f'{prefix}/slideshow_active', active),
+            on_device_state=self._on_hb_device_state,
             on_host_info=self._on_hb_host_info,
         )
         self._core.start()
 
-        www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
-        www.register_www_dir(www_path)
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
         # Per-homeboard controls for the www UI. Each maps to the same command
         # the MQTT interface offers, so both routes behave identically.
@@ -106,28 +106,17 @@ class ZmwHomeboard(ZmwMqttService):
                        trigger='cron', hour='7-22', minute=0)
         _sched.add_job(self._clear_all_overlays,
                        trigger='cron', hour=23, minute=0)
+        self._janitor = HomeboardJanitor(self._core, _sched)
 
     def _active_homeboards(self):
         """Homeboards worth composing/pushing overlays to.
 
         list_homeboards() already excludes bridge records the core couldn't
-        parse (bad format). On top of that, we drop boards that have been
-        offline since longer than the grace period, so we stop pushing at
-        devices that are gone for good (their retained record lingers until
-        the remote-control janitor clears it).
+        parse (bad format). On top of that, we drop boards that are gone, so
+        we stop pushing at them before the janitor clears their record.
         """
         now = time.time()
-        active = []
-        for hb in self._core.list_homeboards():
-            if hb.get('state') == 'offline':
-                host_info = hb.get('host_info') or {}
-                started_at = host_info.get('started_at')
-                if not isinstance(started_at, (int, float)):
-                    started_at = 0
-                if now - started_at > _OFFLINE_GRACE_SECS:
-                    continue
-            active.append(hb)
-        return active
+        return [hb for hb in self._core.list_homeboards() if not is_gone(hb, now)]
 
     def _now_hour(self):
         return datetime.now().hour
@@ -170,7 +159,7 @@ class ZmwHomeboard(ZmwMqttService):
             overlay.add(weather_frag)
 
         try:
-            qr_frag = self._qr.build_fragment(_QR_URL_TEMPLATE.format(rc_url=self._core.get_remote_control_url(), hb_id=hb['id']))
+            qr_frag = self._qr.build_fragment(_QR_URL_TEMPLATE.format(www_url=self._public_url_base, hb_id=hb['id']))
             overlay.add(qr_frag)
         except Exception:
             log.exception("QR build_fragment raised for %s", hb['id'])
@@ -320,6 +309,45 @@ class ZmwHomeboard(ZmwMqttService):
         # Recompute everyone: weather is the slow part and is memoized, so
         # this is cheap unless we have many homeboards.
         self._recompute_all_overlays(scheduled=False)
+
+    def _on_hb_device_state(self, hb_id, record):
+        """Republish parts of the state record for ZmwSensormon.
+
+        The record changes whenever any part of it does, so each part is only
+        republished when it changed, or sensormon would log the same reading
+        over and over.
+        """
+        # Nulls are left out of the objects rather than passed on: sensormon
+        # records whatever keys it finds, and would read an unknown `occupied`
+        # as "empty".
+        occ = record.get('occupancy')
+        if isinstance(occ, dict):
+            occ = {k: v for k, v in occ.items() if v is not None}
+            self._republish_if_changed(hb_id, 'occupancy', occ)
+
+        slideshow = record.get('slideshow')
+        active = slideshow.get('active') if isinstance(slideshow, dict) else None
+        if isinstance(active, bool):
+            self._republish_if_changed(hb_id, 'slideshow_active', active)
+
+        # Null on devices without one (a homeboard)
+        battery = record.get('battery')
+        if isinstance(battery, dict):
+            battery = {k: v for k, v in battery.items() if v is not None}
+            if battery:
+                self._republish_if_changed(hb_id, 'battery', battery)
+
+        for key in ('wifi_rssi', 'light_lux'):
+            val = record.get(key)
+            if val is not None:
+                self._republish_if_changed(hb_id, key, val)
+
+    def _republish_if_changed(self, hb_id, subtopic, payload):
+        last = self._republished.setdefault(hb_id, {})
+        if subtopic in last and last[subtopic] == payload:
+            return
+        last[subtopic] = payload
+        self.publish_own_svc_message(f'{hb_id}/{subtopic}', payload)
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
         # Mirror live speaker announcements onto every homeboard overlay: when
@@ -531,6 +559,10 @@ class ZmwHomeboard(ZmwMqttService):
 
     def on_service_received_message(self, subtopic, payload):
         if subtopic.endswith('_reply'):
+            return
+        # Self-echo of the homeboard state we republish, on '<hb_id>/<part>';
+        # commands are never nested
+        if '/' in subtopic:
             return
         if not isinstance(payload, dict):
             log.warning("Ignoring '%s' with non-dict payload: %s", subtopic, payload)

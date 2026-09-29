@@ -1,6 +1,3 @@
 [submodule "zext_libs/PyTelegramBot"]
 	path = zext_libs/PyTelegramBot
 	url = git@github.com:nicolasbrailo/PyTelegramBot.git
-[submodule "zext_libs/wwwslide"]
-	path = zext_libs/wwwslide
-	url = git@github.com:nicolasbrailo/wwwslide.git
