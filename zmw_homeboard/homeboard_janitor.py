@@ -2,7 +2,7 @@
 
 A homeboard that goes away leaves its retained records on the broker, and the
 board would stay listed forever. Once a night, the janitor deletes them for
-boards that are gone, and for prefixes whose bridge record can't be parsed:
+boards that are gone, and for prefixes whose availability record can't be parsed:
 those can never become a usable homeboard.
 """
 
@@ -39,7 +39,7 @@ class HomeboardJanitor:
 
     def run(self):
         cleared = 0
-        for hb_id in self._hb_mqtt.list_bad_bridges():
+        for hb_id in self._hb_mqtt.list_bad_availability():
             log.info("Clearing unparseable retained records of '%s'", hb_id)
             self._hb_mqtt.clear_retained_state(hb_id)
             cleared += 1

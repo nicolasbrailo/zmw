@@ -79,7 +79,7 @@ class HomeboardMqtt:
     Talks to the homeboards over their own MQTT broker.
 
     Subscribes to the retained topics every homeboard publishes under its
-    prefix (`state/bridge` for online/offline, `state` for the device's state
+    prefix (`availability` for online/offline, `state` for the device's state
     record, `state/displayed_photo`), plus the non-retained `doctor`
     telemetry, keeps the latest of each in memory, and publishes commands
     back.
@@ -97,7 +97,7 @@ class HomeboardMqtt:
     # Retained topics a homeboard publishes under its prefix. Cleared as a
     # group when evicting a board, or the others would be replayed on
     # reconnect.
-    _RETAINED_TOPICS = ('state/bridge', 'state', 'state/displayed_photo')
+    _RETAINED_TOPICS = ('availability', 'state', 'state/displayed_photo')
 
     def __init__(self, mqtt_ip, mqtt_port, *,
                  on_device_state=None,
@@ -109,10 +109,10 @@ class HomeboardMqtt:
 
         self._lock = threading.Lock()
         self._homeboards = {}
-        # Prefixes whose retained `state/bridge` record could not be parsed.
+        # Prefixes whose retained `availability` record could not be parsed.
         # They never show up in list_homeboards(), so they're tracked here for
         # the janitor to evict.
-        self._bad_bridges = set()
+        self._bad_availability = set()
         self._host_info = {}
         self._device_state = {}
         self._displayed_photos = {}
@@ -149,61 +149,57 @@ class HomeboardMqtt:
             log.info("Connected to homeboard MQTT broker %s", self._broker)
         else:
             log.warning("Homeboard MQTT connect to %s returned rc=%s", self._broker, ret_code)
-        # Bridges publish "<prefix>/state/bridge" retained, carrying both the
-        # online/offline state and the host info (machine_id, hostname, ip,
-        # ...) in a single JSON object. Subscribing to this wildcard lets us
-        # enumerate all registered prefixes.
-        client.subscribe('+/state/bridge', qos=0)
-        client.subscribe('+/state/displayed_photo', qos=0)
+        # Every homeboard publishes "<prefix>/availability" retained, carrying
+        # both the online/offline state and the host info (machine_id,
+        # hostname, ip, ...) in a single JSON object. It's also the last will.
+        # Subscribing to this wildcard lets us enumerate all registered prefixes.
+        client.subscribe('+/availability', qos=0)
         # The device's state record. `+/state` only matches two levels, so it
-        # doesn't overlap the `state/...` subscriptions above.
+        # doesn't overlap `state/displayed_photo`.
         client.subscribe('+/state', qos=0)
+        client.subscribe('+/state/displayed_photo', qos=0)
         # Health/telemetry from the homeboard-doctor service (not retained).
         client.subscribe('+/doctor', qos=0)
 
     def _on_message(self, _client, _ud, msg):
         parts = msg.topic.split('/')
-        if len(parts) == 2 and parts[1] == 'doctor':
-            self._handle_doctor(parts[0], msg.payload)
-            return
-        if len(parts) == 2 and parts[1] == 'state':
-            self._handle_device_state(parts[0], msg.payload)
-            return
-        if len(parts) != 3 or parts[1] != 'state':
-            return
         prefix = parts[0]
-        suffix = parts[2]
-        if suffix == 'bridge':
-            self._handle_bridge(prefix, msg.payload)
-        elif suffix == 'displayed_photo':
+        leaf = '/'.join(parts[1:])
+        if leaf == 'availability':
+            self._handle_availability(prefix, msg.payload)
+        elif leaf == 'state':
+            self._handle_device_state(prefix, msg.payload)
+        elif leaf == 'state/displayed_photo':
             self._handle_displayed_photo(prefix, msg.payload)
+        elif leaf == 'doctor':
+            self._handle_doctor(prefix, msg.payload)
 
-    def _handle_bridge(self, prefix, raw_payload):
+    def _handle_availability(self, prefix, raw_payload):
         # An empty retained payload is the broker replaying a deleted retained
         # record (e.g. the janitor cleared it). Drop all state for this prefix.
         if not raw_payload:
             with self._lock:
                 self._homeboards.pop(prefix, None)
                 self._host_info.pop(prefix, None)
-                self._bad_bridges.discard(prefix)
+                self._bad_availability.discard(prefix)
                 # Doctor stats aren't retained (nothing to clear on the broker),
                 # so drop the in-memory copy when the board is evicted.
                 self._doctor.pop(prefix, None)
-            log.info("Homeboard '%s' retained bridge record cleared", prefix)
+            log.info("Homeboard '%s' retained availability record cleared", prefix)
             return
-        data = _parse_json_object(prefix, 'bridge state', raw_payload)
+        data = _parse_json_object(prefix, 'availability', raw_payload)
         state = data.get('state') if data is not None else None
         if state not in ('online', 'offline'):
             if data is not None:
-                log.warning("Unexpected bridge state %r for '%s'", state, prefix)
+                log.warning("Unexpected availability state %r for '%s'", state, prefix)
             with self._lock:
-                self._bad_bridges.add(prefix)
+                self._bad_availability.add(prefix)
             return
         with self._lock:
             prev = self._homeboards.get(prefix)
             self._homeboards[prefix] = state
             self._host_info[prefix] = data
-            self._bad_bridges.discard(prefix)
+            self._bad_availability.discard(prefix)
         if prev != state:
             log.info("Homeboard '%s' is %s", prefix, state)
         if self._on_host_info is not None:
@@ -214,7 +210,7 @@ class HomeboardMqtt:
             with self._lock:
                 self._displayed_photos.pop(prefix, None)
             return
-        # Ignore state for prefixes we've never seen a bridge record for: those
+        # Ignore state for prefixes we've never seen an availability record for: those
         # are stale/renamed retained records, and republishing them leaks ghost
         # homeboards onto downstream buses.
         if not self._is_known_homeboard(prefix):
@@ -270,13 +266,13 @@ class HomeboardMqtt:
                 "doctor": self._doctor.get(k),
             } for k, v in sorted(self._homeboards.items())]
 
-    def list_bad_bridges(self):
-        """Prefixes whose retained bridge record we couldn't parse."""
+    def list_bad_availability(self):
+        """Prefixes whose retained availability record we couldn't parse."""
         with self._lock:
-            return sorted(self._bad_bridges)
+            return sorted(self._bad_availability)
 
     def _is_known_homeboard(self, prefix):
-        """Whether we've seen a valid `state/bridge` record for this prefix."""
+        """Whether we've seen a valid `availability` record for this prefix."""
         with self._lock:
             return prefix in self._homeboards
 

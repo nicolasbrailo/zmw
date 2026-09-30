@@ -111,7 +111,7 @@ class ZmwHomeboard(ZmwMqttService):
     def _active_homeboards(self):
         """Homeboards worth composing/pushing overlays to.
 
-        list_homeboards() already excludes bridge records the core couldn't
+        list_homeboards() already excludes availability records the core couldn't
         parse (bad format). On top of that, we drop boards that are gone, so
         we stop pushing at them before the janitor clears their record.
         """

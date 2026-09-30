@@ -661,7 +661,7 @@ class Homeboard extends React.Component {
           <dt>App uptime</dt><dd>{ago(app.started_at)}</dd>
           <dt>Device uptime</dt><dd>{ago(app.device_booted_at)}</dd>
           {/* ts only moves when something in the record changes, so an old
-              one means a quiet device, not a dead one: state/bridge says that */}
+              one means a quiet device, not a dead one: availability says that */}
           <dt>Last change</dt><dd>{typeof record.ts === 'number' ? `${ago(record.ts)} ago` : '—'}</dd>
           {unknown.map(([key, val]) => (
             <React.Fragment key={key}>

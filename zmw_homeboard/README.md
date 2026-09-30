@@ -12,7 +12,7 @@ and this service reads:
 
 | Topic | What |
 |-------|------|
-| `<prefix>/state/bridge` | online/offline plus host info; also the last will, so it is the liveness signal. A prefix is only known once this arrives: the other topics are ignored for prefixes without it |
+| `<prefix>/availability` | online/offline plus host info; also the last will, so it is the liveness signal. A prefix is only known once this arrives: the other topics are ignored for prefixes without it |
 | `<prefix>/state` | the device's state record (below) |
 | `<prefix>/state/displayed_photo` | metadata of the picture on screen |
 | `<prefix>/doctor` | health telemetry from homeboard-doctor (not retained) |
@@ -21,7 +21,7 @@ Commands go out on `<prefix>/cmd/<service>/<command>`.
 
 A homeboard that goes away leaves its retained records behind. Every night at
 03:00 this service deletes them for homeboards that are offline and last
-booted over 3 days ago, and for prefixes whose `state/bridge` can't be parsed.
+booted over 3 days ago, and for prefixes whose `availability` can't be parsed.
 
 The state record is one JSON object, republished whole whenever something in
 it changes:
@@ -48,7 +48,7 @@ Any value may be `null` where the device doesn't know it or it doesn't apply
 `occupancy.distance_cm` from the homeboard's mmWave sensor. The UI shows the
 ones it doesn't know in the "Device state" section rather than dropping them.
 `ts` is when the record last changed, not a heartbeat, so an old one only means
-a quiet device; `state/bridge` says whether it's alive.
+a quiet device; `availability` says whether it's alive.
 
 This service republishes some parts of it on the ZMW bus, for ZmwSensormon,
 each under `zmw_homeboard/<prefix>/`:
@@ -78,9 +78,9 @@ which forward to the same commands as the MQTT interface:
 | `/set_album_filter_all` | PUT `{"name":..., "exclude":..., "from_year":..., "to_year":...}` | one album filter on every homeboard; an empty object clears it |
 
 `/get_homeboards_state` returns `{"homeboards": [...], "album_filter": ...}`.
-Each homeboard has `id`, `state` (`online`/`offline`, from `state/bridge`),
+Each homeboard has `id`, `state` (`online`/`offline`, from `availability`),
 `device_state` (the state record exactly as the device published it, or null
-before it publishes one), `displayed_photo`, `host_info` (the whole bridge
+before it publishes one), `displayed_photo`, `host_info` (the whole availability
 record) and `doctor`. The top-level `album_filter` is the one this service last
 sent, or null; what each device is actually running is in its
 `device_state.slideshow.album_filter`.
