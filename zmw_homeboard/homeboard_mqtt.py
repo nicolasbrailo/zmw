@@ -102,10 +102,12 @@ class HomeboardMqtt:
     def __init__(self, mqtt_ip, mqtt_port, *,
                  on_device_state=None,
                  on_host_info=None,
+                 on_online=None,
                  client_id_suffix=""):
         self._broker = (mqtt_ip, int(mqtt_port))
         self._on_device_state = on_device_state
         self._on_host_info = on_host_info
+        self._on_online = on_online
 
         self._lock = threading.Lock()
         self._homeboards = {}
@@ -197,11 +199,18 @@ class HomeboardMqtt:
             return
         with self._lock:
             prev = self._homeboards.get(prefix)
+            prev_info = self._host_info.get(prefix) or {}
             self._homeboards[prefix] = state
             self._host_info[prefix] = data
             self._bad_availability.discard(prefix)
         if prev != state:
             log.info("Homeboard '%s' is %s", prefix, state)
+        # A device that restarts before the broker notices it went away goes
+        # from online to online, with a new started_at: that's a new run too
+        came_online = state == 'online' and (
+            prev != 'online' or prev_info.get('started_at') != data.get('started_at'))
+        if came_online and self._on_online is not None:
+            self._on_online(prefix)
         if self._on_host_info is not None:
             self._on_host_info(prefix, data)
 

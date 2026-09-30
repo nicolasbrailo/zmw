@@ -67,7 +67,8 @@ class ZmwHomeboard(ZmwMqttService):
         # The album filter last pushed to every homeboard, or None if we haven't
         # set one since this service started. There is one filter for all of
         # them, like announcements: the homeboards persist it themselves, so
-        # this is only what we last asked for, not what they're running.
+        # this is only what we last asked for, not what they're running. It's
+        # re-sent to each board that comes online, in case it missed it.
         self._album_filter = None
 
         # hb_id -> what we last republished on the ZMW bus from its state
@@ -84,6 +85,7 @@ class ZmwHomeboard(ZmwMqttService):
             int(cfg['homeboard']['mqtt_port']),
             on_device_state=self._on_hb_device_state,
             on_host_info=self._on_hb_host_info,
+            on_online=self._on_hb_online,
         )
         self._core.start()
 
@@ -309,6 +311,22 @@ class ZmwHomeboard(ZmwMqttService):
         # Recompute everyone: weather is the slow part and is memoized, so
         # this is cheap unless we have many homeboards.
         self._recompute_all_overlays(scheduled=False)
+
+    def _on_hb_online(self, hb_id):
+        """Re-send the config we hold to a homeboard that just (re)started.
+
+        Commands aren't retained, so a board that was off when one was sent
+        never got it. The overlay needs nothing here: _on_hb_host_info already
+        pushes it on every availability record. Settings we only forward
+        (transition time, embed QR, target size) aren't kept, so there's
+        nothing to re-send for them.
+        """
+        filt = self._album_filter
+        if filt is None:
+            return
+        log.info("Homeboard '%s' came online, re-sending album filter %s", hb_id, filt)
+        if not self._core.set_album_filter(hb_id, **filt):
+            log.warning("Re-sending album filter to '%s' failed", hb_id)
 
     def _on_hb_device_state(self, hb_id, record):
         """Republish parts of the state record for ZmwSensormon.
