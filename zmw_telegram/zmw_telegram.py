@@ -11,7 +11,7 @@ from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 
-from pytelegrambot import TelegramLongpollBot
+from pytelegrambot import TelegramLongpollBot, TelegramRateLimitError, TelegramHttpError
 import requests.exceptions
 
 log = build_logger("ZmwTelegram")
@@ -91,8 +91,11 @@ class TelBot(TelegramLongpollBot):
     """Telegram bot wrapper that handles messages and commands."""
 
     _CMD_BATCH_DELAY_SECS = 5
+    _RATE_LIMIT_BACKOFF_SECS = 5 * 60
 
     def __init__(self, cfg, scheduler, on_voice_callback=None):
+        # Set before super().__init__, which schedules the first poll immediately
+        self._rate_limited_until = 0
         cmds = [
             ('ping', 'Usage: /ping', self._ping),
         ]
@@ -126,31 +129,53 @@ class TelBot(TelegramLongpollBot):
                 self.send_message(msg['from']['id'], f"Invalid argument: {msg['cmd_args'][0]}")
                 return
         self._stfu_until = time.time() + minutes * 60
-        try:
-            super().send_message(msg['from']['id'], f"Messages suppressed for {minutes} minutes")
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-            log.warning("Can't connect to Telegram server: %s", e)
+        self._telegram_call("send stfu ack",
+            lambda: super(TelBot, self).send_message(msg['from']['id'], f"Messages suppressed for {minutes} minutes"))
 
     def _is_stfu_active(self):
         return time.time() < self._stfu_until
+
+    def is_rate_limited(self):
+        """True while we're backing off after Telegram rate limited us."""
+        return time.time() < self._rate_limited_until
+
+    def _telegram_call(self, what, fn):
+        """Run a Telegram request, swallowing transient failures. If Telegram rate limits us, stop
+        all requests for _RATE_LIMIT_BACKOFF_SECS. Returns True if the request went through."""
+        if self.is_rate_limited():
+            log.info("Skipping %s, backing off from Telegram rate limit", what)
+            return False
+        try:
+            fn()
+            return True
+        except TelegramRateLimitError:
+            self._rate_limited_until = time.time() + self._RATE_LIMIT_BACKOFF_SECS
+            log.error("Telegram rate limited us on %s, pausing all requests for %d seconds",
+                      what, self._RATE_LIMIT_BACKOFF_SECS)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            log.warning("Can't connect to Telegram server: %s", e)
+        except TelegramHttpError as e:
+            if not e.is_downstream_error():
+                raise
+            log.warning("Telegram unavailable on %s: %s", what, e)
+        return False
+
+    def _poll_updates(self):
+        self._telegram_call("poll updates", super()._poll_updates)
 
     def send_message(self, chat_id, text, disable_notifications=False):
         if self._is_stfu_active():
             log.info("Message skipped, stfu active: %s", text)
             return
-        try:
-            super().send_message(chat_id, text, disable_notifications)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-            log.warning("Can't connect to Telegram server: %s", e)
+        self._telegram_call("send message",
+            lambda: super(TelBot, self).send_message(chat_id, text, disable_notifications))
 
     def send_photo(self, chat_id, fpath, caption=None, disable_notifications=False):
         if self._is_stfu_active():
             log.info("Message skipped, stfu active: %s (caption: %s)", fpath, caption)
             return
-        try:
-            super().send_photo(chat_id, fpath, caption, disable_notifications)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-            log.warning("Can't connect to Telegram server: %s", e)
+        self._telegram_call("send photo",
+            lambda: super(TelBot, self).send_photo(chat_id, fpath, caption, disable_notifications))
 
     def add_commands(self, cmds):
         """Batch commands and register them after a delay.
@@ -175,10 +200,14 @@ class TelBot(TelegramLongpollBot):
             self._cmd_timer = None
         cmd_names = [cmd[0] for cmd in cmds_to_register]
         log.info("Flushing %d batched commands to Telegram: %s", len(cmds_to_register), cmd_names)
-        try:
-            super().add_commands(cmds_to_register)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-            log.warning("Can't connect to Telegram server: %s", e)
+        if not self._telegram_call("add commands", lambda: super(TelBot, self).add_commands(cmds_to_register)):
+            # Don't lose the commands, retry once Telegram is reachable again
+            with self._cmd_lock:
+                self._pending_cmds = cmds_to_register + self._pending_cmds
+                if self._cmd_timer is None:
+                    retry_in = max(self._CMD_BATCH_DELAY_SECS, self._rate_limited_until - time.time())
+                    self._cmd_timer = threading.Timer(retry_in, self._flush_pending_commands)
+                    self._cmd_timer.start()
 
     def _ping(self, _bot, msg):
         log.info('Received user ping, sending pong')
@@ -253,6 +282,8 @@ class ZmwTelegram(ZmwMqttService):
             oldest = self._msg_times[0]
             if time.time() - oldest < self._RATE_LIMIT_WINDOW_SECS:
                 alerts.append("Currently rate limiting")
+        if self._msg.is_rate_limited():
+            alerts.append("Telegram is rate limiting us, requests paused")
         return alerts
 
     def get_mqtt_description(self):
