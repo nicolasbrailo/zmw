@@ -17,7 +17,7 @@ from zzmw_lib.logs import build_logger
 
 import reolink_aio
 from reolink_aio.api import Host as ReolinkDoorbellHost
-from reolink_aio.exceptions import ReolinkError, SubscriptionError
+from reolink_aio.exceptions import ReolinkError
 from reolink_aio.helpers import parse_reolink_onvif_event
 
 log = build_logger("Reolink")
@@ -53,13 +53,9 @@ async def _connect_to_cam(cam_host, cam_alias, cam_user, cam_pass, webhook_url, 
             # unsubscribe failure is non-critical, proceeding anyway
             log.warning("Failed to cleanup old subscriptions for cam %s (continuing): %s", cam_host, e)
 
-        try:
-            log.info('Subscribe camera to announce callback "%s"', webhook_url)
-            await cam.subscribe(webhook_url)
-        except ReolinkError:
-            log.error("Failed to subscribe to cam %s events", cam_host, exc_info=True)
-            # subscribe failure is critical, re-raising
-            raise
+        log.info('Subscribe camera to announce callback "%s"', webhook_url)
+        # subscribe failure is critical, let it propagate (callers log it)
+        await cam.subscribe(webhook_url)
 
     log.info("Connected to camera %s %s model %s - firmware %s",
              cam_host,
@@ -164,8 +160,8 @@ class ReolinkDoorbell(ABC):
                 self._cam, self.rtsp = future.result()
             except (reolink_aio.exceptions.LoginError, reolink_aio.exceptions.ReolinkTimeoutError) as e:
                 log.error("Can't connect to camera %s, please check host is up and config is correct: %s", self._cam_host, e)
-            except ReolinkError:
-                log.error("Failed to connect to cam %s, will retry later", self._cam_host, exc_info=True)
+            except ReolinkError as e:
+                log.error("Failed to connect to cam %s, will retry later: %s", self._cam_host, e)
 
         future = asyncio.run_coroutine_threadsafe(camtask, self._runner)
         future.add_done_callback(on_done)
@@ -209,26 +205,28 @@ class ReolinkDoorbell(ABC):
             # Not init'd yet or subscription not required
             return
 
-        def _reconnect():
+        # Runs inside the cam event loop (called from _renew_async), so it must await directly: going
+        # through _run_async would block the loop waiting on itself
+        async def _reconnect():
             try:
-                camtask = _connect_to_cam(self._cam_host, self._cam_alias, self._cam_user, self._cam_pass,
-                                          self._webhook_url, self, self._rec_path, self._rec_retention_days, self._rec_default_duration_secs,
-                                          self._scheduler, self._is_doorbell)
-                self._cam, self.rtsp = self._run_async(camtask)
-            except ReolinkError:
-                log.error("Failed to reconnect to cam %s, will retry later", self._cam_host, exc_info=True)
+                self._cam, self.rtsp = await _connect_to_cam(
+                    self._cam_host, self._cam_alias, self._cam_user, self._cam_pass,
+                    self._webhook_url, self, self._rec_path, self._rec_retention_days, self._rec_default_duration_secs,
+                    self._scheduler, self._is_doorbell)
+            except ReolinkError as e:
+                log.error("Failed to reconnect to cam %s, will retry later: %s", self._cam_host, e)
 
         async def _renew_async():
             if not self._cam:
-                _reconnect()
+                await _reconnect()
                 return
 
             try:
                 await self._cam.renew()
                 return
             # On renew exception, fallthrough and try to resubscribe
-            except SubscriptionError:
-                log.info("Cam %s subscription renewal failed, will resubscribe", self._cam_host)
+            except ReolinkError as e:
+                log.info("Cam %s subscription renewal failed, will resubscribe: %s", self._cam_host, e)
             except RuntimeError:
                 log.error("Runtime error renewing cam %s subscription", self._cam_host, exc_info=True)
 
@@ -238,8 +236,8 @@ class ReolinkDoorbell(ABC):
                 log.info("Set up new subscription %s for cam %s...", self._webhook_url, self._cam_host)
                 return
             # If this fails too, try to disconnect and reconnect
-            except SubscriptionError:
-                log.error("Error creating new cam %s subscription", self._cam_host, exc_info=True)
+            except ReolinkError as e:
+                log.error("Error creating new cam %s subscription: %s", self._cam_host, e)
             except RuntimeError:
                 log.error("Runtime error creating new cam %s subscription", self._cam_host, exc_info=True)
 
@@ -251,7 +249,7 @@ class ReolinkDoorbell(ABC):
             except Exception:  # pylint: disable=broad-except
                 pass
 
-            _reconnect()
+            await _reconnect()
 
         must_renew = False
         try:
