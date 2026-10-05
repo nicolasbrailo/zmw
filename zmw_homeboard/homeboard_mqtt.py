@@ -317,6 +317,19 @@ class HomeboardMqtt:
     def next(self, hb_id):
         return self._send_cmd(hb_id, 'ambience', 'next')
 
+    def doorbell_ring(self, hb_id, rtsp_urls):
+        """Tell the homeboard someone rang the doorbell, and where to watch the door.
+
+        `rtsp_urls` maps a stream name ('main', 'sub') to its RTSP URL,
+        credentials included; it may be empty if the camera reported none, and
+        the ring is still sent. Entries that aren't rtsp:// strings are dropped.
+        """
+        if not isinstance(rtsp_urls, dict):
+            return False
+        streams = {name: url for name, url in rtsp_urls.items()
+                   if isinstance(name, str) and isinstance(url, str) and url.startswith('rtsp://')}
+        return self._send_cmd(hb_id, 'doorbell', 'ring', json.dumps({"rtsp_urls": streams}))
+
     def prev(self, hb_id):
         return self._send_cmd(hb_id, 'ambience', 'prev')
 

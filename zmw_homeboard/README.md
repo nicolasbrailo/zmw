@@ -187,6 +187,15 @@ Tell a homeboard that the speakers are playing an audio file
 | `volume?` | Volume 0-100 the speakers were asked to use |
 | `msg?` | Text being spoken, when the audio comes from a TTS request |
 
+#### `doorbell_ring`
+
+Tell a homeboard the doorbell rang (sent to all of them on every ring)
+
+| Param | Description |
+|-------|-------------|
+| `homeboard_id` | Name of the target homeboard |
+| `rtsp_urls?` | Stream name (main, sub) -> RTSP URL of the door camera |
+
 #### `set_svg_overlay`
 
 Show an svg overlay in the Homeboards

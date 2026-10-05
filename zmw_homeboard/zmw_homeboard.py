@@ -49,7 +49,7 @@ class ZmwHomeboard(ZmwMqttService):
 
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_homeboard", scheduler=_sched,
-                         svc_deps=["ZmwSpeakerAnnounce"])
+                         svc_deps=["ZmwSpeakerAnnounce", "ZmwDoorman"])
 
         self._sched = _sched
         self._weather = WeatherOverlay(
@@ -396,6 +396,20 @@ class ZmwHomeboard(ZmwMqttService):
             if failed:
                 log.warning("announce_audio failed for %s, payload: %s", failed, payload)
 
+        # Someone rang: every homeboard gets the ring, with the door's streams so it can show who's there
+        elif svc_name == "ZmwDoorman" and subtopic == "on_doorbell_ring":
+            if not isinstance(payload, dict):
+                log.warning("ZmwDoorman on_doorbell_ring with bad payload: %s", payload)
+                return
+            rtsp_urls = payload.get('rtsp_urls') or {}
+            log.info("Doorbell rang, notifying homeboards (streams: %s)", list(rtsp_urls))
+            failed = []
+            for hb in self._active_homeboards():
+                if not self._core.doorbell_ring(hb['id'], rtsp_urls):
+                    failed.append(hb['id'])
+            if failed:
+                log.warning("doorbell_ring failed for %s", failed)
+
     def _get_homeboards_state(self):
         return {
             "homeboards": self._core.list_homeboards(),
@@ -487,10 +501,11 @@ class ZmwHomeboard(ZmwMqttService):
             "description": "Homeboard service integration",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: mirrors live speaker announcements onto the overlay, and
-            # forwards what the speakers are playing to every homeboard.
+            # Reads: mirrors live speaker announcements onto the overlay,
+            # forwards what the speakers are playing to every homeboard, and
+            # tells them when the doorbell rings.
             # Own state is published too (consumed by ZmwSensormon).
-            "reads_mqtt_topic": ["zmw_speaker_announce"],
+            "reads_mqtt_topic": ["zmw_speaker_announce", "zmw_doorman"],
             "writes_mqtt_topic": [],
             "commands": {
                 "next": {
@@ -546,6 +561,13 @@ class ZmwHomeboard(ZmwMqttService):
                         "uri": "URL of the audio being played",
                         "volume?": "Volume 0-100 the speakers were asked to use",
                         "msg?": "Text being spoken, when the audio comes from a TTS request",
+                    }
+                },
+                "doorbell_ring": {
+                    "description": "Tell a homeboard the doorbell rang (sent to all of them on every ring)",
+                    "params": {
+                        "homeboard_id": "Name of the target homeboard",
+                        "rtsp_urls?": "Stream name (main, sub) -> RTSP URL of the door camera",
                     }
                 },
                 "set_svg_overlay": {
@@ -612,6 +634,8 @@ class ZmwHomeboard(ZmwMqttService):
         elif subtopic == "announce_audio":
             ok = self._core.announce_audio(hb_id, payload.get('uri'),
                                            payload.get('volume'), payload.get('msg'))
+        elif subtopic == "doorbell_ring":
+            ok = self._core.doorbell_ring(hb_id, payload.get('rtsp_urls') or {})
         elif subtopic == "set_svg_overlay":
             svg_path = payload.get('svg_file_path')
             if not svg_path:

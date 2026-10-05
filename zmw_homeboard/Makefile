@@ -22,6 +22,9 @@ test_next:
 test_prev:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/prev' -m '{"homeboard_id": "$(HB)"}'
 
+test_doorbell_ring:
+	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/doorbell_ring' -m '{"homeboard_id": "$(HB)", "rtsp_urls": {"sub": "rtsp://admin:@10.10.30.11:554/h264Preview_01_sub"}}'
+
 test_overlay:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/set_svg_overlay' -m '{"homeboard_id": "$(HB)", "svg_file_path": "$(CURDIR)/test.svg"}'
 
