@@ -94,8 +94,13 @@ class ZmwDoorman(ZmwMqttService):
                 },
             },
             "announcements": {
+                "on_doorbell_ring": {
+                    "description": "Doorbell button pressed, sent at once; on_doorbell_pressed follows with a snapshot",
+                    "payload": {"rtsp_urls": "Stream name (main, sub) -> RTSP URL with credentials; "
+                                             "empty if the camera didn't report any"}
+                },
                 "on_doorbell_pressed": {
-                    "description": "Doorbell button pressed",
+                    "description": "Doorbell button pressed, with a snapshot",
                     "payload": {"snap_path?": "Path to camera snapshot"}
                 },
                 "on_motion_detected": {
@@ -225,8 +230,10 @@ class ZmwDoorman(ZmwMqttService):
                 match subtopic:
                     case "on_snap_ready":
                         self.on_snap_ready(msg)
-                    case "on_doorbell_button_pressed":
-                        self.on_doorbell_button_pressed(msg)
+                    case "on_doorbell_ring":
+                        self.on_doorbell_ring(msg)
+                    case "on_doorbell_ring_has_snapshot":
+                        self.on_doorbell_ring_has_snapshot(msg)
                     case "on_motion_detected":
                         self.on_door_motion_detected(msg)
                     case "on_motion_cleared":
@@ -335,14 +342,20 @@ class ZmwDoorman(ZmwMqttService):
         self.message_svc("ZmwTelegram", "send_photo", {'path': msg['snap_path']})
         self._waiting_on_telegram_snap = None
 
-    def on_doorbell_button_pressed(self, msg):
-        """Handle doorbell button press event."""
+    def on_doorbell_ring(self, msg):
+        """Handle the doorbell press as soon as it happens, before the camera has a snapshot."""
         url = self._public_url_base + self._cfg["doorbell_announce_sound"]
         log.info("Doorbell reports button pressed, announce '%s' over speakers", url)
         self.message_svc("ZmwSpeakerAnnounce", "play_asset", {
                             'vol': self._cfg.get("doorbell_announce_volume", "default"),
                             'public_www': url})
 
+        # The streams are passed on so that viewers (eg homeboards) can show the door without depending on the
+        # camera service
+        self.publish_own_svc_message("on_doorbell_ring", {"rtsp_urls": msg.get('rtsp_urls') or {}})
+
+    def on_doorbell_ring_has_snapshot(self, msg):
+        """Handle doorbell button press event, once the camera has a snapshot of it."""
         snap_path = msg.get('snap_path')
         self._update_snap_directory(snap_path)
         self._door_stats.record_doorbell_press(snap_path)

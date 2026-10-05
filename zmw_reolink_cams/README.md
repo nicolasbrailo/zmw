@@ -103,13 +103,25 @@ Snapshot ready
 | `cam_host` | Cam IP (may change, use cam_alias) |
 | `snap_path` | Local path to snapshot file |
 
-#### `on_doorbell_button_pressed`
+#### `on_doorbell_ring`
 
-Doorbell button was pressed
+Doorbell button was pressed, sent before the snapshot is taken; on_doorbell_ring_has_snapshot follows with it
 
 | Param | Description |
 |-------|-------------|
-| `event` | on_doorbell_button_pressed |
+| `event` | on_doorbell_ring |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
+| `rtsp_urls` | Stream name (main, sub) -> RTSP URL with credentials; empty if unknown |
+| `full_cam_msg` | Raw cam event |
+
+#### `on_doorbell_ring_has_snapshot`
+
+Doorbell button was pressed, with a snapshot
+
+| Param | Description |
+|-------|-------------|
+| `event` | on_doorbell_ring_has_snapshot |
 | `cam_alias` | Cam name |
 | `cam_host` | Cam IP (may change, use cam_alias) |
 | `snap_path` | Path to snapshot |

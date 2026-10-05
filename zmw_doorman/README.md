@@ -65,9 +65,17 @@ _No parameters._
 
 ### Announcements
 
+#### `on_doorbell_ring`
+
+Doorbell button pressed, sent at once; on_doorbell_pressed follows with a snapshot
+
+| Param | Description |
+|-------|-------------|
+| `rtsp_urls` | Stream name (main, sub) -> RTSP URL with credentials; empty if the camera didn't report any |
+
 #### `on_doorbell_pressed`
 
-Doorbell button pressed
+Doorbell button pressed, with a snapshot
 
 | Param | Description |
 |-------|-------------|

@@ -67,15 +67,25 @@ async def _connect_to_cam(cam_host, cam_alias, cam_user, cam_pass, webhook_url, 
         log.error("Camera %s is configured as doorbell but reports it isn't one!", cam_host)
 
     # RTSP failure is non-critical, recording will be disabled
+    rtsp = None
+    rtsp_urls = {}
     try:
         rtspurl = await cam.get_rtsp_stream_source(0, "main")
         log.info("Cam %s offers RTSP at %s", cam_host, rtspurl)
+        rtsp_urls['main'] = rtspurl
         rtsp = Rtsp(cam_host, cam_alias, rtsp_cbs, rtspurl, rec_path, scheduler, rec_retention_days,
                     rec_default_duration_secs)
     except ReolinkError:
         log.error("Failed to get RTSP URL from cam %s (recording disabled)", cam_host, exc_info=True)
 
-    return cam, rtsp
+    # The sub stream is only announced to viewers (eg a homeboard showing who rang), never recorded
+    try:
+        rtsp_urls['sub'] = await cam.get_rtsp_stream_source(0, "sub")
+        log.info("Cam %s offers RTSP sub stream at %s", cam_host, rtsp_urls['sub'])
+    except ReolinkError:
+        log.warning("Failed to get RTSP sub stream URL from cam %s", cam_host, exc_info=True)
+
+    return cam, rtsp, {k: v for k, v in rtsp_urls.items() if v}
 
 
 class ReolinkDoorbell(ABC):
@@ -103,6 +113,8 @@ class ReolinkDoorbell(ABC):
         self._motion_evt_job = None
 
         self.rtsp = None
+        # Stream name ('main', 'sub') -> RTSP URL, with credentials. Empty until connected
+        self._rtsp_urls = {}
         self._snap_manager = SnapOnMovement(cfg)
 
         self._video_on_movement = cfg.get('video_on_movement', False)
@@ -145,6 +157,10 @@ class ReolinkDoorbell(ABC):
         """Stable camera name, used by consumers to identify this cam (the host may change)."""
         return self._cam_alias
 
+    def get_rtsp_urls(self):
+        """Stream name ('main', 'sub') -> RTSP URL, credentials included. Empty if the cam isn't connected."""
+        return dict(self._rtsp_urls)
+
     def connect_bg(self):
         """ Logs in and subscribes to camera events (non-blocking) """
         self._should_be_connected = True
@@ -157,7 +173,7 @@ class ReolinkDoorbell(ABC):
 
         def on_done(future):
             try:
-                self._cam, self.rtsp = future.result()
+                self._cam, self.rtsp, self._rtsp_urls = future.result()
             except (reolink_aio.exceptions.LoginError, reolink_aio.exceptions.ReolinkTimeoutError) as e:
                 log.error("Can't connect to camera %s, please check host is up and config is correct: %s", self._cam_host, e)
             except ReolinkError as e:
@@ -314,7 +330,10 @@ class ReolinkDoorbell(ABC):
             if not self._is_doorbell:
                 log.error("Something weird is going on, non-doorbell '%s' reports doorbell button press", self._cam_host)
             log.info("Doorbell cam %s says someone pressed the visitor button", self._cam_host)
-            self.on_doorbell_button_pressed(self._cam_host, self.get_snapshot(), msg)
+            # Announce the ring before fetching the snapshot, which can take a second: whoever only needs to know
+            # someone is at the door (a chime, a viewer) shouldn't wait for it
+            self.on_doorbell_ring(self._cam_host, msg)
+            self.on_doorbell_ring_has_snapshot(self._cam_host, self.get_snapshot(), msg)
 
         # Ignore debounce rules for rtsp pet rules
         for key in ['Visitor', 'Motion', 'MotionAlarm', 'PeopleDetect']:
@@ -428,7 +447,11 @@ class ReolinkDoorbell(ABC):
 
     # User is expected to extend this object to handle these events
     @abstractmethod
-    def on_doorbell_button_pressed(self, cam_host, snap_path, full_cam_msg):
+    def on_doorbell_ring(self, cam_host, full_cam_msg):
+        """ Button calling, sent as soon as the camera reports it; on_doorbell_ring_has_snapshot follows with a snap """
+
+    @abstractmethod
+    def on_doorbell_ring_has_snapshot(self, cam_host, snap_path, full_cam_msg):
         """ Buttonn calling """
 
     @abstractmethod

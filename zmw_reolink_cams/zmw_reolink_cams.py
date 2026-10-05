@@ -32,9 +32,15 @@ class ZmwReolinkCam(ReolinkDoorbell):
             **payload,
         })
 
-    def on_doorbell_button_pressed(self, cam_host, snap_path, full_cam_msg):
+    def on_doorbell_ring(self, cam_host, full_cam_msg):
         self._mqtt.on_doorbell_pressed(self._cam_alias)
-        self._publish_event("on_doorbell_button_pressed", cam_host, {
+        self._publish_event("on_doorbell_ring", cam_host, {
+            'rtsp_urls': self.get_rtsp_urls(),
+            'full_cam_msg': full_cam_msg,
+        })
+
+    def on_doorbell_ring_has_snapshot(self, cam_host, snap_path, full_cam_msg):
+        self._publish_event("on_doorbell_ring_has_snapshot", cam_host, {
             'snap_path': snap_path,
             'full_cam_msg': full_cam_msg,
         })
@@ -209,9 +215,14 @@ class ZmwReolinkCams(ZmwMqttService):
                     "description": "Snapshot ready",
                     "payload": {"event": "on_snap_ready", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "snap_path": "Local path to snapshot file"}
                 },
-                "on_doorbell_button_pressed": {
-                    "description": "Doorbell button was pressed",
-                    "payload": {"event": "on_doorbell_button_pressed", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "snap_path": "Path to snapshot", "full_cam_msg": "Raw cam event"}
+                "on_doorbell_ring": {
+                    "description": "Doorbell button was pressed, sent before the snapshot is taken; "
+                                   "on_doorbell_ring_has_snapshot follows with it",
+                    "payload": {"event": "on_doorbell_ring", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "rtsp_urls": "Stream name (main, sub) -> RTSP URL with credentials; empty if unknown", "full_cam_msg": "Raw cam event"}
+                },
+                "on_doorbell_ring_has_snapshot": {
+                    "description": "Doorbell button was pressed, with a snapshot",
+                    "payload": {"event": "on_doorbell_ring_has_snapshot", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "snap_path": "Path to snapshot", "full_cam_msg": "Raw cam event"}
                 },
                 "on_motion_detected": {
                     "description": "Camera detected motion",

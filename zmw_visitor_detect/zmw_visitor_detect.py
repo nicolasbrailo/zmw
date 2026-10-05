@@ -116,7 +116,7 @@ class ZmwVisitorDetect(ZmwMqttService):
                 if msg.get("cam_alias") != self._doorbell_cam_alias:
                     return
                 match subtopic:
-                    case "on_doorbell_button_pressed":
+                    case "on_doorbell_ring_has_snapshot":
                         log.info("Received doorbell event, will schedule visitor detection")
                         self._submit_detection(msg.get("snap_path"), is_doorbell=True)
                     case "on_motion_detected":
