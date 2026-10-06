@@ -109,6 +109,9 @@ class ReolinkDoorbell(ABC):
         self._cam_movement_active_watchdog = cfg['cam_movement_active_watchdog']
         self._debounce_timeout_sec = cfg['debounce_timeout_sec']
         self._debounce_msg = {}
+        # Last known state of every event reported by the cam. Older firmwares send the state of all events in every
+        # webhook, newer ones send the full state once on subscribe and only the events that changed after that
+        self._cam_evt_state = {}
         self._motion_evt_lvl = 0
         self._motion_evt_job = None
 
@@ -297,7 +300,9 @@ class ReolinkDoorbell(ABC):
                     flatmsg[kk] = vv
 
             with self._announce_lock:
-                self._on_cam_webhook_msg(flatmsg)
+                # Merge into the last known state, so both firmware styles look like a full state report
+                self._cam_evt_state.update(flatmsg)
+                self._on_cam_webhook_msg(dict(self._cam_evt_state))
         except Exception:  # pylint: disable=broad-except
             log.error("Error processing event from camera %s: %s", self._cam_host, str(msg), exc_info=True)
         # Tell the camera we succesfully processed the message, always, so it doesn't retry
@@ -308,6 +313,7 @@ class ReolinkDoorbell(ABC):
         #   'Motion': False, 'MotionAlarm': False, 'Visitor': False, 'FaceDetect': False,
         #   'PeopleDetect': False, 'VehicleDetect': False, 'DogCatDetect': False}
         # Note: 'Visitor' key is only present for doorbell cameras
+        # msg is the merged state of all events seen so far, not just the ones in the latest webhook
 
         def debounce(msg, key, key_must_exist=True):
             if key not in msg:
@@ -342,7 +348,7 @@ class ReolinkDoorbell(ABC):
                     self.rtsp.pet_timer()
                 break
 
-        if msg.get('PeopleDetect') and not msg['Motion'] and not msg['MotionAlarm']:
+        if msg.get('PeopleDetect') and not msg.get('Motion') and not msg.get('MotionAlarm'):
             log.debug("Ignoring camera %s event: people detect outside alarm zone.", self._cam_host)
             return
 
