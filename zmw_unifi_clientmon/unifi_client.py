@@ -1,5 +1,7 @@
 """ UniFi controller API client. """
 
+import time
+
 import requests
 import urllib3
 
@@ -59,12 +61,19 @@ class UnifiClient:
             raise AuthError(f"Invalid credentials for UniFi controller at {self._controller}.")
         raise UnsupportedUnifi(f"Failed to login to UniFi controller at {self._controller} (tried standard + UDM endpoints).")
 
-    def get_all_clients(self):
-        """Return the raw list of all connected clients from the controller."""
-        resp = self._session.get(f"{self._controller}{self._endpoint['clients']}")
-        if resp.status_code == 401:
-            self._login()
+    def get_all_clients(self, retries=4, retry_delay_secs=3):
+        """Return the raw list of all connected clients from the controller.
+
+        The controller occasionally returns a transient 5xx; retry a few times before giving up.
+        """
+        for attempt in range(retries + 1):
             resp = self._session.get(f"{self._controller}{self._endpoint['clients']}")
+            if resp.status_code == 401:
+                self._login()
+                resp = self._session.get(f"{self._controller}{self._endpoint['clients']}")
+            if resp.status_code < 500 or attempt == retries:
+                break
+            time.sleep(retry_delay_secs)
         resp.raise_for_status()
         return resp.json().get("data", [])
 

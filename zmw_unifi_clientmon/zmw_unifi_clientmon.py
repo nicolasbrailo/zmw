@@ -120,10 +120,10 @@ class ZmwUnifiClientmon(ZmwMqttService):
         try:
             joined, left, _current = self._unifi.poll_changes(self._interesting)
         except (UnsupportedUnifi, AuthError, ConnectionError,
-                requests.exceptions.RequestException, json.JSONDecodeError):
+                requests.exceptions.RequestException, json.JSONDecodeError) as ex:
             self._consecutive_failures += 1
-            log.error("Failed to poll UniFi controller (%d/%d)",
-                      self._consecutive_failures, self._MAX_CONSECUTIVE_FAILURES, exc_info=True)
+            log.error("Failed to poll UniFi controller (%d/%d): %s",
+                      self._consecutive_failures, self._MAX_CONSECUTIVE_FAILURES, ex)
             if self._consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
                 log.error("Too many consecutive failures, terminating service.")
                 os.kill(os.getpid(), signal.SIGTERM)
