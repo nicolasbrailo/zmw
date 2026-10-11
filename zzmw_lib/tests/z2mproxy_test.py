@@ -275,7 +275,8 @@ class TestZ2MProxyMessageDispatch(unittest.TestCase):
     def test_bridge_topics_are_silently_ignored(self):
         for sub in ('bridge/state', 'bridge/extensions', 'bridge/logging', 'bridge/info', 'bridge/config',
                     'bridge/converters', 'bridge/definitions', 'bridge/event',
-                    'bridge/response/device/rename', 'bridge/response/health_check'):
+                    'bridge/response/device/rename', 'bridge/response/health_check',
+                    'bridge/request/health_check', 'ping', 'pong'):
             with self.assertNoLogs('Z2M', level='WARNING'):
                 self.mqtt.deliver(sub, {})
 
@@ -1036,28 +1037,45 @@ class TestZ2MProxyHealth(unittest.TestCase):
             self._run_connect_check(sched)
         kill.assert_called_once()
 
+    def _run_health_check(self, sched, fake_dt, now, mqtt=None, after_ping=()):
+        """ Runs the health check at now and, if it pinged a quiet network, the ping reply check 30s later.
+        after_ping is a list of (topic, subtopic) delivered 1s after the ping. """
+        health_check, _, _ = sched.jobs[1]
+        fake_dt.now.return_value = now
+        health_check()
+        fake_dt.now.return_value = now + timedelta(seconds=1)
+        for topic, subtopic in after_ping:
+            mqtt.deliver(subtopic, {}, topic=topic)
+        if len(sched.jobs) > 2:
+            ping_reply_check, _, _ = sched.jobs[2]
+            fake_dt.now.return_value = now + timedelta(seconds=30)
+            ping_reply_check()
+
     def _health_check_at(self, minutes_since_last_msg):
+        """ Returns the messages the proxy sent """
         t0 = datetime(2026, 1, 1, 12, 0, 0)
         with patch('zzmw_lib.z2m.networks_health.datetime') as fake_dt:
             fake_dt.now.return_value = t0
             _, mqtt, sched = make_proxy()
             mqtt.deliver('bridge/devices', [get_a_lamp()])
             self._run_connect_check(sched)
-            health_check, _, _ = sched.jobs[1]
-            fake_dt.now.return_value = t0 + timedelta(minutes=minutes_since_last_msg)
-            health_check()
+            self._run_health_check(sched, fake_dt, t0 + timedelta(minutes=minutes_since_last_msg))
+        return mqtt.broadcasts
 
     def test_health_check_quiet_when_recent_msg(self):
         with self.assertNoLogs('Z2M', level='ERROR'):
-            self._health_check_at(minutes_since_last_msg=1)
+            sent = self._health_check_at(minutes_since_last_msg=1)
+        self.assertEqual(sent, [])
 
-    def test_health_check_complains_when_stale(self):
+    def test_health_check_pings_and_complains_when_stale(self):
         with self.assertLogs('Z2M', level='ERROR'):
-            self._health_check_at(minutes_since_last_msg=10)
+            sent = self._health_check_at(minutes_since_last_msg=10)
+        self.assertEqual(sent, [('zigbee2mqtt/bridge/request/health_check', {})])
 
-    def _multi_topic_health_check(self, deliveries, check_at_minute):
+    def _multi_topic_health_check(self, deliveries, check_at_minute, after_ping=()):
         """ Proxy on net_a and net_b; both publish their devices at minute 0. deliveries is a list of
-        (minute, topic, subtopic); the health check runs at check_at_minute """
+        (minute, topic, subtopic); the health check runs at check_at_minute, and after_ping (topic, subtopic) are
+        delivered right after it. Returns the messages the proxy sent """
         t0 = datetime(2026, 1, 1, 12, 0, 0)
         with patch('zzmw_lib.z2m.networks_health.datetime') as fake_dt:
             fake_dt.now.return_value = t0
@@ -1068,9 +1086,8 @@ class TestZ2MProxyHealth(unittest.TestCase):
             for minute, topic, subtopic in deliveries:
                 fake_dt.now.return_value = t0 + timedelta(minutes=minute)
                 mqtt.deliver(subtopic, {}, topic=topic)
-            health_check, _, _ = sched.jobs[1]
-            fake_dt.now.return_value = t0 + timedelta(minutes=check_at_minute)
-            health_check()
+            self._run_health_check(sched, fake_dt, t0 + timedelta(minutes=check_at_minute), mqtt, after_ping)
+        return mqtt.broadcasts
 
     def test_health_check_quiet_when_all_networks_recent(self):
         with self.assertNoLogs('Z2M', level='ERROR'):
@@ -1080,9 +1097,21 @@ class TestZ2MProxyHealth(unittest.TestCase):
 
     def test_health_check_names_only_the_stale_network(self):
         with self.assertLogs('Z2M', level='ERROR') as logs:
-            self._multi_topic_health_check([(8, 'net_a', 'bridge/state')], check_at_minute=10)
+            sent = self._multi_topic_health_check([(8, 'net_a', 'bridge/state')], check_at_minute=10)
         self.assertEqual(len(logs.output), 1)
         self.assertIn("'net_b'", logs.output[0])
+        self.assertEqual(sent, [('net_b/bridge/request/health_check', {})])
+
+    def test_health_check_answered_ping_isnt_reported(self):
+        with self.assertNoLogs('Z2M', level='ERROR'):
+            sent = self._multi_topic_health_check([(8, 'net_a', 'bridge/state')], check_at_minute=10,
+                                                  after_ping=[('net_b', 'bridge/response/health_check')])
+        self.assertEqual(sent, [('net_b/bridge/request/health_check', {})])
+
+    def test_health_check_own_ping_isnt_an_answer(self):
+        with self.assertLogs('Z2M', level='ERROR'):
+            self._multi_topic_health_check([(8, 'net_a', 'bridge/state')], check_at_minute=10,
+                                           after_ping=[('net_b', 'bridge/request/health_check')])
 
 
 if __name__ == '__main__':

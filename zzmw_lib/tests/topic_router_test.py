@@ -66,7 +66,8 @@ class TestZ2MTopicRouterBridge(unittest.TestCase):
     def test_other_bridge_messages_are_ignored(self):
         for subtopic in ('bridge/state', 'bridge/extensions', 'bridge/logging', 'bridge/info', 'bridge/config',
                          'bridge/converters', 'bridge/definitions', 'bridge/event',
-                         'bridge/response/device/rename', 'bridge/response/health_check'):
+                         'bridge/response/device/rename', 'bridge/response/health_check',
+                    'bridge/request/health_check', 'ping', 'pong'):
             with self.subTest(subtopic=subtopic):
                 self.assertTrue(self.router.dispatch('net_a', subtopic, {}))
         self.assertEqual(self.devices.calls, [])

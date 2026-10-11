@@ -88,6 +88,7 @@ class TestZ2MNetworksHealth(unittest.TestCase):
         _, trigger, kwargs = self.sched.jobs[1]
         self.assertEqual(trigger, 'interval')
         self.assertEqual(kwargs['minutes'], 5)
+        self.assertEqual(kwargs['jitter'], 60)
         self.assertEqual(kwargs['id'], self.health.health_check_job_id)
 
     def test_health_check_job_id_is_readable(self):
@@ -125,6 +126,83 @@ class TestZ2MNetworksHealth(unittest.TestCase):
     def test_stale_check_reports_every_stale_network(self):
         with self.assertLogs('Z2M', level='ERROR') as logs:
             self._stale_check_at({}, check_at_minute=10)
+        self.assertEqual(len(logs.output), 2)
+
+
+class TestZ2MNetworksHealthPing(unittest.TestCase):
+    def setUp(self):
+        self.sched = FakeScheduler()
+        self.pings = []
+        self.fake_dt = patch('zzmw_lib.z2m.networks_health.datetime').start()
+        self.addCleanup(patch.stopall)
+        self._at_minute(0)
+        self.health = Z2MNetworksHealth(['net_a', 'net_b'], self.sched, send_ping=self.pings.append)
+        for topic in ('net_a', 'net_b'):
+            self.health.on_message(topic, 'bridge/devices')
+            self.health.on_devices_published(topic)
+        self.sched.jobs[0][0]()
+
+    def _at_minute(self, minute):
+        self.fake_dt.now.return_value = T0 + timedelta(minutes=minute)
+
+    def _stale_check(self):
+        self.sched.jobs[1][0]()
+
+    def _ping_reply_check(self):
+        func, trigger, _ = self.sched.jobs[-1]
+        self.assertEqual(trigger, 'date')
+        func()
+
+    def test_recent_networks_arent_pinged(self):
+        self._at_minute(4)
+        self.health.on_message('net_a', 'Lamp')
+        self.health.on_message('net_b', 'Lamp')
+        self._at_minute(6)
+        self._stale_check()
+        self.assertEqual(self.pings, [])
+        self.assertEqual(len(self.sched.jobs), 2)
+
+    def test_quiet_network_is_pinged_instead_of_reported(self):
+        self._at_minute(4)
+        self.health.on_message('net_a', 'Lamp')
+        self._at_minute(6)
+        with self.assertNoLogs('Z2M', level='ERROR'):
+            self._stale_check()
+        self.assertEqual(self.pings, ['net_b'])
+        _, trigger, kwargs = self.sched.jobs[-1]
+        self.assertEqual(trigger, 'date')
+        self.assertEqual(kwargs['run_date'], T0 + timedelta(minutes=6, seconds=30))
+
+    def test_network_that_answers_isnt_reported(self):
+        self._at_minute(6)
+        self._stale_check()
+        self.fake_dt.now.return_value = T0 + timedelta(minutes=6, seconds=1)
+        self.health.on_message('net_a', 'bridge/response/health_check')
+        self.health.on_message('net_b', 'pong')
+        with self.assertNoLogs('Z2M', level='ERROR'):
+            self._ping_reply_check()
+
+    def test_network_that_doesnt_answer_is_reported(self):
+        self._at_minute(6)
+        self._stale_check()
+        self.fake_dt.now.return_value = T0 + timedelta(minutes=6, seconds=1)
+        self.health.on_message('net_a', 'Lamp')
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            self._ping_reply_check()
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("'net_b'", logs.output[0])
+        self.assertIn('ping', logs.output[0])
+
+    def test_requests_dont_count_as_answers(self):
+        # Our own ping comes back to us, since we subscribe to the whole network
+        self._at_minute(6)
+        self._stale_check()
+        self.fake_dt.now.return_value = T0 + timedelta(minutes=6, seconds=1)
+        for subtopic in ('bridge/request/health_check', 'ping', 'Lamp/set', 'Lamp/get'):
+            self.health.on_message('net_a', subtopic)
+            self.health.on_message('net_b', subtopic)
+        with self.assertLogs('Z2M', level='ERROR') as logs:
+            self._ping_reply_check()
         self.assertEqual(len(logs.output), 2)
 
 

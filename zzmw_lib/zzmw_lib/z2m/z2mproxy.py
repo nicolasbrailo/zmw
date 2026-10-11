@@ -71,7 +71,7 @@ class Z2MProxy:
     def __init__(self, cfg, mqtt, scheduler, cb_on_z2m_network_discovery=None, cb_is_device_interesting=None):
         self._z2m_topics = _get_z2m_topics(cfg)
         # Kills the service if a network doesn't publish its devices on startup, and reports networks that go quiet
-        self._networks_health = Z2MNetworksHealth(self._z2m_topics, scheduler)
+        self._networks_health = Z2MNetworksHealth(self._z2m_topics, scheduler, send_ping=self._send_health_check)
         self._known_things = {}
         # Things we refused to register because their name is taken, already logged: {(z2m_topic, name, address)}
         self._rejected_things = set()
@@ -95,10 +95,13 @@ class Z2MProxy:
 
     def _on_z2m_json_msg(self, z2m_topic, topic, payload):
         """ Handle a message from the network on z2m_topic; topic is the subtopic (eg a thing name) """
-        self._networks_health.on_message(z2m_topic)
+        self._networks_health.on_message(z2m_topic, topic)
         if not self._router.dispatch(z2m_topic, topic, payload):
             log.warning('Unhandled MQTT message on topic %s/%s', z2m_topic, topic)
 
+    def _send_health_check(self, z2m_topic):
+        """ Ask a network if it's alive. Any message it sends counts as the answer, so we don't check the reply. """
+        self._mqtt.broadcast(f'{z2m_topic}/bridge/request/health_check', {})
 
     def _on_msg_device_list_published(self, z2m_topic, _topic, payload):
         log.info('Zigbee2Mqtt bridge on %s published list of devices', z2m_topic)
