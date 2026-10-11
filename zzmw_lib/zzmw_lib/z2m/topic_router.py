@@ -8,6 +8,8 @@ import functools
 _IGNORED_BRIDGE_SUBTOPICS = (
     'bridge/state', 'bridge/extensions', 'bridge/logging', 'bridge/info', 'bridge/config', 'bridge/converters',
     'bridge/definitions', 'bridge/event', 'bridge/response/device/rename', 'bridge/response/health_check',
+    # matter2mqtt's liveness check: a request on 'ping', answered on 'pong'
+    'ping', 'pong',
 )
 
 
