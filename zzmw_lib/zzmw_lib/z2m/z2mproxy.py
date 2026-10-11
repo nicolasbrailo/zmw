@@ -12,12 +12,12 @@ from .networks_health import Z2MNetworksHealth
 from .topic_router import Z2MTopicRouter
 from .thing import parse_from_zigbee2mqtt, ZMW_NO_MQTT_BACKING
 
-_DEFAULT_Z2M_TOPIC = 'zigbee2mqtt'
+_DEFAULT_Z2M_TOPIC = ["zigbee2mqtt", "matter2mqtt"]
 
 def _get_z2m_topics(cfg):
-    """ List of network base topics: cfg['z2m_topics'] if set, otherwise just the default zigbee2mqtt topic """
+    """ List of network base topics: cfg['z2m_topics'] if set, otherwise the default zigbee2mqtt and matter2mqtt topics """
     if 'z2m_topics' not in cfg:
-        return [_DEFAULT_Z2M_TOPIC]
+        return list(_DEFAULT_Z2M_TOPIC)
 
     topics = cfg['z2m_topics']
     if not isinstance(topics, list) or len(topics) == 0 or \
@@ -65,7 +65,7 @@ class Z2MProxy:
 
     Args:
         cfg: Configuration dict. 'z2m_topics' is a list of MQTT base topics, one per network (device names must be
-             unique across networks). All networks must be up on startup. Defaults to ['zigbee2mqtt'].
+             unique across networks). All networks must be up on startup. Defaults to ['zigbee2mqtt', 'matter2mqtt'].
         mqtt: MqttProxy instance for MQTT communication
     """
     def __init__(self, cfg, mqtt, scheduler, cb_on_z2m_network_discovery=None, cb_is_device_interesting=None):

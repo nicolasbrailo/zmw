@@ -53,10 +53,13 @@ class FakeScheduler:
         self.jobs.append((func, trigger, kwargs))
 
 
+# Most tests only care about one network: use it unless a test passes its own cfg ({} for the real defaults)
+SINGLE_NETWORK_CFG = {'z2m_topics': ['zigbee2mqtt']}
+
 def make_proxy(cfg=None, **kwargs):
     mqtt = FakeMqtt()
     sched = FakeScheduler()
-    proxy = Z2MProxy(cfg or {}, mqtt, sched, **kwargs)
+    proxy = Z2MProxy(SINGLE_NETWORK_CFG if cfg is None else cfg, mqtt, sched, **kwargs)
     return proxy, mqtt, sched
 
 
@@ -70,8 +73,8 @@ def get_other_lamp():
 
 class TestZ2MProxyConstruction(unittest.TestCase):
     def test_subscribes_to_default_topic(self):
-        _, mqtt, _ = make_proxy()
-        self.assertEqual(list(mqtt.subscriptions.keys()), ['zigbee2mqtt'])
+        _, mqtt, _ = make_proxy(cfg={})
+        self.assertEqual(list(mqtt.subscriptions.keys()), ['zigbee2mqtt', 'matter2mqtt'])
 
     def test_subscribes_to_custom_topic(self):
         _, mqtt, _ = make_proxy(cfg={'z2m_topics': ['custom_z2m']})
@@ -1016,7 +1019,7 @@ class TestZ2MProxyHealth(unittest.TestCase):
         sched = FakeScheduler()
         for _ in range(2):
             mqtt = FakeMqtt()
-            Z2MProxy({}, mqtt, sched)
+            Z2MProxy(SINGLE_NETWORK_CFG, mqtt, sched)
             mqtt.deliver('bridge/devices', [get_a_lamp()])
         for job, trigger, _ in list(sched.jobs):
             if trigger == 'date':
