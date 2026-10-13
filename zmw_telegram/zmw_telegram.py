@@ -346,7 +346,9 @@ class ZmwTelegram(ZmwMqttService):
         # Only after a minute of no-messages we'll allow now ones to go through
         self._msg_times.append(now)
         if oldest is not None and now - oldest < self._RATE_LIMIT_WINDOW_SECS:
-            log.error("Rate limit exceeded: %d messages in the last %d seconds, dropping message",
+            # A warning: the limiter doing its job. As an error, zmw_servicemon would forward it to
+            # telegram as well, adding to the burst that is being dropped
+            log.warning("Rate limit exceeded: %d messages in the last %d seconds, dropping message",
                       self._RATE_LIMIT_MAX_MSGS, self._RATE_LIMIT_WINDOW_SECS)
             return
         send_fn()
