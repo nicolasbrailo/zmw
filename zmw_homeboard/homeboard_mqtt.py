@@ -127,8 +127,11 @@ class HomeboardMqtt:
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"zmw_homeboard_{suffix}")
         self._client.on_connect = self._on_connect
+        self._client.on_connect_fail = self._on_connect_fail
         self._client.on_message = self._on_message
         self._started = False
+        # Log a failed connect as an error once per outage, not on every retry
+        self._connect_fail_logged = False
 
     def start(self):
         if self._started:
@@ -146,11 +149,20 @@ class HomeboardMqtt:
         self._client.disconnect()
         self._started = False
 
+    @property
+    def broker(self):
+        return self._broker
+
+    def is_connected(self):
+        """Whether the link to the homeboard broker is currently up."""
+        return self._client.is_connected()
+
     def _on_connect(self, client, _ud, _flags, ret_code, _props):
         if ret_code == 0:
             log.info("Connected to homeboard MQTT broker %s", self._broker)
+            self._connect_fail_logged = False
         else:
-            log.warning("Homeboard MQTT connect to %s returned rc=%s", self._broker, ret_code)
+            log.error("Homeboard MQTT connect to %s returned rc=%s", self._broker, ret_code)
         # Every homeboard publishes "<prefix>/availability" retained, carrying
         # both the online/offline state and the host info (machine_id,
         # hostname, ip, ...) in a single JSON object. It's also the last will.
@@ -162,6 +174,12 @@ class HomeboardMqtt:
         client.subscribe('+/state/displayed_photo', qos=0)
         # Health/telemetry from the homeboard-doctor service (not retained).
         client.subscribe('+/doctor', qos=0)
+
+    def _on_connect_fail(self, _client, _ud):
+        if self._connect_fail_logged:
+            return
+        self._connect_fail_logged = True
+        log.error("Homeboard MQTT broker %s is not reachable", self._broker)
 
     def _on_message(self, _client, _ud, msg):
         parts = msg.topic.split('/')

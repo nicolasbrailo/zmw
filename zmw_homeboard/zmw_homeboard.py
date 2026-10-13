@@ -410,8 +410,15 @@ class ZmwHomeboard(ZmwMqttService):
             if failed:
                 log.warning("doorbell_ring failed for %s", failed)
 
+    def get_service_alerts(self):
+        if self._core.is_connected():
+            return []
+        ip, port = self._core.broker
+        return [f"Homeboard MQTT broker [{ip}]:{port} is not reachable"]
+
     def _get_homeboards_state(self):
         return {
+            "broker_connected": self._core.is_connected(),
             "homeboards": self._core.list_homeboards(),
             "album_filter": self._album_filter,
         }

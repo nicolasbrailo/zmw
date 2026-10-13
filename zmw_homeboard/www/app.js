@@ -9,6 +9,7 @@ class Homeboard extends React.Component {
     super(props);
     this.state = {
       homeboards: [],
+      brokerConnected: true,
       loading: true,
       // One announcement is sent to every homeboard at once
       announceMsg: '',
@@ -66,7 +67,8 @@ class Homeboard extends React.Component {
     mJsonGet('/get_homeboards_state', (data) => {
       const homeboards = (data && data.homeboards) || [];
       const albumFilter = (data && data.album_filter) || null;
-      this.setState({ homeboards, albumFilter, loading: false });
+      const brokerConnected = !data || data.broker_connected !== false;
+      this.setState({ homeboards, albumFilter, brokerConnected, loading: false });
       if (albumFilter && !this._albumBoxesSeeded) {
         this._albumBoxesSeeded = true;
         this.setState({
@@ -707,9 +709,17 @@ class Homeboard extends React.Component {
   }
 
   render() {
-    const { homeboards, loading } = this.state;
+    const { homeboards, brokerConnected, loading } = this.state;
     if (loading) {
       return (<div>Loading...</div>);
+    }
+    if (!brokerConnected) {
+      return (
+        <div>
+          <p className="warn">No homeboard broker is reachable.</p>
+          <button onClick={this.refresh}>Refresh</button>
+        </div>
+      );
     }
     if (homeboards.length === 0) {
       return (
