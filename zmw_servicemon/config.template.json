@@ -2,6 +2,9 @@
   "error_history_len": 100,
   "rate_limit_window_mins": 5,
 
+  "COMMENT": "Errors from these services are still shown in the error log, but not sent to Telegram",
+  "telegram_ignore_services": [],
+
   "COMMENT": "Better give this service a fixed port, it's useful to know where to find it",
   "http_port": 4200,
 

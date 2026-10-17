@@ -35,6 +35,10 @@ class ZmwServicemon(ZmwMqttServiceMonitor):
         # Store list of systemd services to monitor from config
         self._systemd_services = cfg.get('systemd_services', [])
 
+        # Services whose errors are still captured and shown in www, but never sent to Telegram
+        self._telegram_ignore_services = {
+            svc.removesuffix('.service') for svc in cfg.get('telegram_ignore_services', [])}
+
         # Track recently sent error messages for deduplication (message_key, timestamp)
         self._recent_messages = deque(maxlen=100)
 
@@ -155,6 +159,9 @@ class ZmwServicemon(ZmwMqttServiceMonitor):
         self._journal_monitor.monitor_unit(journal_name)
 
     def _on_service_logged_err(self, err):
+        if err.get('service') in self._telegram_ignore_services:
+            return
+
         msg_key = (err.get('service'), err.get('message'))
         now = datetime.now()
 
