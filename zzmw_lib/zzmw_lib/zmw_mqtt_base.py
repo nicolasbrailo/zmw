@@ -49,6 +49,7 @@ class ZmwMqttBase(ABC):
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         # self.client.enable_log(log=log)
         self.client.on_connect = self._on_connect
+        self.client.on_connect_fail = self._on_connect_fail
         self.client.on_disconnect = self._on_disconnect
         self.client.on_subscribe = self._on_subscribe
         self.client.on_unsubscribe = self._on_unsubscribe
@@ -62,8 +63,10 @@ class ZmwMqttBase(ABC):
     def loop_forever(self):
         """ Connects to MQTT and starts the net loop. Doesn't return until stop is called """
         log.info('Connecting to MQTT broker [%s]:%d in client only mode...', self._mqtt_ip, self._mqtt_port)
-        self.client.connect(self._mqtt_ip, self._mqtt_port, 10)
-        self.client.loop_forever()
+        # Async connect + retry_first_connection: if the broker isn't up yet (eg on boot) keep retrying instead of
+        # raising, which would kill this thread and leave the rest of the service running without MQTT
+        self.client.connect_async(self._mqtt_ip, self._mqtt_port, 10)
+        self.client.loop_forever(retry_first_connection=True)
 
     def loop_forever_bg(self):
         """ Launches a bg thread that calls self.loop_forever """
@@ -114,6 +117,9 @@ class ZmwMqttBase(ABC):
         # Announce we're up and running
         log.info('Running MQTT listener thread, client mode only')
         self.on_service_discovery_ping()
+
+    def _on_connect_fail(self, _client, _userdata):
+        log.warning('Failed to connect to MQTT broker [%s]:%d, will retry', self._mqtt_ip, self._mqtt_port)
 
     def _on_disconnect(self, _client, _userdata, _disconnect_flags, _ret_code, _props):
         log.info('Disconnected from MQTT broker [%s]:%d', self._mqtt_ip, self._mqtt_port)

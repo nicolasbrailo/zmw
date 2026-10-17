@@ -66,8 +66,8 @@ popd
 read -r -d '' SVC_TMPL <<EOF || true
 [Unit]
 Description=$TGT_SVC_NAME
-After=mosquitto.target
-Wants=mosquitto.target
+After=mosquitto.service
+Wants=mosquitto.service
 
 [Service]
 ExecStartPre=/usr/bin/mkdir -m 740 -p "$TGT_SVC_RUN"

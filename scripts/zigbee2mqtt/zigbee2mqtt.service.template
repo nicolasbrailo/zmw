@@ -1,6 +1,6 @@
 [Unit]
 Description=zigbee2mqtt
-After=mosquitto.target
+After=mosquitto.service
 
 [Service]
 Environment=NODE_ENV=production ZIGBEE2MQTT_DATA=#Z2M_RUN_PATH#
