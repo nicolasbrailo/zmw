@@ -48,6 +48,16 @@ class IgnoredActionValue:
         return "IGNORED"
 
 
+def _composite_fields_for(action, siblings, val):
+    """ The part of a composite value that belongs to action, out of composites that share its property: drop the
+    fields that a sibling declares and action doesn't. Unknown fields stay, so the composite still rejects them. """
+    def declared(act):
+        return set(k for k, v in act.value.meta['composite_actions'].items() if not isinstance(v, IgnoredAction))
+    own = declared(action)
+    others = set().union(*(declared(sib) for sib in siblings if sib is not action))
+    return {k: v for k, v in val.items() if k in own or k not in others}
+
+
 class IgnoredAction:
     """Action object for out-of-schema composite fields"""
     def __init__(self, field_name):
@@ -157,11 +167,10 @@ class Zigbee2MqttThing:
         for mqtt_msg_field in msg:
             try:
                 val = msg[mqtt_msg_field]
-                changed_action = self._set(mqtt_msg_field, val, set_by_user=False)
                 # Keep a list of all changes' callbacks
-                if changed_action is not None:
+                for changed_action, action_val in self._set(mqtt_msg_field, val, set_by_user=False):
                     thing_updated = True
-                    changes.append((changed_action.value.on_change_from_mqtt, val))
+                    changes.append((changed_action.value.on_change_from_mqtt, action_val))
             except AttributeError:
                 # Some battery powered devices don't seem to respect their
                 # schema?
@@ -244,23 +253,31 @@ class Zigbee2MqttThing:
         self._set(key, val, set_by_user=True)
 
     def _set(self, key, val, set_by_user=True):
-        for _act_name, action in self.actions.items():
-            if action.accepts_value(key, val):
-                # log.debug('Action %s[%d].%s accepts set %s = %s from %s',
-                #             self.name, self.thing_id, _act_name, key, val,
-                #             'user' if set_by_user else 'MQTT')
-                if set_by_user:
-                    action.set_value(val)
-                else:
-                    action.set_value_from_mqtt_update(val)
-                return action
+        """ Sets key = val on the action that accepts it. Returns the actions that were set, as a list of
+        (action, value it got) """
+        accepting = [action for action in self.actions.values() if action.accepts_value(key, val)]
+        if len(accepting) == 0:
+            if key in _Z2M_IGNORE_ACTIONS:
+                # Signal no action has been changed
+                return []
+            raise AttributeError(
+                f'{self.name}[{self.thing_id}] has no action {key} {self.debug_str()}')
 
-        if key in _Z2M_IGNORE_ACTIONS:
-            # Signal no action has been changed
-            return None
+        if accepting[0].value.meta['type'] == 'composite':
+            # Several composites may share a property, eg color_xy and color_hs both on 'color', and z2m sends all of
+            # their fields in one value ({x, y, hue, saturation}). Each composite gets only its own fields, otherwise
+            # it would take its siblings' fields as unknown and ignore the whole update.
+            siblings = [action for action in accepting if action.value.meta['type'] == 'composite']
+            sets = [(action, _composite_fields_for(action, siblings, val)) for action in siblings]
+        else:
+            sets = [(accepting[0], val)]
 
-        raise AttributeError(
-            f'{self.name}[{self.thing_id}] has no action {key} {self.debug_str()}')
+        for action, action_val in sets:
+            if set_by_user:
+                action.set_value(action_val)
+            else:
+                action.set_value_from_mqtt_update(action_val)
+        return sets
 
     def get(self, key):
         """ Gets current state of an action (throws if action doesn't exist) """

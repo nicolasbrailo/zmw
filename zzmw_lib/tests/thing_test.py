@@ -753,6 +753,37 @@ class TestThings(unittest.TestCase):
         # Composite value should still be None
         self.assertEqual(t.actions['color_xy'].value.get_value(), None)
 
+    def test_composites_sharing_a_property_each_get_their_fields(self):
+        # The lamp exposes color_xy and color_hs, both on 'color'; z2m (and matter2mqtt) send all fields at once
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
+        with self.assertNoLogs('Z2M', level='WARNING'):
+            t.on_mqtt_update('topic', json.loads(
+                '{"color":{"hue":349,"saturation":43,"x":0.4422,"y":0.3}}'))
+        self.assertEqual(t.actions['color_xy'].value.get_value(), {'x': 0.4422, 'y': 0.3})
+        self.assertEqual(t.actions['color_hs'].value.get_value(), {'hue': 349, 'saturation': 43})
+        # And keep working on later updates
+        t.on_mqtt_update('topic', json.loads(
+            '{"color":{"hue":10,"saturation":20,"x":0.1,"y":0.2}}'))
+        self.assertEqual(t.actions['color_xy'].value.get_value(), {'x': 0.1, 'y': 0.2})
+        self.assertEqual(t.actions['color_hs'].value.get_value(), {'hue': 10, 'saturation': 20})
+
+    def test_composites_sharing_a_property_callbacks_get_their_fields(self):
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
+        got = {}
+        t.actions['color_xy'].value.on_change_from_mqtt = lambda v: got.update(xy=v)
+        t.actions['color_hs'].value.on_change_from_mqtt = lambda v: got.update(hs=v)
+        t.on_mqtt_update('topic', json.loads(
+            '{"color":{"hue":349,"saturation":43,"x":0.4422,"y":0.3}}'))
+        self.assertEqual(got, {'xy': {'x': 0.4422, 'y': 0.3}, 'hs': {'hue': 349, 'saturation': 43}})
+
+    def test_composites_sharing_a_property_still_reject_unknown_fields(self):
+        t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
+        with self.assertLogs('Z2M', level='WARNING'):
+            t.on_mqtt_update('topic', json.loads(
+                '{"color":{"hue":349,"saturation":43,"x":0.4422,"y":0.3,"z":1}}'))
+        self.assertEqual(t.actions['color_xy'].value.get_value(), None)
+        self.assertEqual(t.actions['color_hs'].value.get_value(), None)
+
     def test_user_defined_action(self):
         t = parse_from_zigbee2mqtt(0, get_lamp_with_composite_action(), 'zigbee2mqtt')
 
