@@ -20,6 +20,16 @@ install_all_services:
 		make -C $$dir install_svc ; \
 	done
 
+# Rebuild every service's Pipfile/venv, in parallel (one job per CPU). --keep-going lets
+# the rest finish if one fails; make lists the failures at the end. -O keeps each
+# service's output together. Uses cd instead of make -C: common.mk relies on $(PWD).
+.PHONY: rebuild_all_deps
+rebuild_all_deps:
+	@$(MAKE) --no-print-directory -j$(shell nproc) -O --keep-going $(addprefix _rebuild_deps-,$(DIRS_WITH_MKFILE))
+
+_rebuild_deps-%:
+	cd $* && $(MAKE) --no-print-directory rebuild_deps
+
 .PHONY: rebuild_all_ui
 rebuild_all_ui:
 	@echo "Running rebuild_ui on all projects..."

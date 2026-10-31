@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-zzmw-lib = {editable = true, extras = ["geo", "z2m"], path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
+zzmw-lib = {extras = ["geo", "z2m"], path = "../zzmw_lib", editable = true}
 
 [dev-packages]
 pylint = "*"
@@ -12,5 +12,5 @@ pytest = "*"
 pytest-cov = "*"
 
 [requires]
-python_version = "3.11"
-python_full_version = "3.11.2"
+python_version = "3.14"
+python_full_version = "3.14.4"

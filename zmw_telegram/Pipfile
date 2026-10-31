@@ -4,8 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-zzmw-lib = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zzmw_lib"}
-py-telegram-bot = {editable = true, path = "/home/batman/src/BatiCasa/zigbee2mqtt2web/zext_libs/PyTelegramBot"}
+zzmw-lib = {path = "../zzmw_lib", editable = true}
+py-telegram-bot = {path = "../zext_libs/PyTelegramBot", editable = true}
 requests = "*"
 
 [dev-packages]
@@ -14,5 +14,5 @@ pytest = "*"
 pytest-cov = "*"
 
 [requires]
-python_version = "3.11"
-python_full_version = "3.11.2"
+python_version = "3.14"
+python_full_version = "3.14.4"

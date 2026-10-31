@@ -15,9 +15,9 @@ SVC_RUN_BASE="/home/$USER/run/baticasa"
 TGT_SVC_RUN="$SVC_RUN_BASE/$TGT_SVC_NAME"
 
 if [ -z "${2+x}" ]; then
-  EXEC_START="pipenv run python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
+  EXEC_START="$TGT_SVC_RUN/.venv/bin/python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
 else
-  EXEC_START="$2 pipenv run python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
+  EXEC_START="$2 $TGT_SVC_RUN/.venv/bin/python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
 fi
 
 echo "Installing service $TGT_SVC_NAME from $TGT_SVC_SRC"
@@ -48,7 +48,7 @@ mkdir -p "$TGT_SVC_RUN"
 if [ -f "$TGT_SVC_RUN/config.json" ]; then
   echo "$TGT_SVC_SRC already has a config.json file, will not create new one"
 elif [ ! -f "$TGT_SVC_SRC/config.json" ] && [ -f "$TGT_SVC_SRC/config.template.json" ]; then
-  echo "$TGT_SVC_SRC doesn't have a config.json file, create one from the template"
+  echo "$TGT_SVC_SRC doesn't have a config.json file, create one from the template before installing the service"
   exit 1
 elif [ ! -f "$TGT_SVC_SRC/config.json" ] && [ ! -f "$TGT_SVC_SRC/config.template.json" ]; then
   echo "$TGT_SVC_SRC doesn't have configs, assuming it doesn't need one"
@@ -59,6 +59,8 @@ fi
 pushd "$TGT_SVC_RUN"
 cp "$TGT_SVC_SRC/Pipfile" .
 cp "$TGT_SVC_SRC/Pipfile.lock" .
+# pipenv writes editable paths relative to the Pipfile; make them point back to the source tree
+sed -i "s|\"\.\./|\"$TGT_SVC_SRC/../|" Pipfile Pipfile.lock
 
 PIPENV_VENV_IN_PROJECT=1 pipenv sync
 popd
@@ -66,8 +68,8 @@ popd
 read -r -d '' SVC_TMPL <<EOF || true
 [Unit]
 Description=$TGT_SVC_NAME
-After=mosquitto.service
-Wants=mosquitto.service
+After=mqtt_baticasa.service
+Wants=mqtt_baticasa.service
 
 [Service]
 ExecStartPre=/usr/bin/mkdir -m 740 -p "$TGT_SVC_RUN"
