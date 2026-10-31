@@ -74,8 +74,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         # Save cache path for tts and register it as a www dir, to serve assets
         self._tts_assets_cache_path = cfg['tts_assets_cache_path']
-        if not os.path.isdir(self._tts_assets_cache_path):
-            raise FileNotFoundError(f"Invalid cache path '{self._tts_assets_cache_path}'")
+        os.makedirs(self._tts_assets_cache_path, exist_ok=True)
 
         # Create HTTPS server that proxies to the HTTP server
         # All endpoints registered on https_www will be available on both HTTP and HTTPS
