@@ -94,6 +94,7 @@ class ScheduleBuilderTest(unittest.TestCase):
     def test_reads_state_file(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=True) as temp_file:
             temp_file.write(get_schedule_all_slots(AllowOn.ALWAYS))
+            temp_file.flush()
             sut = ScheduleBuilder(ignore_state_changes, temp_file.name, NO_RULES)
             for hr in range(0, 24):
                 for mn in range(0, 60):
@@ -111,6 +112,7 @@ class ScheduleBuilderTest(unittest.TestCase):
     def test_survives_wrong_ser_file(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=True) as temp_file:
             temp_file.write('random garbage')
+            temp_file.flush()
             sut = ScheduleBuilder(ignore_state_changes, temp_file.name, NO_RULES)
 
     def test_serializes_state_on_tick(self):
