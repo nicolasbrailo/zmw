@@ -6,6 +6,17 @@ devrun::
 install_svc::
 	../scripts/install_svc.sh . "/usr/bin/authbind --deep "
 
+# Let this user (only) bind the dashboard's privileged ports through authbind. authbind
+# allows the bind if the file /etc/authbind/byport/<port> is executable by the caller.
+AUTHBIND_PORTS ?= 80
+authbind_setup:
+	sudo apt-get install -y authbind
+	for p in $(AUTHBIND_PORTS); do \
+		sudo touch /etc/authbind/byport/$$p && \
+		sudo chown $(USER) /etc/authbind/byport/$$p && \
+		sudo chmod 500 /etc/authbind/byport/$$p || exit 1; \
+	done
+
 rebuild_ui::
 	echo "SPEC TGT"
 	$(MAKE) -C ../zzmw_lib/www js
