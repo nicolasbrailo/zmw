@@ -1,6 +1,7 @@
 """ Keeps a historical database of sensor readings """
 
 from apscheduler.triggers.cron import CronTrigger
+from contextlib import contextmanager
 import sqlite3
 import logging
 import re
@@ -28,6 +29,18 @@ _SQLITE_KEYWORDS = {
     'union', 'unique', 'update', 'using', 'vacuum', 'values', 'view', 'virtual', 'when',
     'where', 'with', 'without'
 }
+
+@contextmanager
+def _connect(dbpath):
+    """ Like sqlite3.connect(), but closes the connection on exit. sqlite3's own context manager only commits or
+    rolls back, closing is left to GC: if GC falls behind, the service runs out of file descriptors. """
+    conn = sqlite3.connect(dbpath)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
 
 def _validate_sql_identifier(identifier, identifier_type="identifier"):
     """
@@ -205,7 +218,7 @@ class SensorsHistory:
         self._dbpath = dbpath
 
         # try to open the db once, to verify it's usable
-        with sqlite3.connect(self._dbpath):
+        with _connect(self._dbpath):
             pass
 
         self._scheduler = scheduler
@@ -257,7 +270,7 @@ class SensorsHistory:
                 log.error("Cannot register sensor %s with invalid metric name: %s", sensor_name, e)
                 raise
 
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             _maybe_create_table(conn, sensor_name, metrics)
             conn.commit()
 
@@ -277,7 +290,7 @@ class SensorsHistory:
         sensor_name = _validate_sql_identifier(sensor_name, "sensor name")
         validated_metrics = [_validate_sql_identifier(m, "metric name") for m in metrics]
 
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             _maybe_create_table(conn, sensor_name, validated_metrics)
 
             cols_q = ', '.join(validated_metrics)
@@ -294,17 +307,17 @@ class SensorsHistory:
 
     def get_known_sensors(self):
         """ Returns a list of all sensor names kept in this database """
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             return _get_known_sensors(conn)
 
     def get_known_metrics(self):
         """ Returns a list of all metrics being measured """
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             return list(_get_known_metrics(conn))
 
     def get_known_sensors_measuring(self, metric):
         """ Returns a list of all sensor that can measure $metric"""
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             sensors = _get_known_sensors(conn)
             can_measure = []
             for sensor in sensors:
@@ -314,7 +327,7 @@ class SensorsHistory:
 
     def get_metrics_for_sensor(self, sensor_name):
         """ Returns a list of all metrics available for a specific sensor """
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             if sensor_name not in _get_known_sensors(conn):
                 return []
             return _get_sensor_metrics(conn, sensor_name)
@@ -332,7 +345,7 @@ class SensorsHistory:
         unit = _validate_time_unit(unit)
         time = int(time)
 
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             if sensor_name not in _get_known_sensors(conn):
                 log.error('Received request for unknown sensor %s', sensor_name)
                 return ''
@@ -354,7 +367,7 @@ class SensorsHistory:
         # Validate sensor name to prevent SQL injection
         sensor_name = _validate_sql_identifier(sensor_name, "sensor name")
 
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             if sensor_name not in _get_known_sensors(conn):
                 log.error('Received request for unknown sensor %s', sensor_name)
                 return ''
@@ -374,7 +387,7 @@ class SensorsHistory:
         unit = _validate_time_unit(unit)
         time = int(time)
 
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             # all_sensors come from _sensors_with_metric which validates them
             all_sensors = _sensors_with_metric(conn, metric)
             if len(all_sensors) == 0:
@@ -414,7 +427,7 @@ class SensorsHistory:
     def gc_dead_sensors(self):
         """Run garbage collection to discard old sensor data based on retention policy."""
         log.info('Sensor history: run GC to discard old sensors')
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             _discard_old_samples_by_retention_days_all_tables(conn, self._retention_days)
             _discard_old_samples_by_retention_count_all_tables(conn, self._retention_rows)
             conn.commit()
@@ -423,7 +436,7 @@ class SensorsHistory:
     def _force_retention_days(self, retention_n):
         retention_n = int(retention_n)
         log.info('Discarding old measurements by forcing DAYS retention to %d', retention_n)
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             _discard_old_samples_by_retention_days_all_tables(conn, retention_n)
             conn.commit()
         return "OK"
@@ -431,7 +444,7 @@ class SensorsHistory:
     def _force_retention_rows(self, retention_n):
         retention_n = int(retention_n)
         log.info('Discarding old measurements by forcing ROWS retention to %d', retention_n)
-        with sqlite3.connect(self._dbpath) as conn:
+        with _connect(self._dbpath) as conn:
             _discard_old_samples_by_retention_count_all_tables(conn, retention_n)
             conn.commit()
         return "OK"
