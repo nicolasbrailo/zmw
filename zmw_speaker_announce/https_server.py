@@ -48,7 +48,7 @@ class HttpsServer:
         """
         self._http_app = http_flask_app
         self._cfg = cfg
-        self._host = get_lan_ip()
+        self._host = get_lan_ip() or '0.0.0.0'
         self._server = None
         self._thread = None
         self._public_url_base = None

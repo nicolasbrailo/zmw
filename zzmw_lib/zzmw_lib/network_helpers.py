@@ -8,22 +8,31 @@ from .runtime_state_cache import runtime_state_cache_get, runtime_state_cache_se
 log = build_logger("ServiceRunner")
 
 
-def get_lan_ip():
+def get_lan_ip(timeout_secs=30, retry_interval_secs=1):
     """
     Get LAN IP by checking which interface would route to an external host.
 
     This creates a UDP socket and "connects" to an external IP (no data is sent),
     then checks which local IP was selected for the connection.
 
+    On boot, services may start before the network is configured (no route yet), so keep
+    retrying for up to timeout_secs before giving up.
+
     Returns:
         str: The LAN IP address, or None if it cannot be determined
     """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except OSError:
-        return "0.0.0.0"
+    deadline = time.monotonic() + timeout_secs
+    while True:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except OSError as ex:
+            if time.monotonic() >= deadline:
+                log.error("Can't determine LAN IP after %ds: %s", timeout_secs, ex)
+                return None
+            log.warning("Can't determine LAN IP yet (network not up?), retrying: %s", ex)
+            time.sleep(retry_interval_secs)
 
 
 def is_port_available(host, port):
