@@ -115,7 +115,7 @@ sed -i "2i ZMW_PROJECT_ROOT='$ZMW_PROJECT_ROOT'" "$SVC_RUN_BASE/logs.sh"
 sed -i "2i ZMW_PROJECT_ROOT='$ZMW_PROJECT_ROOT'" "$SVC_RUN_BASE/restart_all.sh"
 
 if [ ! -f "/etc/systemd/system/$TGT_SVC_NAME.service" ]; then
-  sudo ln -s "$TGT_SVC_RUN/$TGT_SVC_NAME.service" "/etc/systemd/system/$TGT_SVC_NAME.service" || true
+  sudo systemctl link "$TGT_SVC_RUN/$TGT_SVC_NAME.service" || true
 fi
 sudo systemctl daemon-reload
 
