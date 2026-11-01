@@ -314,5 +314,11 @@ def service_runner(AppClass):
     if flaskapp.startup_automatically:
         # User may override this when the app is instanciated
         flaskapp.setup_complete()
-    app.loop_forever()
+    try:
+        app.loop_forever()
+    except Exception:  # pylint: disable=broad-except
+        # Can't sys.exit: the www thread isn't a daemon, so the process would linger half-dead (no MQTT, scheduler
+        # still running) and the service manager would never restart it
+        log.critical("MQTT loop died, exiting so the service can be restarted", exc_info=True)
+        os._exit(1)
     www_thread.join()

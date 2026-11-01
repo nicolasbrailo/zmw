@@ -146,7 +146,12 @@ class ZmwMqttBase(ABC):
     def _on_message(self, _client, _userdata, msg):
         topic = msg.topic
         if topic.startswith(self._global_svc_discovery_ping_topic):
-            return self.on_service_discovery_ping()
+            # Anything raised here would propagate out of the MQTT loop and kill it
+            try:
+                return self.on_service_discovery_ping()
+            except Exception:  # pylint: disable=broad-except
+                log.error('Failed to reply to service discovery ping', exc_info=True)
+                return None
 
         try:
             parsed_msg = json.loads(msg.payload)
