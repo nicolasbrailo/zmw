@@ -8,9 +8,8 @@ RUNDIR=$(readlink -f .)
 SRC_ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 BABEL_ROOT="$SRC_ROOT/build/npm"
 
-if [ ! -f "$BABEL_ROOT/babel.config.json" ]; then
-  cp ./babel.config.json "$BABEL_ROOT/babel.config.json"
-fi
+# Always refresh the config: a stale copy would silently keep old settings
+cp "$SRC_ROOT/babel.config.json" "$BABEL_ROOT/babel.config.json"
 
 # Run from root of node install dir, otherwise deps aren't found
 pushd "$BABEL_ROOT"
