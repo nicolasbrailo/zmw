@@ -84,17 +84,14 @@ class Rtsp:
             if not hasattr(self._event_cb, callback):
                 raise AttributeError(f"Event callback missing required method: {callback}")
 
-        if not os.path.exists(self._rec_path_prefix):
-            log.error(
-                "Cam %s: recording path not available at %s (missing external drive?)",
-                cam_host, self._rec_path_prefix)
-            self._outdir = None
-        else:
-            self._nvr_retention_days = retention_days
-            self._outdir = os.path.join(self._rec_path_prefix, cam_alias)
-            if not os.path.exists(self._outdir):
-                os.makedirs(self._outdir)
+        self._nvr_retention_days = retention_days
+        self._outdir = os.path.join(self._rec_path_prefix, cam_alias)
+        try:
+            os.makedirs(self._outdir, exist_ok=True)
             log.info("Cam %s: RTSP recordings will be saved at %s", cam_host, self._outdir)
+        except OSError as ex:
+            log.error("Cam %s: can't create recording path %s: %s", cam_host, self._outdir, ex)
+            self._outdir = None
 
         self._update_lock = Lock()
         self._recording_job_updating = False
@@ -110,9 +107,7 @@ class Rtsp:
     def trigger_recording(self, duration_secs=None):
         """ Start a new RTSP recording. If one is ongoing, change the timeout to the new duration """
         if self._outdir is None:
-            log.error(
-                "Cam %s: recording path not available at %s (missing external drive?)",
-                self._cam_host, self._rec_path_prefix)
+            log.error("Cam %s: recording path %s not available, can't record", self._cam_host, self._rec_path_prefix)
             return
 
         recording_duration = duration_secs or self._default_recording_duration_secs
