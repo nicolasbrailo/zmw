@@ -1,9 +1,6 @@
-"""Outside weather sensor using Open-Meteo API."""
+"""Outside weather sensor, from Open-Meteo via ZmwMeteoRelay."""
 
-import json
 import threading
-import urllib.request
-import urllib.error
 
 from zzmw_lib.logs import build_logger
 from zzmw_lib.z2m.thing import create_virtual_thing
@@ -13,30 +10,28 @@ log = build_logger("OutsideWeather")
 
 
 class OutsideWeatherSensor:
-    """Fetches outside weather data from Open-Meteo and records to sensor history."""
+    """Records Open-Meteo reports (pushed by ZmwMeteoRelay) to sensor history.
+
+    Doesn't fetch anything itself: the service feeds it every report the relay announces, plus one it asks for
+    when the relay comes up.
+    """
 
     METRICS = ['temperature', 'humidity']
     SENSOR_NAME = 'Weather'
 
-    def __init__(self, sensors_history, z2m, scheduler, latitude, longitude, update_interval_seconds=300):
-        """Initialize the outside weather sensor.
-
+    def __init__(self, sensors_history, z2m):
+        """
         Args:
             sensors_history: SensorsHistory instance to save readings
             z2m: Z2MProxy instance for thing management
-            scheduler: Scheduler for periodic updates
-            latitude: Location latitude
-            longitude: Location longitude
-            update_interval_seconds: How often to fetch new data (default: 5 minutes)
         """
         self._sensors = sensors_history
         self._z2m = z2m
-        self._scheduler = scheduler
-
-        self._api_url = (
-            f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}"
-            "&current=temperature_2m,relative_humidity_2m"
-        )
+        # Reports arrive from the MQTT thread (announcements) and from the startup fetch thread
+        self._lock = threading.Lock()
+        # Open-Meteo's `current.time` of the last saved reading. The startup fetch and an announcement (or a relay
+        # restart) can deliver the same report twice; record it once.
+        self._last_report_time = None
 
         # Create and register virtual thing
         self._thing = create_virtual_thing(
@@ -51,58 +46,38 @@ class OutsideWeatherSensor:
         virtual_metrics = get_virtual_metrics(self.METRICS)
         all_metrics = self.METRICS + virtual_metrics
         self._sensors.register_sensor(self.SENSOR_NAME, all_metrics)
-        log.info("Registered outside weather sensor at (%.4f, %.4f), updating every %ds (virtual: %s)",
-                 latitude, longitude, update_interval_seconds, virtual_metrics)
-
-        # Schedule periodic updates
-        self._scheduler.add_job(
-            func=self._trigger_async_update,
-            trigger="interval",
-            seconds=update_interval_seconds,
-        )
-        # Fetch immediately on startup
-        self._trigger_async_update()
+        log.info("Registered outside weather sensor (virtual: %s)", virtual_metrics)
 
     def get_thing(self):
         """Return the virtual thing for this sensor."""
         return self._thing
 
-    def _trigger_async_update(self):
-        """Trigger an async fetch in a background thread."""
-        thread = threading.Thread(target=self._fetch_and_save, daemon=True)
-        thread.start()
-
-    def _fetch_and_save(self):
-        """Fetch data from API and save to database. Runs in a background thread."""
+    def on_weather_report(self, data):
+        """Record an Open-Meteo forecast response (needs temperature_2m and relative_humidity_2m in `current`)."""
         try:
-            with urllib.request.urlopen(self._api_url, timeout=30) as response:
-                raw_response = response.read().decode()
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
-            log.warning("Can't reach Open-Meteo service: %s", e)
-            values = {metric: None for metric in self.METRICS}
-            self._sensors.save_reading(self.SENSOR_NAME, values)
-            return
-
-        try:
-            data = json.loads(raw_response)
             current = data['current']
+            report_time = current.get('time')
             values = {
                 'temperature': current['temperature_2m'],
                 'humidity': current['relative_humidity_2m'],
             }
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            log.error("Failed to parse Open-Meteo response: %s (response: %s)", e, raw_response)
-            values = {metric: None for metric in self.METRICS}
-            self._sensors.save_reading(self.SENSOR_NAME, values)
+        except (KeyError, TypeError, AttributeError) as e:
+            log.error("Failed to parse Open-Meteo response: %s (response: %s)", e, data)
             return
 
-        # Set values on thing.extras
-        for metric, value in values.items():
-            self._thing.extras.set(metric, value)
+        with self._lock:
+            if report_time is not None and report_time == self._last_report_time:
+                log.debug("Already recorded outside weather for %s, skipping", report_time)
+                return
+            self._last_report_time = report_time
 
-        # Compute and set virtual metrics
-        virtual_values = compute_virtual_metrics(values, self._thing)
+            # Set values on thing.extras
+            for metric, value in values.items():
+                self._thing.extras.set(metric, value)
 
-        # Save to history and broadcast
-        self._sensors.save_reading(self.SENSOR_NAME, {**values, **virtual_values})
+            # Compute and set virtual metrics
+            virtual_values = compute_virtual_metrics(values, self._thing)
+
+            # Save to history and broadcast
+            self._sensors.save_reading(self.SENSOR_NAME, {**values, **virtual_values})
         self._z2m.broadcast_thing(self._thing)

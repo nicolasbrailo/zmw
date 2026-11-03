@@ -1,6 +1,7 @@
 """Sensor monitoring and history service."""
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
+from zzmw_lib.meteo_relay_client import METEO_RELAY_SVC, MeteoRelayError, get_weather_from_relay
 from zzmw_lib.service_runner import service_runner
 
 from zzmw_lib.z2m.z2mproxy import Z2MProxy
@@ -12,6 +13,7 @@ from outside_weather import OutsideWeatherSensor
 
 import os
 import pathlib
+import threading
 
 log = build_logger("ZmwSensormon")
 
@@ -182,7 +184,7 @@ class HomeboardMonitor:
 class ZmwSensormon(ZmwMqttService):
     """MQTT service for monitoring sensor data and maintaining history."""
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg, "zmw_sensormon", scheduler=sched)
+        super().__init__(cfg, "zmw_sensormon", scheduler=sched, svc_deps=[METEO_RELAY_SVC])
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         self._public_url_base = www.register_www_dir(www_path)
 
@@ -200,10 +202,11 @@ class ZmwSensormon(ZmwMqttService):
         self._homeboard_monitor = HomeboardMonitor(self._sensors)
         self.subscribe_with_cb('zmw_homeboard', self._homeboard_monitor.on_message)
 
-        self._outside_weather = OutsideWeatherSensor(
-            self._sensors, self._z2m, sched,
-            latitude=cfg['outside_latitude'], longitude=cfg['outside_longitude'],
-            update_interval_seconds=300)
+        # Outside weather is the relay's default location, pushed by the relay on every update
+        if 'outside_latitude' in cfg or 'outside_longitude' in cfg:
+            log.warning("outside_latitude/outside_longitude are ignored: outside weather is %s's default location, "
+                        "set it in that service's config", METEO_RELAY_SVC)
+        self._outside_weather = OutsideWeatherSensor(self._sensors, self._z2m)
 
         www.serve_url('/sensors/get/<name>', self._get_sensor_values)
         www.serve_url('/sensors/get_all/<metric>', self._get_all_sensor_values)
@@ -239,8 +242,8 @@ class ZmwSensormon(ZmwMqttService):
                            "Exposes current values and timeseries for temperature, humidity, power, battery, etc.",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: z2m sensors, plus plug/homeboard stats via subscribe_with_cb.
-            "reads_mqtt_topic": ["zigbee2mqtt", "zmw_shelly_plug", "zmw_homeboard"],
+            # Reads: z2m sensors, plus plug/homeboard stats via subscribe_with_cb, plus outside weather reports.
+            "reads_mqtt_topic": ["zigbee2mqtt", "zmw_shelly_plug", "zmw_homeboard", "zmw_meteo_relay"],
             # Writes: publishes virtual things (outside weather, computed metrics) back to z2m.
             "writes_mqtt_topic": ["zigbee2mqtt"],
             "commands": {
@@ -306,6 +309,30 @@ class ZmwSensormon(ZmwMqttService):
             "llm_context_extra": self._build_llm_context_extra(),
             "llm_grammar_values": self._build_llm_grammar_values(),
         }
+
+    def on_service_came_up(self, service_name):
+        super().on_service_came_up(service_name)
+        if service_name == METEO_RELAY_SVC:
+            # Announcements only come on the relay's next update, which may be a while: ask for the current report
+            # now. Off the MQTT thread, a request may block.
+            threading.Thread(target=self._fetch_outside_weather, daemon=True).start()
+
+    def _fetch_outside_weather(self):
+        try:
+            self._outside_weather.on_weather_report(get_weather_from_relay(self, client='zmw_sensormon'))
+        except MeteoRelayError as e:
+            log.warning("Can't get outside weather, will wait for the relay's next update: %s", e)
+
+    def on_dep_published_message(self, svc_name, subtopic, payload):
+        if svc_name != METEO_RELAY_SVC:
+            super().on_dep_published_message(svc_name, subtopic, payload)
+            return
+        # Only new reports for the default (house) location; replies to other clients' requests aren't for us
+        if subtopic != 'weather_updated' or not isinstance(payload, dict):
+            return
+        if not (payload.get('location') or {}).get('is_default'):
+            return
+        self._outside_weather.on_weather_report(payload.get('weather'))
 
     def on_service_received_message(self, subtopic, payload):
         if subtopic.endswith('_reply'):

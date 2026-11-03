@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from flask import abort, request
 
 from zzmw_lib.logs import build_logger
+from zzmw_lib.meteo_relay_client import METEO_RELAY_SVC, get_weather_from_relay
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
@@ -49,14 +50,17 @@ class ZmwHomeboard(ZmwMqttService):
 
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_homeboard", scheduler=_sched,
-                         svc_deps=["ZmwSpeakerAnnounce", "ZmwDoorman"])
+                         svc_deps=["ZmwSpeakerAnnounce", "ZmwDoorman", METEO_RELAY_SVC])
 
         self._sched = _sched
+        # The weather panel shows the relay's default location (the house). The relay asks Open-Meteo with
+        # timezone=auto, so the forecast is in the location's local time.
+        if cfg.get('weather'):
+            log.warning("Config 'weather' is ignored: the weather panel shows %s's default location, set it in that "
+                        "service's config", METEO_RELAY_SVC)
         self._weather = WeatherOverlay(
             "weather_icons",
-            lat=float(cfg['weather']['lat']),
-            lon=float(cfg['weather']['lon']),
-            tz=cfg['weather'].get('tz', 'auto'),
+            get_weather=lambda: get_weather_from_relay(self, client='zmw_homeboard'),
         )
         self._qr = QrOverlay()
         self._announce = AnnounceOverlay()
@@ -308,7 +312,7 @@ class ZmwHomeboard(ZmwMqttService):
 
     def _on_hb_host_info(self, hb_id, _data):
         log.info("Config for '%s' changed, recomputing overlay", hb_id)
-        # Recompute everyone: weather is the slow part and is memoized, so
+        # Recompute everyone: weather comes from ZmwMeteoRelay's cache, so
         # this is cheap unless we have many homeboards.
         self._recompute_all_overlays(scheduled=False)
 
@@ -366,6 +370,15 @@ class ZmwHomeboard(ZmwMqttService):
             return
         last[subtopic] = payload
         self.publish_own_svc_message(f'{hb_id}/{subtopic}', payload)
+
+    def on_service_came_up(self, service_name):
+        super().on_service_came_up(service_name)
+        if service_name == METEO_RELAY_SVC and self._is_weather_hour():
+            # Overlays pushed before the relay was discovered have no weather panel; off the MQTT thread, since
+            # fetching may block for a while
+            log.info("%s is up, recomputing overlays", METEO_RELAY_SVC)
+            self._sched.add_job(self._recompute_all_overlays, args=[False], trigger='date',
+                                run_date=datetime.now() + timedelta(seconds=2))
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
         # Mirror live speaker announcements onto every homeboard overlay: when

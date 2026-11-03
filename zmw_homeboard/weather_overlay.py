@@ -25,15 +25,14 @@ class WeatherOverlay:
     FONT_SIZE_TEMP = 22
     FONT_SIZE_PRECIP = 18
 
-    def __init__(self, icons_dir, lat, lon, tz="auto"):
+    def __init__(self, icons_dir, get_weather):
+        """get_weather: callable() -> Open-Meteo forecast dict; raises MeteoRelayError on failure."""
         self._icons = Icons(icons_dir)
-        self._lat = lat
-        self._lon = lon
-        self._tz = tz
+        self._get_weather = get_weather
 
     def build_fragment(self):
         """Render the weather panel as a Fragment, or None on fetch failure."""
-        report = build_weather_report(self._lat, self._lon, self._tz)
+        report = build_weather_report(self._get_weather)
         if report is None:
             return None
         blocks = report["blocks"]

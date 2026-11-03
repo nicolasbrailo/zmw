@@ -1,66 +1,6 @@
-from functools import wraps
-import os
-import pickle
-import time
+"""Generate an hourly weather report from Open-Meteo (via ZmwMeteoRelay).
 
-def cache_func(cache_file, ttl_seconds=None):
-    """
-    A decorator to memoize function results, persist the cache to a file, and support cache expiration.
-
-    :param cache_file: Path to the file where the cache will be stored.
-    :param ttl: Time-to-live for each cache entry in seconds. If None, cache never expires.
-    """
-    def decorator(func):
-        # Load the existing cache if it exists
-        if os.path.exists(cache_file):
-            with open(cache_file, 'rb') as f:
-                cache = pickle.load(f)
-        else:
-            cache = {}
-
-        @wraps(func)
-        def wrapper(*args):
-            current_time = time.time()
-
-            # Check if the result is cached and not expired
-            if args in cache:
-                result, timestamp = cache[args]
-                if ttl_seconds is None or current_time - timestamp < ttl_seconds:
-                    #print(f"Cache is {current_time - timestamp} seconds, ttl is {ttl_seconds}")
-                    return result
-                else:
-                    # If the cache entry is expired, remove it
-                    del cache[args]
-
-            # Compute the result and cache it with the current timestamp
-            result = func(*args)
-            if result is None:
-                # Don't cache failures — let the next call retry.
-                return result
-            cache[args] = (result, current_time)
-
-            # Persist the cache to the file
-            cache_dir = os.path.dirname(cache_file)
-            if cache_dir:
-                os.makedirs(cache_dir, exist_ok=True)
-            with open(cache_file, 'wb') as f:
-                pickle.dump(cache, f)
-
-            return result
-
-        return wrapper
-
-    return decorator
-
-
-
-
-
-
-
-"""Generate an hourly weather report from Open-Meteo.
-
-Pulls hourly + daily forecast for a fixed location and emits a structured
+Reads the hourly + daily forecast for a fixed location and emits a structured
 report with these blocks:
   - +1h, +2h (single-hour blocks)
   - morning / afternoon / evening (aggregated, only if still upcoming today)
@@ -71,19 +11,14 @@ Each block has a weather category from:
   windy | thunder | sunny-cloudy | sunny-rainy
 """
 
-import json
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta
 
 from zzmw_lib.logs import build_logger
+from zzmw_lib.meteo_relay_client import MeteoRelayError, get_weather_from_relay_url
 
 log = build_logger("WeatherReport")
 
-
-API_URL = "https://api.open-meteo.com/v1/forecast"
 
 # Wind speed (km/h) above which a block is reclassified as "windy"
 # unless thunder or heavy rain dominates.
@@ -149,36 +84,6 @@ def _aggregate(cats):
     return max(cats, key=lambda c: _SEVERITY.index(c) if c in _SEVERITY else -1)
 
 
-_FETCH_TIMEOUT_SECS = 30
-_FETCH_RETRIES = 3
-_FETCH_RETRY_BACKOFF_SECS = 2
-
-
-def _fetch(lat, lon, tz):
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "timezone": tz,
-        "hourly": "temperature_2m,weather_code,wind_speed_10m",
-        "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                 "precipitation_sum,wind_speed_10m_max",
-        "forecast_days": 2,
-    }
-    url = f"{API_URL}?{urllib.parse.urlencode(params)}"
-    last_err = None
-    for attempt in range(1, _FETCH_RETRIES + 1):
-        try:
-            with urllib.request.urlopen(url, timeout=_FETCH_TIMEOUT_SECS) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-            last_err = e
-            if attempt < _FETCH_RETRIES:
-                log.info("Weather fetch attempt %d/%d failed (%s); retrying",
-                         attempt, _FETCH_RETRIES, e)
-                time.sleep(_FETCH_RETRY_BACKOFF_SECS)
-    raise last_err
-
-
 def _parse_hourly(data):
     """Return a list of (datetime, temp_c, code, wind_kmh) tuples."""
     h = data["hourly"]
@@ -206,9 +111,8 @@ def _block_from_hours(hours):
     }
 
 
-def _build_weather_report_impl(lat, lon, tz, now=None):
-    """Build the structured report. `now` is overridable for tests."""
-    data = _fetch(lat, lon, tz)
+def _build_weather_report_impl(data, now=None):
+    """Build the structured report from an Open-Meteo response. `now` is overridable for tests."""
     hourly = _parse_hourly(data)
     if now is None:
         now = datetime.now()
@@ -272,16 +176,26 @@ def _build_weather_report_impl(lat, lon, tz, now=None):
 
     return {
         "generated_at": now.isoformat(timespec="seconds"),
-        "location": {"lat": lat, "lon": lon},
+        "location": {"lat": data.get("latitude"), "lon": data.get("longitude")},
         "blocks": blocks,
     }
 
-@cache_func('cache/weather_reports.pkl', ttl_seconds=60*30)
-def build_weather_report(lat, lon, tz, now=None):
+def build_weather_report(get_weather, now=None):
+    """Build the report, or None if the weather can't be fetched.
+
+    Args:
+        get_weather: callable() -> Open-Meteo forecast dict with the `hourly` and `daily` fields used here
+            (ZmwMeteoRelay's default request includes them). Raises MeteoRelayError on failure.
+    """
     try:
-        return _build_weather_report_impl(lat, lon, tz, now)
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-        log.info("Network error, couldn't fetch weather report: %s", e)
+        data = get_weather()
+    except MeteoRelayError as e:
+        log.info("Couldn't fetch weather: %s", e)
+        return None
+    try:
+        return _build_weather_report_impl(data, now)
+    except (KeyError, TypeError, ValueError) as e:
+        log.error("Unexpected Open-Meteo response, missing hourly/daily fields? %s", e)
         return None
 
 
@@ -297,9 +211,13 @@ def format_report(report):
 
 
 if __name__ == "__main__":
-    try:
-        report = build_weather_report(51.5428743,-0.1289942,"auto")
-    except Exception as e:  # noqa: BLE001
-        print(f"Failed to build weather report: {e}", file=sys.stderr)
+    # Usage: weather_report.py <relay base url, eg http://10.0.0.10:1234> [lat lon]
+    if len(sys.argv) not in (2, 4):
+        print(f"Usage: {sys.argv[0]} <meteo relay url> [lat lon]", file=sys.stderr)
+        sys.exit(1)
+    _lat, _lon = (sys.argv[2], sys.argv[3]) if len(sys.argv) == 4 else (None, None)
+    report = build_weather_report(lambda: get_weather_from_relay_url(sys.argv[1], _lat, _lon, client='cli'))
+    if report is None:
+        print("Failed to build weather report", file=sys.stderr)
         sys.exit(1)
     print(format_report(report))

@@ -1,6 +1,6 @@
 # ZmwSensormon
 
-Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), Shelly plugs (via ZmwShelly), and outside weather (via Open-Meteo), storing historical readings in a SQLite database.
+Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), Shelly plugs (via ZmwShelly), and outside weather (Open-Meteo, via ZmwMeteoRelay), storing historical readings in a SQLite database.
 
 ![](README_screenshot.png)
 
@@ -10,7 +10,7 @@ Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), S
 - Stores time-series readings in SQLite with configurable retention (by days).
 - Computes virtual metrics from real ones (e.g. feels-like temperature from temperature + humidity).
 - Integrates with Shelly plugs via the `zmw_shelly_plug` MQTT topic.
-- Fetches outside weather (temperature, humidity) from the Open-Meteo API on a 5-minute interval.
+- Records outside weather (temperature, humidity) for ZmwMeteoRelay's default location: every report the relay announces on `zmw_meteo_relay/weather_updated` (every 30 minutes by default) is saved, plus one requested when the relay comes up. No reports are recorded while the relay or Open-Meteo is down.
 - Provides a React UI with sensor badges and historical charts.
 
 ## Configuration
@@ -19,8 +19,6 @@ Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), S
 |-----|-------------|
 | `db_path` | Path to the SQLite database file for sensor history |
 | `retention_days` | Number of days of history to retain |
-| `outside_latitude` | Latitude for outside weather queries |
-| `outside_longitude` | Longitude for outside weather queries |
 
 Standard keys (`mqtt_ip`, `mqtt_port`, `http_host`, `http_port`) are also supported.
 

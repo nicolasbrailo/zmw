@@ -2,9 +2,6 @@
   "db_path": "/home/batman/run/baticasa/sensors.sqlite",
   "retention_days": 7,
 
-  "outside_latitude": 51.5476529,
-  "outside_longitude": -0.1255959,
-
   "http_host": "10.0.0.10",
   "http_port": 4208,
 

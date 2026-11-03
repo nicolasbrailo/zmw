@@ -97,6 +97,13 @@ showing every album. Each homeboard persists the filter itself; this service
 only remembers what it last asked for, so a restart here doesn't change what
 they're showing.
 
+## Weather panel
+
+The overlay's weather panel reads the Open-Meteo forecast for ZmwMeteoRelay's default location (found via service
+discovery); set the location in the relay's `config.json`. If the relay is
+down, overlays go out without the panel and a scheduled recompute retries 60s later; overlays are also recomputed
+when the relay comes up.
+
 This section sits above `## MQTT` on purpose: `scripts/update_readme_mqtt.py`
 regenerates everything from that header to the end of the file.
 
