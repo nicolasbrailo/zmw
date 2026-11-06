@@ -508,6 +508,37 @@ def sonos_adjust_volume_all(speakers, pct):
     with ThreadPoolExecutor(max_workers=len(speakers)) as executor:
         list(executor.map(lambda spk: sonos_adjust_volume(spk, pct), speakers))
 
+def _get_coordinator(spk):
+    group = spk.group
+    return group.coordinator if group is not None else spk
+
+def _sonos_pause_if_playing(coord):
+    """Pausing a speaker that isn't playing throws (UPnP error 701), so check its state first."""
+    if coord.get_current_transport_info().get('current_transport_state') != 'PLAYING':
+        return False
+    coord.pause()
+    return True
+
+def sonos_pause(names):
+    """Pause playback on the named speakers. Never throws.
+
+    Only a group coordinator can pause, so this pauses the group each speaker belongs to: speakers grouped
+    with one of the named ones will also be paused, even if they weren't named.
+    """
+    speakers, missing = ls_speaker_filter(names)
+    for name in missing:
+        log.warning("Can't pause %s, speaker not found", name)
+
+    coords = query_speakers_parallel(list(speakers.values()), _get_coordinator, 'get group coordinator')
+    # Several named speakers may share a group: pause each coordinator only once
+    unique_coords = {coord.ip_address: coord for _, coord in coords}
+    paused = query_speakers_parallel(list(unique_coords.values()), _sonos_pause_if_playing, 'pause playback')
+    for coord, was_playing in paused:
+        if was_playing:
+            log.info("Paused group coordinated by %s", coord.ip_address)
+        else:
+            log.info("Group coordinated by %s isn't playing, nothing to pause", coord.ip_address)
+
 def sonos_reset_and_make_group(speakers_cfg, log_fn):
     """ Receives a map of `speaker_name=>{vol: ##}`. Will look for all speakers with the right name, reset their
     state, and create a group with all the speakers it can.

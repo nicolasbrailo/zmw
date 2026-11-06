@@ -122,6 +122,10 @@ class ZmwSonosCtrl(ZmwMqttService):
                     "description": "If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack",
                     "params": {"<speaker_name>": {"vol?": "level (0-100)"}}
                 },
+                "pause": {
+                    "description": "Pause playback on a set of speakers (and on any speaker grouped with them), if playing",
+                    "params": {"speakers": "List of speaker names"}
+                },
                 "stop_all": {
                     "description": "Stop playback, destroy groups",
                     "params": {}
@@ -336,6 +340,12 @@ class ZmwSonosCtrl(ZmwMqttService):
             case "spotify_hijack_or_toggle_play":
                 log.info("MQTT request: Spotify hijack or toggle play")
                 self._spotify_hijack_or_toggle_play(msg)
+            case "pause":
+                if not msg.get('speakers'):
+                    log.warning("pause requires a list of 'speakers' in payload")
+                    return
+                log.info("MQTT request: pause %s", msg['speakers'])
+                sonos_pause(msg['speakers'])
             case "stop_all":
                 log.info("MQTT request: stop all")
                 self._stop_all()
