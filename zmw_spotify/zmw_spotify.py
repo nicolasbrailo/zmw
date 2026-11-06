@@ -24,6 +24,10 @@ logging.getLogger('spotipy.client').setLevel(logging.CRITICAL)
 # A token is valid for an hour, so we refresh every 45 minutes
 _SPOTIFY_SECS_BETWEEN_TOK_REFRESH = 60 * 45
 
+# Not service errors, the player is in a state that can't be controlled:
+# 403 is a restricted device (or eg pausing when already paused), 404 is no active device
+_SPOTIFY_DEVICE_STATE_ERRORS = (403, 404)
+
 
 class SpotifyAuthExpired(RuntimeError):
     """The cached refresh token is dead, a user needs to sign in again.
@@ -289,14 +293,23 @@ class ZmwSpotify(ZmwMqttService):
             log.warning("Spotify request connection failed: %s", ex)
             return None
         except SpotifyException as ex:
+            if ex.http_status in _SPOTIFY_DEVICE_STATE_ERRORS:
+                log.warning("Spotify action %s not possible on current device: %s", action_name, ex.msg)
+                return None
             if ex.http_status != 401:
                 log.error("Spotify action %s failed: %s", action_name, ex)
                 raise
-            log.info('Spotify access token expired, refreshing and retrying')
-            self._refresh_access_tok()
-            if self._spotipy is None:
-                return None
+        log.info('Spotify access token expired, refreshing and retrying')
+        self._refresh_access_tok()
+        if self._spotipy is None:
+            return None
+        try:
             return func(self._spotipy, *args)
+        except SpotifyException as ex:
+            if ex.http_status in _SPOTIFY_DEVICE_STATE_ERRORS:
+                log.warning("Spotify action %s not possible on current device: %s", action_name, ex.msg)
+                return None
+            raise
 
     # Spotify action implementations
     def _get_is_playing(self, sp):
@@ -304,10 +317,7 @@ class ZmwSpotify(ZmwMqttService):
         return (track is not None) and track['is_playing']
 
     def _stop(self, sp):
-        try:
-            sp.pause_playback()
-        except SpotifyException:
-            pass  # Likely already stopped
+        sp.pause_playback()
 
     def _toggle_play(self, sp):
         if self._get_is_playing(sp):
@@ -329,13 +339,7 @@ class ZmwSpotify(ZmwMqttService):
         return active_devices[0]['volume_percent']
 
     def _set_volume_pct(self, sp, volume):
-        try:
-            sp.volume(int(volume))
-        except SpotifyException as ex:
-            if ex.http_status == 403:
-                log.warning('Setting volume not allowed by Spotify for this device')
-                return
-            raise
+        sp.volume(int(volume))
 
     def _get_media_info(self, sp):
         def pick_album_cover(playback):
@@ -476,13 +480,13 @@ class ZmwSpotify(ZmwMqttService):
                 self._with_spotify('relative_jump', self._relative_jump_to_track, -1)
             case "relative_jump_to_track":
                 if 'value' not in payload:
-                    log.error("relative_jump_to_track requires 'value' in payload")
+                    log.warning("relative_jump_to_track requires 'value' in payload")
                     return
                 log.info("Jumping %s tracks", payload['value'])
                 self._with_spotify('relative_jump', self._relative_jump_to_track, payload['value'])
             case "set_volume":
                 if 'value' not in payload:
-                    log.error("set_volume requires 'value' in payload")
+                    log.warning("set_volume requires 'value' in payload")
                     return
                 log.info("Setting volume to %s", payload['value'])
                 self._with_spotify('set_volume', self._set_volume_pct, payload['value'])
