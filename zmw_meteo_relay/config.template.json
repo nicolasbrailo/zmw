@@ -1,10 +1,12 @@
 {
+  "COMMENT_http_port": "Fixed, so clients that can't use ZMW service discovery (eg AstroDock, on the homeboard broker) can be pointed at http://<host>:4198/. Outside the 4201-4299 range other services pick ports from.",
+  "http_port": 4198,
   "COMMENT_default_location": "Location served when a client doesn't specify one (GET /weather, or MQTT get_weather without lat/lon).",
   "default_location": {"lat": 51.5428743, "lon": -0.1289942},
   "COMMENT_update_interval_minutes": "How often every known location is refreshed from Open-Meteo.",
   "update_interval_minutes": 30,
   "COMMENT_dedup_radius_km": "A request within this distance of a known location is served from it, instead of creating a new location.",
-  "dedup_radius_km": 3.0,
+  "dedup_radius_km": 20.0,
   "COMMENT_max_known_locations": "Beyond this, the least recently requested location is forgotten. The default location is never forgotten.",
   "max_known_locations": 20,
   "COMMENT_retry_base_secs": "First retry delay after a failed fetch; doubles on each failure. Retries stop once the next one would land after the next periodic update.",

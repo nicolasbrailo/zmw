@@ -13,6 +13,7 @@ Caching relay for [Open-Meteo](https://open-meteo.com). Every weather client in 
 
 | Key | Description |
 |-----|-------------|
+| `http_port` | Pin the web port (template: `4198`). Clients that can't use ZMW service discovery, like AstroDock, are configured with `http://10.0.0.10:4198/` |
 | `default_location` | Required. `{"lat": ..., "lon": ...}`, served when a request has no location |
 | `update_interval_minutes` | Refresh interval for all known locations (default: `30`) |
 | `dedup_radius_km` | Requests this close to a known location reuse it (default: `3.0`) |

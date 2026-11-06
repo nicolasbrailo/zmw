@@ -79,7 +79,7 @@ class ZmwMeteoRelay(ZmwMqttService):
             scheduler=sched,
             default_latlon=default_latlon,
             update_interval_secs=int(self._update_interval_minutes * 60),
-            dedup_radius_km=cfg.get('dedup_radius_km', 3.0),
+            dedup_radius_km=cfg.get('dedup_radius_km', 20.0),
             max_locations=cfg.get('max_known_locations', 20),
             retry_base_secs=cfg.get('retry_base_secs', 30),
             persisted=runtime_state_cache_get(_STATE_CACHE_KEY),
