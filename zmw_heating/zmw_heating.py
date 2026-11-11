@@ -339,6 +339,9 @@ class ZmwHeating(ZmwMqttService):
             return
 
         msg = f'Heating is now {now_on} (was {old_on}). Reason: {new.reason}'
-        self.message_svc("ZmwTelegram", "send_text", {'msg': msg})
+        try:
+            self.message_svc("ZmwTelegram", "send_text", {'msg': msg})
+        except RuntimeError as ex:
+            log.warning("Can't send Telegram notification '%s': %s", msg, ex)
 
 service_runner(ZmwHeating)
