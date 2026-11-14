@@ -13,6 +13,9 @@ logging.getLogger('paho').setLevel(logging.INFO)
 logging.getLogger("tzlocal").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.scheduler").setLevel(logging.ERROR)
+# paho >= 2.2 logs this as an error every time publish.single() disconnects after publishing; it's harmless
+logging.getLogger('paho.mqtt.client').addFilter(
+    lambda record: not record.getMessage().startswith('Client is not connected. Socket: None'))
 
 log = build_logger("ZmwMqtt", logging.INFO)
 
