@@ -1,0 +1,14 @@
+*.pyc
+__pycache__
+.ropeproject
+dist/
+*.egg-info/
+.idea
+.DS_Store
+venv
+.venv
+.ruff_cache
+.pytest_cache
+.mypy_cache
+result
+result-*

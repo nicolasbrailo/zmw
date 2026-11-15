@@ -28,6 +28,7 @@ rebuild_ui::
 		../zmw_sensormon/www/app.js \
 		../zmw_sonos_ctrl/www/app.js \
 		../zmw_speaker_announce/www/app.js \
+		../zmw_sucks/www/app.js \
 		./www/app.js \
 		> ./www/app.cat.js
 	../zzmw_lib/www/babel_compile_single.sh ./www/app.cat.js ./www/app.rel.js

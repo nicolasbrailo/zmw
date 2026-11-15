@@ -17,18 +17,63 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MQTT_SECTION_HEADER = "## MQTT"
 
 
+def _module_constants(tree):
+    """Module-level `NAME = <literal>` assignments, so comprehensions over them can be evaluated."""
+    consts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            try:
+                consts[node.targets[0].id] = ast.literal_eval(node.value)
+            except ValueError:
+                pass
+    return consts
+
+
 class _ReplaceNonLiterals(ast.NodeTransformer):
-    """Replace non-literal expressions (calls, comprehensions, etc.) with None
-    so ast.literal_eval can handle the rest."""
+    """Replace non-literal expressions (calls, comprehensions, etc.) with their value when it can be
+    computed from module-level constants, or with None otherwise, so ast.literal_eval can handle the rest."""
 
-    def visit_Call(self, node):
-        return ast.copy_location(ast.Constant(value=None), node)
+    def __init__(self, consts):
+        self._consts = consts
 
-    def visit_ListComp(self, node):
-        return ast.copy_location(ast.Constant(value=None), node)
+    def _try_eval(self, node):
+        try:
+            expr = ast.fix_missing_locations(ast.Expression(body=node))
+            value = eval(compile(expr, "<mqtt_description>", "eval"), {"__builtins__": {}, **self._consts})
+        except Exception:  # pylint: disable=broad-except
+            value = None
+        return ast.copy_location(ast.Constant(value=value), node)
 
-    def visit_GeneratorExp(self, node):
-        return ast.copy_location(ast.Constant(value=None), node)
+    visit_Call = _try_eval
+    visit_ListComp = _try_eval
+    visit_DictComp = _try_eval
+    visit_SetComp = _try_eval
+    visit_GeneratorExp = _try_eval
+
+    def visit_Dict(self, node):
+        """Expand `**spread` entries (key is None) when the spread resolved to a dict; drop them otherwise."""
+        self.generic_visit(node)
+        keys, values = [], []
+        for k, v in zip(node.keys, node.values):
+            if k is not None:
+                keys.append(k)
+                values.append(v)
+            elif isinstance(v, ast.Constant) and isinstance(v.value, dict):
+                for sk, sv in v.value.items():
+                    keys.append(ast.copy_location(ast.Constant(value=sk), v))
+                    values.append(ast.copy_location(ast.Constant(value=sv), v))
+        node.keys, node.values = keys, values
+        return node
+
+    def visit_JoinedStr(self, node):
+        """Render f-strings as plain strings, keeping placeholders as `{expr}`."""
+        parts = []
+        for v in node.values:
+            if isinstance(v, ast.Constant):
+                parts.append(str(v.value))
+            else:
+                parts.append("{" + ast.unparse(v.value) + "}")
+        return ast.copy_location(ast.Constant(value="".join(parts)), node)
 
 
 def extract_mqtt_description(py_path):
@@ -41,7 +86,7 @@ def extract_mqtt_description(py_path):
             continue
         for child in ast.walk(node):
             if isinstance(child, ast.Return) and child.value is not None:
-                cleaned = _ReplaceNonLiterals().visit(child.value)
+                cleaned = _ReplaceNonLiterals(_module_constants(tree)).visit(child.value)
                 try:
                     return ast.literal_eval(cleaned)
                 except ValueError as e:

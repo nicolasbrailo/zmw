@@ -1,0 +1,107 @@
+[project]
+name = "roombapy"
+version = "2.0.2"
+description = "Python program and library to control Wi-Fi enabled iRobot Roombas"
+authors = [{ name = "Philipp Schmitt", email = "philipp@schmitt.co" }]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+classifiers = [
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking"
+]
+dependencies = [
+    "orjson>=3.9.13",
+    # aiomqtt drives paho from the event loop rather than a thread. Pinned
+    # below 3.0: that line replaces paho with an MQTTv5-only backend, and
+    # these robots speak MQTT 3.1.1.
+    "aiomqtt>=2.5,<3.0",
+    "mashumaro>=3.12,<4.0",
+    # python 3.13 compatibility
+    "typing-extensions>=4.12.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "click>=8.1,<9.0",
+    "tabulate>=0.9,<0.11",
+]
+
+[project.urls]
+Repository = "https://github.com/pschmitt/roombapy"
+
+[project.scripts]
+roombapy = "roombapy.cli:cli"
+
+[dependency-groups]
+dev = [
+    "pytest>=9,<10",
+    "pytest-asyncio>=1.0,<2.0",
+    "ruff>=0.5.0,<0.18",
+    "pre-commit>=3.6.2,<5.0.0",
+    "pre-commit-hooks>=4.5,<7.0",
+    "codespell>=2.2.6,<3.0.0",
+    "mypy>=1.8,<3.0",
+    "types-tabulate>=0.9,<0.11",
+]
+
+[tool.codespell]
+# vendor_errors.py is the vendor's own text in eight languages. codespell
+# only knows English and reports 550+ false positives there, matching
+# ordinary German, Spanish and Dutch words against English typos. Skipping
+# is the only sensible option: those strings are quotations and must not be
+# "corrected" in any case.
+skip = "roombapy/vendor_errors.py,uv.lock"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint]
+ignore = [
+    "ANN401", # Opinioated warning on disallowing dynamically typed expressions
+    "B007",
+    "C901",
+    "CPY001", # We don't use copyright header notices
+    "D203", # Conflicts with other rules
+    "D213", # Conflicts with other rules
+    "DTZ005",
+    "FBT002",
+    "COM812", # Conflicts with other rules
+    "ISC001", # Conflicts with other rules
+    "PLR2004", # Just annoying, not really useful
+    "PLR0912",
+]
+select = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+# Verbatim vendor strings: reflowing them or "correcting" their punctuation
+# would alter quoted content.
+"roombapy/vendor_errors.py" = ["E501", "RUF001"]
+# Tests poll for asynchronous side effects, assert on broad exception types
+# to prove which one is *not* raised, and reach into private attributes to
+# simulate transport failures.
+"tests/*" = ["ASYNC110", "B017", "PT011", "S603", "SLF001", "D401", "D210"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+follow_imports = "normal"
+strict_optional = true
+strict = true
+packages = ["roombapy", "tests"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+warn_untyped_fields = true

@@ -94,6 +94,7 @@ flowchart LR
     zmw_heating["ZmwHeating<br/><code>zmw_heating</code>"]
     zmw_homeboard["ZmwHomeboard<br/><code>zmw_homeboard</code>"]
     zmw_lights["ZmwLights<br/><code>zmw_lights</code>"]
+    zmw_meteo_relay["ZmwMeteoRelay<br/><code>zmw_meteo_relay</code>"]
     zmw_reolink_cams["ZmwReolinkCams<br/><code>zmw_reolink_cams</code>"]
     zmw_sensormon["ZmwSensormon<br/><code>zmw_sensormon</code>"]
     zmw_shelly_plug["ZmwShellyPlug<br/><code>zmw_shelly_plug</code>"]
@@ -101,6 +102,7 @@ flowchart LR
     zmw_speaker_announce["ZmwSpeakerAnnounce<br/><code>zmw_speaker_announce</code>"]
     zmw_speech_to_text["ZmwSpeechToText<br/><code>zmw_speech_to_text</code>"]
     zmw_spotify["ZmwSpotify<br/><code>zmw_spotify</code>"]
+    zmw_sucks["ZmwSucks<br/><code>zmw_sucks</code>"]
     zmw_telegram["ZmwTelegram<br/><code>zmw_telegram</code>"]
     zmw_text_to_speech["ZmwTextToSpeech<br/><code>zmw_text_to_speech</code>"]
     zmw_unifi_clientmon["ZmwUnifiClientmon<br/><code>zmw_unifi_clientmon</code>"]
@@ -129,11 +131,13 @@ flowchart LR
     zmw_lights <--> zigbee2mqtt
     zmw_sensormon <--> zigbee2mqtt
     zmw_homeboard --> zmw_sensormon
+    zmw_meteo_relay --> zmw_sensormon
     zmw_shelly_plug --> zmw_sensormon
     zmw_sonos_ctrl <--> zmw_spotify
     zmw_speaker_announce <--> zmw_telegram
     zmw_speaker_announce --> zmw_text_to_speech
     zmw_telegram --> zmw_speech_to_text
+    zmw_unifi_clientmon <--> zmw_telegram
     zmw_visitor_detect <--> zmw_reolink_cams
     zmw_visitor_detect --> zmw_speaker_announce
     zmw_visitor_detect --> zmw_telegram
@@ -850,6 +854,13 @@ showing every album. Each homeboard persists the filter itself; this service
 only remembers what it last asked for, so a restart here doesn't change what
 they're showing.
 
+## Weather panel
+
+The overlay's weather panel reads the Open-Meteo forecast for ZmwMeteoRelay's default location (found via service
+discovery); set the location in the relay's `config.json`. If the relay is
+down, overlays go out without the panel and a scheduled recompute retries 60s later; overlays are also recomputed
+when the relay comes up.
+
 This section sits above `## MQTT` on purpose: `scripts/update_readme_mqtt.py`
 regenerates everything from that header to the end of the file.
 
@@ -1089,6 +1100,102 @@ Service description
 | `commands` | {} |
 | `announcements` | {} |
 
+# ZmwMeteoRelay
+
+Caching relay for [Open-Meteo](https://open-meteo.com). Every weather client in the house (sensormon, homeboard, AstroDock, ...) asks this service instead of Open-Meteo, so the house makes one request per location every N minutes no matter how many clients there are.
+
+- Clients ask for the default location (from `config.json`) or for a lat/lon.
+- Requested locations become *known locations*. A request within `dedup_radius_km` of a known location is served from it; otherwise a new known location is created and fetched on the spot. Beyond `max_known_locations`, the least recently requested one is forgotten (never the default).
+- Every known location is refreshed every `update_interval_minutes`. A failed fetch is retried after `retry_base_secs`, doubling each time; once the next retry would land after the next periodic update, retries stop and the periodic update takes over (starting a new backoff sequence if it fails too). Clients keep getting the last good report meanwhile.
+- Every successful fetch is announced on `zmw_meteo_relay/weather_updated`, so clients that want each new report (eg sensormon, recording history) can subscribe instead of polling. They still need one explicit request at startup.
+- Known locations and their last report persist across restarts (`run_state_cache.json`).
+- The report is the Open-Meteo `/v1/forecast` response, verbatim. All clients share it, so the service asks for a superset of the fields they need (current, hourly and daily blocks, 3 days, `timezone=auto`); override with `open_meteo_params` in `config.json`.
+
+## Configuration
+
+| Key | Description |
+|-----|-------------|
+| `http_port` | Pin the web port (template: `4198`). Clients that can't use ZMW service discovery, like AstroDock, are configured with `http://10.0.0.10:4198/` |
+| `default_location` | Required. `{"lat": ..., "lon": ...}`, served when a request has no location |
+| `update_interval_minutes` | Refresh interval for all known locations (default: `30`) |
+| `dedup_radius_km` | Requests this close to a known location reuse it (default: `3.0`) |
+| `max_known_locations` | Cap on known locations; LRU eviction (default: `20`) |
+| `retry_base_secs` | First retry delay after a failure, doubled per failure (default: `30`) |
+| `open_meteo_url` | Forecast endpoint (default: `https://api.open-meteo.com/v1/forecast`) |
+| `open_meteo_params` | Query params sent to Open-Meteo, except lat/lon (default: see `_DEFAULT_OPEN_METEO_PARAMS`) |
+
+## WWW
+
+- `/` -- Monitoring UI: known locations with their last report, and the last 10 clients
+- `GET /weather` -- Report for the default location
+- `GET /weather/<lat>/<lon>` -- Report for a location, eg `/weather/51.54/-0.13`
+- `GET /status` -- Known locations (with reports) and recent clients, as JSON
+
+`/weather` responses are the Open-Meteo JSON verbatim, with `X-Meteo-Relay-Fetched-At` and `X-Meteo-Relay-Location` headers. Errors are `400` (bad coordinates) or `503` (no data yet, eg Open-Meteo is down and nothing is cached), with `{"error": ...}`. Add `?client=<name>` to name yourself in the UI; otherwise clients are listed by IP.
+
+## MQTT
+
+**Topic:** `zmw_meteo_relay`
+
+### Commands
+
+#### `get_weather`
+
+Get the weather report for a location (default location if lat/lon are omitted). Response on get_weather_reply
+
+| Param | Description |
+|-------|-------------|
+| `lat?` | Latitude |
+| `lon?` | Longitude |
+| `client?` | Name of the requester, shown in the UI and echoed in the reply |
+
+#### `get_known_locations`
+
+List known locations and their fetch status. Response on get_known_locations_reply
+
+_No parameters._
+
+### Announcements
+
+#### `weather_updated`
+
+A new report was fetched from Open-Meteo for a known location (periodic update, retry, or a new location). Subscribe to this instead of polling
+
+| Param | Description |
+|-------|-------------|
+| `location` | Known location: {id, lat, lon, is_default} |
+| `fetched_at` | When the report was fetched from Open-Meteo |
+| `weather` | Open-Meteo forecast response, verbatim |
+
+#### `get_weather_reply`
+
+Weather report. `weather` is the Open-Meteo response verbatim, or null if no data is available (see `error`)
+
+| Param | Description |
+|-------|-------------|
+| `lat` | Requested latitude (null for default) |
+| `lon` | Requested longitude (null for default) |
+| `client` | Echo of the requester's client name |
+| `location` | Known location serving the request: {id, lat, lon, is_default} |
+| `fetched_at` | When the report was fetched from Open-Meteo |
+| `weather` | Open-Meteo forecast response |
+| `error?` | Set if no data is available |
+
+#### `get_known_locations_reply`
+
+Known locations
+
+Payload: `[{'id': 'Location id', 'lat': 'Latitude', 'lon': 'Longitude', 'is_default': 'True for the default location', 'fetched_at': 'Last good fetch', 'last_error': 'Last fetch error, null if healthy'}]`
+
+#### `get_mqtt_description_reply`
+
+Service description
+
+| Param | Description |
+|-------|-------------|
+| `commands` | {} |
+| `announcements` | {} |
+
 # ZmwReolinkCams
 
 Multi-camera Reolink service with motion detection, doorbell events, recording, and an NVR-like web interface. Connects to one or more Reolink cameras via webhook/ONVIF, broadcasts events over MQTT, and provides snapshot/recording controls.
@@ -1315,7 +1422,7 @@ Service description
 
 # ZmwSensormon
 
-Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), Shelly plugs (via ZmwShelly), and outside weather (via Open-Meteo), storing historical readings in a SQLite database.
+Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), Shelly plugs (via ZmwShelly), and outside weather (Open-Meteo, via ZmwMeteoRelay), storing historical readings in a SQLite database.
 
 ![](zmw_sensormon/README_screenshot.png)
 
@@ -1325,7 +1432,7 @@ Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), S
 - Stores time-series readings in SQLite with configurable retention (by days).
 - Computes virtual metrics from real ones (e.g. feels-like temperature from temperature + humidity).
 - Integrates with Shelly plugs via the `zmw_shelly_plug` MQTT topic.
-- Fetches outside weather (temperature, humidity) from the Open-Meteo API on a 5-minute interval.
+- Records outside weather (temperature, humidity) for ZmwMeteoRelay's default location: every report the relay announces on `zmw_meteo_relay/weather_updated` (every 30 minutes by default) is saved, plus one requested when the relay comes up. No reports are recorded while the relay or Open-Meteo is down.
 - Provides a React UI with sensor badges and historical charts.
 
 ## Configuration
@@ -1334,8 +1441,6 @@ Sensor data monitoring and history service. Monitors Zigbee sensors (via Z2M), S
 |-----|-------------|
 | `db_path` | Path to the SQLite database file for sensor history |
 | `retention_days` | Number of days of history to retain |
-| `outside_latitude` | Latitude for outside weather queries |
-| `outside_longitude` | Longitude for outside weather queries |
 
 Standard keys (`mqtt_ip`, `mqtt_port`, `http_host`, `http_port`) are also supported.
 
@@ -1471,7 +1576,7 @@ This service will let you know the health of your ZMW services at a glance. It w
 * Provide a quick link to each service.
 * Display the systemd status of a service (a systemd service may be running, but not registered as a ZMW service. A ZMW service may also be running, but not registered to systemd).
 * Display a list of errors: ZmwServicemon will tail the journal for each ZMW service, and will capture errors and warnings. These will be displayed in ZmwServicemon www.
-* Optional Telegram integration: integrates with ZmwTelegram to send you a message when the system encounters an error.
+* Optional Telegram integration: integrates with ZmwTelegram to send you a message when the system encounters an error. Errors from services listed in `telegram_ignore_services` (config) are still captured and displayed, but never sent to Telegram; useful for noisy services.
 
 
 # ZmwShellyPlug
@@ -1657,6 +1762,14 @@ If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack
 | Param | Description |
 |-------|-------------|
 | `<speaker_name>` | {'vol?': 'level (0-100)'} |
+
+#### `pause`
+
+Pause playback on a set of speakers (and on any speaker grouped with them), if playing
+
+| Param | Description |
+|-------|-------------|
+| `speakers` | List of speaker names |
 
 #### `stop_all`
 
@@ -2040,6 +2153,238 @@ Player state as JSON
 MQTT API description
 
 The get_mqtt_description() dict itself
+
+# ZmwSucks
+
+Local-only Roomba control. Talks to the robot's own MQTT server (TLS, port 8883) via
+[roombapy](https://github.com/pschmitt/roombapy): no iRobot cloud involved.
+
+Connects to each robot, exposes its state, stats, settings and schedule, and start/pause/dock/find commands. `find`
+(the robot plays its locate chime, without moving) is handy as an end-to-end test.
+
+## Monitoring
+
+Problems are sent over Telegram (via ZmwTelegram), and shown as service alerts (`/svc_alerts`) while they last:
+
+- Scheduled runs: 2 minutes after a run in the robot's own schedule was due, check the robot is cleaning. Uses the
+  robot's timezone, and its last known schedule if it's offline. The alert clears when the robot starts a mission.
+- Missions: every 5 minutes, check running robots. Reports if a robot gets stuck, reports an error, has a full bin,
+  or disconnects. Each problem is reported once, unless it clears and comes back. When a mission ends, its result
+  (completed, failed, cancelled) comes from the robot's own mission counters.
+
+Notifications for scheduled runs (missions the robot reports as started by its schedule, or seen starting at a
+scheduled time) are controlled by these top level config keys:
+
+- `notify_on_schedule_success` (default false): message when a scheduled run completes
+- `notify_on_schedule_failure` (default true): message when a scheduled run doesn't start, has a problem, fails or
+  is cancelled. Service alerts are kept either way.
+
+Missions not started by the schedule always notify problems and failures, but not completion.
+- Service alerts also include: bin full, errors, stuck, a rejected password, robots not found on the network, and
+  robots not connected for 30 minutes. A robot that is not found is only logged the first time.
+
+## Configuration
+
+`config.json` (see `config.template.json`) has the notification settings (see Monitoring), and a `roombas`
+list, one entry per robot:
+
+- `alias`: unique name for the robot, used in MQTT topics (`zmw_sucks/<alias>/state`) and endpoints
+- `blid`: robot ID
+- `password`: the robot's local MQTT password (not the iRobot account password)
+- `ip` (optional): fixed robot IP. If not set, the robot is found by BLID with a UDP broadcast
+- `ignore` (optional): if true, this entry is skipped at startup (eg to keep config for a robot not in use yet)
+
+Robots are discovered at startup, and again if they stay disconnected for 5 minutes (eg if DHCP gave them a new
+IP). Discovery is a broadcast, so robots must be on the same subnet as the service. Robots that can't be found or
+connected to are retried every 30 secs, and show as not connected.
+
+The BLID is the `robotid` the robot reports on discovery (UDP 5678, `irobotmcs`). The password can be fetched
+locally with `roombapy discover <ip>`, after holding the robot's HOME button for ~2 seconds while docked. Some
+firmwares only give it out from the cloud: `make get_cloud_password EMAIL=<iRobot account email>` gets it once,
+after that the cloud isn't needed.
+
+## Dependencies
+
+roombapy is vendored (a copy, not a submodule) in `../zext_libs/roombapy`. `VENDORED_FROM` says which commit.
+To update it to whatever is on the upstream default branch: `make roombapy_dep_update`, then `make rebuild_deps`.
+
+## WWW Endpoints
+
+- `/` - React UI with each robot's status, stats and Start/Pause/Dock/Find buttons (served from `www/` directory)
+- `GET /get_state` - Map of robot alias to current state: status, current mission, lifetime stats, Wi-Fi signal and
+  position (if the robot supports position requests; only polled while away from the dock)
+- `PUT /set_setting/<alias>/<setting>/<value>` - Change a setting: `passes` (auto/one/two), `bin_pause`
+  (true/false), `child_lock` (true/false)
+- `GET /get_raw_state/<alias>` - Debug: everything the robot reports, unparsed (fields vary by model and firmware)
+- `PUT /start/<alias>` - Start cleaning (or resume, if paused)
+- `PUT /pause/<alias>` - Pause cleaning
+- `PUT /dock/<alias>` - Stop cleaning, and go back to the dock
+- `PUT /find/<alias>` - Make a robot play its locate chime
+
+## MQTT
+
+**Topic:** `zmw_sucks`
+
+### Commands
+
+#### `get_state`
+
+Current state of all robots. Response on get_state_reply
+
+_No parameters._
+
+#### `start`
+
+Start cleaning (or resume, if paused). Response on start_reply
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+
+#### `pause`
+
+Pause cleaning. Response on pause_reply
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+
+#### `dock`
+
+Stop cleaning, and go back to the dock. Response on dock_reply
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+
+#### `find`
+
+Play the locate chime, without moving. Response on find_reply
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+
+#### `set_setting`
+
+Change a robot setting. Response on set_setting_reply
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+| `setting` | None |
+| `value` | None |
+
+#### `get_raw_state`
+
+Debug: everything a robot reports, unparsed. Response on get_raw_state_reply
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+
+#### `get_mqtt_description`
+
+Service description
+
+_No parameters._
+
+### Announcements
+
+#### `<alias>/state`
+
+Published when a robot's state changes
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias, as in config |
+| `connected` | Local connection to robot is up. If false, no other fields are present |
+| `ip` | Robot IP (discovered, unless fixed in config) |
+| `robot_name` | Name the robot reports for itself |
+| `state` | Derived mission state (eg 'Charging', 'Running') |
+| `phase` | Raw cleanMissionStatus phase |
+| `battery_pct` | Battery % |
+| `bin_full` | Bin is full |
+| `error_code` | Error code, or null |
+| `error` | Error message, or null |
+| `mission` | {'id': 'Mission ID', 'cycle': "Mission type (eg 'clean', 'none')", 'initiator': "Who started it (eg 'localApp', 'schedule', 'rmtApp')", 'start_time': 'Mission start, epoch secs', 'minutes': 'Mission duration so far', 'sqft': 'Area cleaned so far', 'recharge_minutes': 'Minutes until recharge completes, mid mission', 'expire_minutes': 'Minutes until the mission is abandoned, if paused'} |
+| `lifetime` | {'runtime_hours': 'Total runtime, hours part', 'runtime_minutes': 'Total runtime, minutes part', 'sqft': 'Total area cleaned', 'missions': 'Missions started', 'missions_ok': 'Missions completed', 'missions_failed': 'Missions failed', 'missions_cancelled': 'Missions cancelled', 'avg_mission_minutes': 'Average mission duration', 'stuck_count': 'Times the robot got stuck'} |
+| `battery` | {'charge_cycles': 'Battery charge cycles', 'est_capacity_mah': 'Estimated battery capacity, mAh', 'manufacture_date': 'Battery manufacture date'} |
+| `settings` | {'passes': 'auto/one/two', 'bin_pause': 'Stop cleaning when the bin is full', 'child_lock': 'Robot buttons disabled'} |
+| `schedule` | {'paused': 'Schedule is on hold', 'timezone': 'Robot timezone, schedule times are local to it', 'entries': [{'enabled': 'Entry is active', 'days': ['Mon', '...'], 'day_nums': 'Days, 0 = Sunday', 'hour': 'Start hour', 'min': 'Start minute', 'command': "Usually 'start'"}]} |
+| `wifi` | {'rssi': 'Signal strength, dBm', 'snr': 'Signal to noise ratio'} |
+| `position_supported` | Robot answers position requests (null until known) |
+| `position` | Last known position, or null: {x_m, y_m, theta_rad}, origin at the dock |
+
+#### `get_raw_state_reply`
+
+Everything the robot reports
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias |
+| `connected` | Connection is up |
+| `reported` | {} |
+
+#### `get_state_reply`
+
+Map of robot alias to state
+
+See `<alias>/state`
+
+#### `start_reply`
+
+start sent to robot (or failed to)
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias |
+| `status` | ok/not_connected/unknown_device |
+
+#### `pause_reply`
+
+pause sent to robot (or failed to)
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias |
+| `status` | ok/not_connected/unknown_device |
+
+#### `dock_reply`
+
+dock sent to robot (or failed to)
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias |
+| `status` | ok/not_connected/unknown_device |
+
+#### `find_reply`
+
+find sent to robot (or failed to)
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias |
+| `status` | ok/not_connected/unknown_device |
+
+#### `set_setting_reply`
+
+Setting sent to robot (or failed to)
+
+| Param | Description |
+|-------|-------------|
+| `alias` | Robot alias |
+| `status` | ok/not_connected/unknown_device/unknown_setting/bad_value |
+
+#### `get_mqtt_description_reply`
+
+Service description
+
+| Param | Description |
+|-------|-------------|
+| `commands` | {} |
+| `announcements` | {} |
 
 # ZmwTelegram
 

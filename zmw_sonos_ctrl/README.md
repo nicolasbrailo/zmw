@@ -91,6 +91,14 @@ If playing, pause. If paused, resume. Otherwise, start a new Spotify hijack
 |-------|-------------|
 | `<speaker_name>` | {'vol?': 'level (0-100)'} |
 
+#### `pause`
+
+Pause playback on a set of speakers (and on any speaker grouped with them), if playing
+
+| Param | Description |
+|-------|-------------|
+| `speakers` | List of speaker names |
+
 #### `stop_all`
 
 Stop playback, destroy groups

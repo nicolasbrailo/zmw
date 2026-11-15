@@ -1,0 +1,12 @@
+{
+  "notify_on_schedule_success": true,
+  "notify_on_schedule_failure": true,
+  "roombas": [
+    {
+      "alias": "Roomba",
+      "blid": "robotid from discovery, eg 04FD601F15964AE788C1A2DA12BCF70F",
+      "password": "local password, see README",
+      "ignore": false
+    }
+  ]
+}

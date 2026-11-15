@@ -198,6 +198,17 @@ function DoormanSection(props) {
   );
 }
 
+function SucksSection(props) {
+  return (
+    <section id="sucks-section">
+      <a className="section-badge" href={ProxiedServices.get('ZmwSucks')}><img src="/ZmwSucks/favicon.ico"/></a>
+      {React.createElement(
+        ZmwSucks,
+        ZmwSucks.buildProps('/ZmwSucks'))}
+    </section>
+  );
+}
+
 function MqttHeatingSection(props) {
   return (
     <section id="heating-section">
@@ -322,6 +333,7 @@ function Dashboard(props) {
         { renderSvcBtn('Shout', 'ZmwSpeakerAnnounce') }
         { renderSvcBtn('Cat', 'ZmwCatSnackDispenser') }
         { renderSvcBtn('Door', 'ZmwDoorman') }
+        { renderSvcBtn('Sucks', 'ZmwSucks') }
         { renderSvcBtn('Heat', 'ZmwHeating') }
         { renderSvcBtn('Sonos', 'ZmwSonosCtrl') }
         { renderIcoBtn('⚙', '/settings.ico') }
@@ -331,6 +343,7 @@ function Dashboard(props) {
         {expandedSection === 'Shout' && <TTSAnnounceSection />}
         {expandedSection === 'Cat' && <CatSection />}
         {expandedSection === 'Door' && <DoormanSection />}
+        {expandedSection === 'Sucks' && <SucksSection />}
         {expandedSection === 'Heat' && <MqttHeatingSection />}
         {expandedSection === 'Sonos' && <SonosCtrlSection />}
         {expandedSection === '⚙' && <ConfigSection />}
