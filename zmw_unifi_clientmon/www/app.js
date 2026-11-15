@@ -49,6 +49,28 @@ class UnifiClientmon extends React.Component {
     }).then(() => this.fetchData());
   }
 
+  forgetDevice(mac) {
+    if (!confirm(`Forget ${mac}? It will be reported as a new device next time it's seen online.`)) {
+      return;
+    }
+    fetch('/device_forget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac }),
+    }).then(() => this.fetchData());
+  }
+
+  renderForgetCell(d) {
+    if (!d.known) {
+      return <td style={{ color: '#888' }} title="Will be reported as new next time it's seen online">forgotten</td>;
+    }
+    return (
+      <td>
+        <button onClick={() => this.forgetDevice(d.mac)}>Forget</button>
+      </td>
+    );
+  }
+
   startEditAlias(mac, currentAlias) {
     this.setState({ editingAlias: mac, aliasInput: currentAlias || '' });
   }
@@ -74,7 +96,7 @@ class UnifiClientmon extends React.Component {
   }
 
   renderDeviceName(d) {
-    if (d.alias) {
+    if (d.alias && d.alias !== d.hostname) {
       return <span>{d.alias} <span style={{ color: '#888', fontSize: '0.85em' }}>({d.hostname})</span></span>;
     }
     return d.hostname;
@@ -123,7 +145,9 @@ class UnifiClientmon extends React.Component {
             color: d.trusted ? '#4caf50' : '#ff6b6b',
             fontWeight: 'bold',
           }}
-          title={d.trusted ? 'Click to mark untrusted' : 'Click to mark trusted'}
+          title={d.trusted
+            ? (d.trust_reason ? `Trusted: ${d.trust_reason}. ` : '') + 'Click to mark untrusted'
+            : 'Click to mark trusted'}
         >
           {d.trusted ? 'TRUSTED' : 'UNTRUSTED'}
         </span>
@@ -163,7 +187,7 @@ class UnifiClientmon extends React.Component {
             <h3 style={{ color: '#ff6b6b' }}>Untrusted Devices</h3>
             <table>
               <thead>
-                <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th></tr>
+                <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th><th></th></tr>
               </thead>
               <tbody>
                 {untrustedDevices.map((d) => (
@@ -178,6 +202,7 @@ class UnifiClientmon extends React.Component {
                     </td>
                     {this.renderTrustCell(d)}
                     {this.renderAliasCell(d)}
+                    {this.renderForgetCell(d)}
                   </tr>
                 ))}
               </tbody>
@@ -188,7 +213,7 @@ class UnifiClientmon extends React.Component {
         <h3>All Devices</h3>
         <table>
           <thead>
-            <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th></tr>
+            <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th><th></th></tr>
           </thead>
           <tbody>
             {trustedDevices.map((d) => (
@@ -203,6 +228,7 @@ class UnifiClientmon extends React.Component {
                 </td>
                 {this.renderTrustCell(d)}
                 {this.renderAliasCell(d)}
+                {this.renderForgetCell(d)}
               </tr>
             ))}
           </tbody>

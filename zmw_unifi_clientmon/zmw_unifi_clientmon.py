@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import re
 import signal
 import time
 from datetime import datetime
@@ -20,12 +21,15 @@ from unknown_device_mon import UnknownDeviceMon
 
 log = build_logger("ZmwUnifiClientmon")
 
+_TELEGRAM_TRUST_CMD = "nettrust"
+_MAC_RE = re.compile(r'^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$')
+
 
 class ZmwUnifiClientmon(ZmwMqttService):
     """ Monitor UniFi network for interesting device presence changes. """
 
     def __init__(self, cfg, www, _sched):
-        super().__init__(cfg, "zmw_unifi_clientmon", scheduler=_sched)
+        super().__init__(cfg, "zmw_unifi_clientmon", scheduler=_sched, svc_deps=['ZmwTelegram'])
         self._unifi = UnifiClient(
             controller=cfg['unifi_controller'],
             username=cfg['unifi_username'],
@@ -39,7 +43,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
             self._on_presence_state_change,
             leave_cooldown_secs=cfg.get('leave_cooldown_secs', 60),
         )
-        self._unknown_device_mon = UnknownDeviceMon()
+        self._unknown_device_mon = UnknownDeviceMon(self._on_unknown_device_joined)
         self._consecutive_failures = 0
         self._MAX_CONSECUTIVE_FAILURES = 3
 
@@ -51,6 +55,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
         www.serve_url('/all_devices', lambda: json.dumps(self._get_all_devices(), default=str))
         www.serve_url('/device_trust', self._unknown_device_mon.http_set_trusted, methods=['POST'])
         www.serve_url('/device_alias', self._unknown_device_mon.http_set_alias, methods=['POST'])
+        www.serve_url('/device_forget', self._unknown_device_mon.http_forget, methods=['POST'])
 
         _sched.add_job(self._poll_clients, 'interval', seconds=self._poll_interval,
                        next_run_time=datetime.now())
@@ -60,9 +65,10 @@ class ZmwUnifiClientmon(ZmwMqttService):
             "description": "Monitors UniFi network, announces when devices join/leave.",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Empty: polls the UniFi controller and only publishes to its own topic.
-            "reads_mqtt_topic": [],
-            "writes_mqtt_topic": [],
+            # Polls the UniFi controller; reads Telegram commands (trust a device).
+            "reads_mqtt_topic": ["zmw_telegram"],
+            # Writes: own topic, Telegram warnings for unknown devices.
+            "writes_mqtt_topic": ["zmw_telegram"],
             "commands": {
                 "ls": {
                     "description": "List currently connected interesting clients",
@@ -169,6 +175,7 @@ class ZmwUnifiClientmon(ZmwMqttService):
                 "online": online_info is not None,
                 "known": mac in known_macs,
                 "trusted": meta["trusted"],
+                "trust_reason": meta.get("trust_reason"),
                 "alias": meta["alias"],
             })
         return result
@@ -180,6 +187,51 @@ class ZmwUnifiClientmon(ZmwMqttService):
             "user": user,
             "device_hostname": device_id,
         })
+
+    def _send_telegram(self, msg):
+        try:
+            self.message_svc("ZmwTelegram", "send_text", {'msg': msg})
+        except RuntimeError as ex:
+            log.warning("Can't send Telegram notification '%s': %s", msg, ex)
+
+    def _on_unknown_device_joined(self, mac, info):
+        self._send_telegram(
+            f"Unknown device joined the network: {info['hostname']} ({mac}) {info['ip']}. "
+            f"Reply /{_TELEGRAM_TRUST_CMD} <reason> to trust it.")
+
+    def _on_telegram_trust_cmd(self, msg):
+        args = msg.get('cmd_args') or []
+        if args and _MAC_RE.match(args[0]):
+            mac = args[0].lower().replace('-', ':')
+            args = args[1:]
+        else:
+            mac = self._unknown_device_mon.last_unknown_mac
+            if mac is None:
+                self._send_telegram(f"No unknown device seen recently. Use /{_TELEGRAM_TRUST_CMD} <mac> <reason>")
+                return
+
+        reason = ' '.join(args).strip()
+        if not reason:
+            self._send_telegram(f"Need a reason to trust {mac}: /{_TELEGRAM_TRUST_CMD} [mac] <reason>")
+            return
+
+        self._unknown_device_mon.set_trusted(mac, True, reason)
+        info = self._unifi.all_clients.get(mac)
+        hostname = info["hostname"] if info else mac
+        log.info("Device %s (%s) marked as trusted over Telegram: %s", hostname, mac, reason)
+        self._send_telegram(f"Device {hostname} ({mac}) is now trusted. Reason: {reason}")
+
+    def on_service_came_up(self, service_name):
+        if service_name == "ZmwTelegram":
+            self.message_svc("ZmwTelegram", "register_command",
+                             {'cmd': _TELEGRAM_TRUST_CMD,
+                              'descr': 'Trust a network device: [mac] <reason>. Defaults to last unknown device'})
+
+    def on_dep_published_message(self, svc_name, subtopic, msg):
+        match svc_name:
+            case 'ZmwTelegram':
+                if subtopic.startswith(f"on_command/{_TELEGRAM_TRUST_CMD}"):
+                    self._on_telegram_trust_cmd(msg)
 
     def on_service_received_message(self, subtopic, payload):
         if subtopic.endswith('_reply'):
