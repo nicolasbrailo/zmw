@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from .logs import build_logger
-from paho.mqtt import publish as mqtt_bcast
 import json
 import logging
 from datetime import datetime, date
@@ -13,9 +12,6 @@ logging.getLogger('paho').setLevel(logging.INFO)
 logging.getLogger("tzlocal").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.executors.default").setLevel(logging.ERROR)
 logging.getLogger("apscheduler.scheduler").setLevel(logging.ERROR)
-# paho >= 2.2 logs this as an error every time publish.single() disconnects after publishing; it's harmless
-logging.getLogger('paho.mqtt.client').addFilter(
-    lambda record: not record.getMessage().startswith('Client is not connected. Socket: None'))
 
 log = build_logger("ZmwMqtt", logging.INFO)
 
@@ -80,7 +76,8 @@ class ZmwMqttBase(ABC):
         """ Starts disconnect process """
         log.info('Requesting MQTT client disconnect...')
 
-        # Announce this service is leaving
+        # Announce this service is leaving. Publishing is async, but paho sends packets in order: this goes out before
+        # the disconnect, as long as the net loop gets to run (so don't block it after calling stop)
         self.broadcast(self._global_svc_discovery_leaving_topic, self.get_service_meta())
 
         self.client.disconnect()
@@ -88,13 +85,15 @@ class ZmwMqttBase(ABC):
             self.bg_thread.join()
 
     def broadcast(self, topic, msg):
-        """ JSONises and broadcasts a message to MQTT """
+        """ JSONises and broadcasts a message to MQTT, over this service's connection. Doesn't block: if not
+        connected, the message is queued until (re)connecting. Returns paho's MQTTMessageInfo; don't call its
+        wait_for_publish from an MQTT callback, it'd deadlock the net loop """
         def _serialize(obj):
             if isinstance(obj, (datetime, date)):
                 return obj.isoformat()
             raise TypeError(f"Type {type(obj)} not serializable")
         msg = json.dumps(msg, default=_serialize)
-        mqtt_bcast.single(qos=1, hostname=self._mqtt_ip, port=self._mqtt_port, topic=topic, payload=msg)
+        return self.client.publish(topic, payload=msg, qos=1)
 
     def on_service_discovery_ping(self):
         """ Global request for service announcements """

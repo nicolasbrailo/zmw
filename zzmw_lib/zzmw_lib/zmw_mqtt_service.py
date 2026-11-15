@@ -7,7 +7,6 @@ import logging
 import random
 
 from datetime import datetime, timedelta
-from paho.mqtt import publish as mqtt_bcast
 
 log = build_logger("ZmwMqttService", logging.INFO)
 #log = build_logger("ZmwMqttService")

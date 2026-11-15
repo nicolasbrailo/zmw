@@ -5,7 +5,6 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import threading
 import time
 
@@ -305,9 +304,13 @@ def service_runner(AppClass):
     def signal_handler(sig, frame):
         log.info("Shutdown requested by signal, stop app...")
         wwwserver.shutdown()
+        # This runs on the main thread, interrupting app.loop_forever(). Don't exit here: return, so the MQTT net loop
+        # can flush pending messages (eg the leaving announcement) and then return by itself on disconnect.
         app.stop()
-        log.info("Clean exit")
-        sys.exit(0)
+        # Safety net, in case the loop doesn't return
+        exit_timer = threading.Timer(5, lambda: os._exit(0))
+        exit_timer.daemon = True
+        exit_timer.start()
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
@@ -322,3 +325,4 @@ def service_runner(AppClass):
         log.critical("MQTT loop died, exiting so the service can be restarted", exc_info=True)
         os._exit(1)
     www_thread.join()
+    log.info("Clean exit")
