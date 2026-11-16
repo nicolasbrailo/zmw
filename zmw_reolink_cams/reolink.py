@@ -409,6 +409,9 @@ class ReolinkDoorbell(ABC):
     def _on_motion_detected(self, motion_level, cam_msg):
         """ Motion detect event fired. Higher motion level means more confidence. """
         log.info("Camera %s detected motion (level %d)", self._cam_host, motion_level)
+        # Announce before fetching the snapshot and starting the recorder, which can take a second or two: whoever
+        # captures the stream themselves (eg visitor detection) shouldn't wait for it
+        self.on_motion_started(self._cam_host, motion_level, cam_msg)
         snap_path = self.get_snapshot()
         if self._video_on_movement:
             self.start_recording()
@@ -459,6 +462,10 @@ class ReolinkDoorbell(ABC):
     @abstractmethod
     def on_doorbell_ring_has_snapshot(self, cam_host, snap_path, full_cam_msg):
         """ Buttonn calling """
+
+    @abstractmethod
+    def on_motion_started(self, cam_host, motion_level, full_cam_msg):
+        """ Camera detects motion, sent as soon as the camera reports it; on_motion_detected follows with a snap """
 
     @abstractmethod
     def on_motion_detected(self, cam_host, path_to_img, motion_level, full_cam_msg):

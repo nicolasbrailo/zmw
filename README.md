@@ -1325,9 +1325,22 @@ Doorbell button was pressed, with a snapshot
 | `snap_path` | Path to snapshot |
 | `full_cam_msg` | Raw cam event |
 
+#### `on_motion_started`
+
+Camera detected motion, sent before the snapshot is taken and the recording starts; on_motion_detected follows with the snapshot
+
+| Param | Description |
+|-------|-------------|
+| `event` | on_motion_started |
+| `cam_alias` | Cam name |
+| `cam_host` | Cam IP (may change, use cam_alias) |
+| `rtsp_urls` | Stream name (main, sub) -> RTSP URL with credentials; empty if unknown |
+| `motion_level` | Motion confidence |
+| `full_cam_msg` | Raw cam event |
+
 #### `on_motion_detected`
 
-Camera detected motion
+Camera detected motion, with a snapshot
 
 | Param | Description |
 |-------|-------------|
@@ -1491,7 +1504,7 @@ Read values for one specific sensor by name. Response on get_sensor_values_reply
 
 #### `get_all_sensor_values`
 
-Read a metric (temperature, humidity) across all sensors. Response on get_all_sensor_values_reply
+Read a metric (temperature, humidity) across all online sensors. Response on get_all_sensor_values_reply
 
 | Param | Description |
 |-------|-------------|

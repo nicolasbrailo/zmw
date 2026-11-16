@@ -45,6 +45,13 @@ class ZmwReolinkCam(ReolinkDoorbell):
             'full_cam_msg': full_cam_msg,
         })
 
+    def on_motion_started(self, cam_host, motion_level, full_cam_msg):
+        self._publish_event("on_motion_started", cam_host, {
+            'rtsp_urls': self.get_rtsp_urls(),
+            'motion_level': motion_level,
+            'full_cam_msg': full_cam_msg,
+        })
+
     def on_motion_detected(self, cam_host, path_to_img, motion_level, full_cam_msg):
         self._publish_event("on_motion_detected", cam_host, {
             'path_to_img': path_to_img,
@@ -224,8 +231,13 @@ class ZmwReolinkCams(ZmwMqttService):
                     "description": "Doorbell button was pressed, with a snapshot",
                     "payload": {"event": "on_doorbell_ring_has_snapshot", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "snap_path": "Path to snapshot", "full_cam_msg": "Raw cam event"}
                 },
+                "on_motion_started": {
+                    "description": "Camera detected motion, sent before the snapshot is taken and the recording "
+                                   "starts; on_motion_detected follows with the snapshot",
+                    "payload": {"event": "on_motion_started", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "rtsp_urls": "Stream name (main, sub) -> RTSP URL with credentials; empty if unknown", "motion_level": "Motion confidence", "full_cam_msg": "Raw cam event"}
+                },
                 "on_motion_detected": {
-                    "description": "Camera detected motion",
+                    "description": "Camera detected motion, with a snapshot",
                     "payload": {"event": "on_motion_detected", "cam_alias": "Cam name", "cam_host": "Cam IP (may change, use cam_alias)", "path_to_img": "Snapshot path", "motion_level": "Motion confidence", "full_cam_msg": "Raw cam event"}
                 },
                 "on_motion_cleared": {
