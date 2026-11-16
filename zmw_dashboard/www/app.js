@@ -54,14 +54,17 @@ class AlertsList extends React.Component {
     if (this.state.alerts.length === 0) {
       return null;
     }
+    // Alerts come as "ServiceName: message"; show the service name as the card's title
     return (
-      <div className="card warn">
-        <p>Alert!</p>
-        <ul>
-          {this.state.alerts.map((alert, idx) => (
-            <li key={idx}>{alert}</li>
-          ))}
-        </ul>
+      <div className="dash-alerts">
+        {this.state.alerts.map((alert, idx) => {
+          const sep = alert.indexOf(': ');
+          return (
+            <div key={idx} className="dash-alert" role="alert">
+              {sep > 0 ? <><b>{alert.slice(0, sep)}</b><span>{alert.slice(sep + 2)}</span></> : <span>{alert}</span>}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -145,22 +148,63 @@ class LightsSection extends React.Component {
   render() {
     return (
       <section id="lights-section">
-        <a className="section-badge" href={ProxiedServices.get('ZmwLights')}><img src="/ZmwLights/favicon.ico"/></a>
         {React.createElement(
           MqttLights,
-          MqttLights.buildProps('/ZmwLights', this.state.scenes))}
+          MqttLights.buildProps('/ZmwLights', this.state.scenes, this.props.groupBadges))}
       </section>
     );
   }
 }
 
-function SensorsListSection(props) {
+// A temperature sensor whose name starts with a light group's name ("CocinaTempSensor" -> "Cocina") is shown on that
+// group's tile; a room with several sensors shows all of them. Sensors that match no group go in the sensors list.
+function splitSensorsByGroup(groupNames, temperatures) {
+  const groupBadges = {};
+  const otherSensors = [];
+  // Longest names first, so a group named "TVRoomBack" wins over "TVRoom"
+  const names = [...groupNames].sort((a, b) => b.length - a.length);
+  for (const sensor of Object.keys(temperatures).sort()) {
+    const value = temperatures[sensor];
+    if (value == null) continue;
+    const group = names.find(g => sensor.startsWith(g));
+    if (group) {
+      groupBadges[group] = [...(groupBadges[group] || []), `${Number(value).toFixed(1)}°`];
+    } else {
+      otherSensors.push([sensor, Number(value)]);
+    }
+  }
+  return { groupBadges, otherSensors };
+}
+
+function useRoomTemperatures() {
+  const [split, setSplit] = React.useState({ groupBadges: {}, otherSensors: [] });
+  React.useEffect(() => {
+    let groups = null;
+    let temps = null;
+    const done = () => {
+      if (groups && temps) setSplit(splitSensorsByGroup(groups.map(g => g.name), temps));
+    };
+    mJsonGet('/ZmwLights/get_groups', (res) => { groups = res || []; done(); });
+    mJsonGet('/ZmwSensormon/sensors/get_all/temperature', (res) => { temps = res || {}; done(); });
+  }, []);
+  return split;
+}
+
+function SensorsSection(props) {
+  if (props.sensors.length === 0) {
+    return null;
+  }
+  const sensormon = ProxiedServices.get('ZmwSensormon');
   return (
     <section id="sensors-list-section">
-      <a className="section-badge" href={ProxiedServices.get('ZmwSensormon')}><img src="/ZmwSensormon/favicon.ico"/></a>
-      {React.createElement(
-        SensorsList,
-        { metrics: ['temperature'], api_base_path: '/ZmwSensormon' })}
+      <h4 className="dash-heading"><a href={sensormon}>Sensors</a></h4>
+      <div className="dash-minis">
+        {props.sensors.map(([name, value]) => (
+          <a key={name} href={sensormon ? `${sensormon}/index.html?sensor=${encodeURIComponent(name)}` : undefined}>
+            {name}<b>{value.toFixed(1)}°</b>
+          </a>
+        ))}
+      </div>
     </section>
   );
 }
@@ -232,8 +276,6 @@ function SonosCtrlSection(props) {
 }
 
 function ConfigSection(props) {
-  const store = React.useMemo(() => new LocalStorageManager(), []);
-  const savedTheme = store.cacheGet("ZmwDashboardConfig")?.theme || "no-theme";
   const [userLinks, setUserLinks] = React.useState([]);
 
   React.useEffect(() => {
@@ -241,12 +283,6 @@ function ConfigSection(props) {
       setUserLinks(links || []);
     });
   }, []);
-
-  const handleThemeChange = (e) => {
-    const theme = e.target.value;
-    document.documentElement.setAttribute('data-theme', theme);
-    store.cacheSave("ZmwDashboardConfig", { theme });
-  };
 
   const handleClearCache = () => {
     localStorage.clear();
@@ -257,27 +293,10 @@ function ConfigSection(props) {
     <section id="config-section">
       <img className="section-badge" src="/settings.ico"/>
       <div style={{display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem', alignItems: 'center'}}>
-        <label>Fix things:</label>
+        <label>Fixes:</label>
         <div><button alt="This fixes things if something is out of sync" onClick={handleClearCache}>Clear cache</button></div>
 
-        <label htmlFor="configTheme">Theme:</label>
-        <div>
-          <select id="configTheme" defaultValue={savedTheme} onChange={handleThemeChange}>
-            <option value="no-theme">no theme</option>
-            <option value="dark">dark</option>
-            <option value="light">light</option>
-            <option value="sepia">sepia</option>
-            <option value="milligram">milligram</option>
-            <option value="pure">pure</option>
-            <option value="sakura">sakura</option>
-            <option value="skeleton">skeleton</option>
-            <option value="bootstrap">bootstrap</option>
-            <option value="medium">medium</option>
-            <option value="tufte">tufte</option>
-          </select>
-        </div>
-
-        <label>More services:</label>
+        <label>More:</label>
         <div>
           {userLinks.map((link, idx) => (
             <button key={idx} onClick={() => window.open(link.url, '_blank')}>
@@ -296,6 +315,7 @@ function ConfigSection(props) {
 function Dashboard(props) {
   const [expandedSection, setExpandedSection] = React.useState(null);
   const contentRef = React.useRef(null);
+  const { groupBadges, otherSensors } = useRoomTemperatures();
 
   const toggleSection = (section) => {
     const newSection = expandedSection === section ? null : section;
@@ -326,9 +346,10 @@ function Dashboard(props) {
   return (
     <main>
       <AlertsList />
-      <LightsSection />
-      <SensorsListSection />
+      <LightsSection groupBadges={groupBadges} />
+      <SensorsSection sensors={otherSensors} />
 
+      <h4 className="dash-heading">More</h4>
       <section id="zmw_other_services">
         { renderSvcBtn('Shout', 'ZmwSpeakerAnnounce') }
         { renderSvcBtn('Cat', 'ZmwCatSnackDispenser') }
@@ -336,7 +357,11 @@ function Dashboard(props) {
         { renderSvcBtn('Sucks', 'ZmwSucks') }
         { renderSvcBtn('Heat', 'ZmwHeating') }
         { renderSvcBtn('Sonos', 'ZmwSonosCtrl') }
-        { renderIcoBtn('⚙', '/settings.ico') }
+        <button onClick={() => window.open(ProxiedServices.get('ZmwServicemon'), '_blank')}>
+          <img src="/ZmwServicemon/favicon.ico" alt=""/>
+          Svcs
+        </button>
+        { renderIcoBtn('Settings', '/settings.ico') }
       </section>
 
       <div ref={contentRef}>
@@ -346,7 +371,7 @@ function Dashboard(props) {
         {expandedSection === 'Sucks' && <SucksSection />}
         {expandedSection === 'Heat' && <MqttHeatingSection />}
         {expandedSection === 'Sonos' && <SonosCtrlSection />}
-        {expandedSection === '⚙' && <ConfigSection />}
+        {expandedSection === 'Settings' && <ConfigSection />}
       </div>
     </main>
   );
@@ -354,10 +379,7 @@ function Dashboard(props) {
 
 Dashboard.buildProps = () => ({ key: 'dashboard' });
 
-// Initialize: fetch prefetch data and start React app in parallel
-const store = new LocalStorageManager();
-const opts = store.cacheGet("ZmwDashboardConfig", null);
-document.documentElement.setAttribute('data-theme', opts?.theme);
-
+// Initialize: fetch prefetch data and start React app in parallel. Colors come from dashboard.css and follow the
+// phone's light/dark setting, so there's no theme to restore.
 ProxiedServices.init(() => {}); // Fetch in background for badge links
 z2mStartReactApp('#app_root', Dashboard);

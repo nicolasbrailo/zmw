@@ -252,7 +252,7 @@ class ZmwSensormon(ZmwMqttService):
                     "params": {"name": "Sensor (eg 'Living_Room', 'Weather')"}
                 },
                 "get_all_sensor_values": {
-                    "description": "Read a metric (temperature, humidity) across all sensors. Response on get_all_sensor_values_reply",
+                    "description": "Read a metric (temperature, humidity) across all online sensors. Response on get_all_sensor_values_reply",
                     "params": {"metric": "Metric (eg 'temperature', 'humidity'...)"}
                 },
                 "get_known_sensors": {
@@ -389,6 +389,10 @@ class ZmwSensormon(ZmwMqttService):
         result = {}
         for sensor_name in sensors:
             values = self._get_sensor_values(sensor_name)
+            # A thing its network reports as offline only has a stale last reading (eg a renamed device leaves its
+            # old name behind, offline), so it's not a current value
+            if values.get('available') is False:
+                continue
             if metric in values:
                 result[sensor_name] = values[metric]
         return result

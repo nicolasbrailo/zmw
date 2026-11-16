@@ -1,13 +1,11 @@
+/* Native checkboxes tinted with the theme: the browser draws a real checkmark (and picks a contrasting color for it),
+ * so checked vs unchecked is obvious even when every box in a list has the same state. */
 input[type=checkbox] {
-  appearance: none;
-  background-color: transparent;
-  margin: 0;
-
-  transition: background 250ms;
-  background: var(--cbg);
-  border: 1px solid var(--clink);
-  border-radius: 0.5rem;
-}
-input[type=checkbox]:checked {
-  background: var(--cemph);
+  accent-color: var(--cemph);
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0 .3rem 0 0;
+  padding: 0;
+  vertical-align: -.2rem;
+  cursor: pointer;
 }

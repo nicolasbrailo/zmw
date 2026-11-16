@@ -318,7 +318,7 @@ class CatFeeder extends React.Component {
             <p>{this.state.metadata.description} {this.state.metadata.model}</p>
           </div>
 
-          <button onClick={() => this.handleFeedNow()}>Feed Now</button>
+          <button className="button-important" onClick={() => this.handleFeedNow()}>Feed Now</button>
 
           <details ref={this.settingsRef}>
             <summary>Settings</summary>

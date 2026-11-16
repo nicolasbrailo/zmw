@@ -11,21 +11,17 @@
 <link rel="preload" href="/ZmwLights/get_lights" as="fetch" crossorigin="anonymous">
 <link rel="preload" href="/Scenes/ls_scenes" as="fetch" crossorigin="anonymous">
 <link rel="preload" href="/ZmwLights/z2m/get_known_things_hash" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="/ZmwLights/get_groups" as="fetch" crossorigin="anonymous">
+<link rel="preload" href="/ZmwSensormon/sensors/get_all/temperature" as="fetch" crossorigin="anonymous">
 
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<link rel="stylesheet" href="/zmw.css" />
-
-<style>
-/* TODO: find a classless-compatible way to show selected state */
-button[data-selected="true"] {
-  background-color: var(--cemph);
-  color: var(--cbg);
-}
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<meta name="color-scheme" content="light dark"/>
+<link rel="stylesheet" href="/zmw.css?v=4b7e66a3" />
+<link rel="stylesheet" href="/dashboard.css?v=9f95414e" />
 </head>
 
-<body data-theme="sepia">
+<body>
   <div id="global_loading" class="app-loading">
     Loading...
   </div>
@@ -37,5 +33,5 @@ button[data-selected="true"] {
   </div>
 </body>
 
-<script defer src="/app.rel.ac3e44d3.js"></script>
+<script defer src="/app.rel.37cf6baa.js"></script>
 </html>

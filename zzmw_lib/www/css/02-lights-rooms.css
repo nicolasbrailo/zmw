@@ -1,0 +1,293 @@
+/* Lights as a grid of room tiles (MqttLights, class .zl). 02-lights.css is the old <details> layout, which other
+ * services (Sonos, speaker announce) still reuse through #zmw_lights / .light_details, so it stays as is.
+ *
+ * Colors come from --zl-* tokens. By default they follow the classless theme; a page can set them to its own palette
+ * (the dashboard does, see zmw_dashboard/www/dashboard.css). --zl-lit means "a light is on", --zl-on is for controls. */
+:root {
+  --zl-tile: var(--clight);
+  --zl-ink: var(--cfg);
+  --zl-sub: var(--cdark);
+  --zl-line: var(--cmed);
+  --zl-well: var(--cbg);
+  --zl-off: var(--cmed);
+  --zl-on: var(--cemph);
+  --zl-knob: #fff;
+  --zl-knoboff: var(--zl-knob);
+  --zl-tonal: var(--cbg);
+  --zl-ontonal: var(--clink);
+  --zl-lit: var(--cemph);
+  --zl-litbg: var(--cemphbg, var(--clight));
+  --zl-litsub: var(--cdark);
+}
+
+.zl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  color: var(--zl-ink);
+}
+.zl button, .zl select {
+  font: 600 .8rem/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+/* Group tile */
+.zl-group {
+  position: relative;
+  min-width: 0;
+  background: var(--zl-tile);
+  border-radius: 18px;
+}
+.zl-group.zl-open { grid-column: 1 / -1; }
+.zl-group.zl-lit { background: var(--zl-litbg); }
+.zl-group.zl-lit .zl-gbadge, .zl-group.zl-lit .zl-gsum { color: var(--zl-litsub); }
+/* Open + lit: plain tile, accent border (an overlay, so the tinted title band can't paint over it) and tinted title */
+.zl-group.zl-lit.zl-open { background: var(--zl-tile); }
+.zl-group.zl-lit.zl-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--zl-lit);
+  pointer-events: none;
+}
+.zl .zl-ghead {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 6px;
+  padding: .8rem .9rem;
+  border-radius: 18px;
+  cursor: pointer;
+  color: var(--zl-ink);
+}
+.zl-group.zl-lit.zl-open > .zl-ghead {
+  background: var(--zl-litbg);
+  border-radius: 18px 18px 0 0;
+  margin-bottom: .6rem;
+}
+.zl-gname {
+  font-weight: 650;
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* One or more badges (eg a room with two temperature sensors), stacked so the group name keeps its width */
+.zl-gbadge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: .9rem;
+  color: var(--zl-sub);
+  font-variant-numeric: tabular-nums;
+}
+.zl-gbadge span + span { font-size: .8rem; }
+.zl-dots {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.zl-dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--zl-line);
+}
+.zl-dots i.zl-on {
+  background: var(--zl-lit);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--zl-lit) 22%, transparent);
+}
+.zl-dots i.zl-na {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--zl-line);
+}
+.zl-gsum {
+  grid-column: 1 / -1;
+  font-size: .78rem;
+  color: var(--zl-sub);
+}
+
+/* Open group: scene chips, then one row per light/switch */
+.zl-gbody { padding: 0 .9rem .6rem; }
+.zl-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 6px;
+}
+.zl-chips:empty { display: none; }
+.zl .zl-chips button {
+  flex: none;
+  border: 1px solid var(--zl-line);
+  background: var(--zl-tile);
+  color: var(--zl-ink);
+  border-radius: 99px;
+  padding: .45rem .85rem;
+  cursor: pointer;
+}
+.zl-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 2px 10px;
+  padding: .6rem 0;
+  border-top: 1px solid var(--zl-line);
+}
+.zl .zl-name {
+  min-width: 0;
+  font-weight: 550;
+  color: var(--zl-ink);
+  cursor: pointer;
+}
+.zl-name small {
+  display: block;
+  font-weight: 400;
+  font-size: .75rem;
+  color: var(--zl-sub);
+}
+
+/* On/off switch: the knob is a radial gradient, so no extra markup is needed */
+.zl .zl-sw {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 2.7rem;
+  height: 1.6rem;
+  border: 0;
+  border-radius: 99px;
+  cursor: pointer;
+  background: radial-gradient(circle at .8rem 50%, var(--zl-knoboff) .6rem, transparent .64rem), var(--zl-off);
+}
+.zl .zl-sw:checked {
+  background: radial-gradient(circle at calc(100% - .8rem) 50%, var(--zl-knob) .6rem, transparent .64rem), var(--zl-on);
+}
+
+/* Brightness: reuses 02-range.css, recoloured */
+.zl .zl-bri {
+  grid-column: 1 / -1;
+  --slider-thumb: var(--zl-on);
+  --slider-track: var(--zl-line);
+  --font-color: var(--zl-tile);
+  margin: 4px 0;
+}
+.zl-off > .zl-bri { opacity: .4; }
+
+/* "More settings" button: tonal pill with tune icon + chevron, which flips while the panel is open */
+.zl .zl-more {
+  all: unset;
+  box-sizing: border-box;
+  height: 2.1rem;
+  padding: 0 .35rem 0 .6rem;
+  border-radius: 99px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--zl-tonal);
+  color: var(--zl-ontonal);
+}
+.zl-more svg { width: 18px; height: 18px; fill: currentColor; }
+.zl-more svg + svg { width: 20px; height: 20px; transition: transform .15s; }
+.zl .zl-more[aria-expanded="true"] { background: var(--zl-on); color: var(--zl-knob); }
+.zl-more[aria-expanded="true"] svg + svg { transform: rotate(180deg); }
+.zl .zl-more:focus-visible, .zl .zl-ghead:focus-visible { outline: 2px solid var(--zl-on); outline-offset: 2px; }
+
+/* Settings panel */
+.zl-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: .7rem;
+  margin-top: 6px;
+  padding: .75rem .8rem .8rem;
+  border-radius: 14px;
+  background: var(--zl-well);
+}
+.zl-dev { font-size: .74rem; color: var(--zl-sub); }
+.zl-field { display: grid; gap: .35rem; }
+.zl-field > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  font-size: .78rem;
+  font-weight: 650;
+}
+.zl-field > div:first-child span {
+  font-weight: 400;
+  color: var(--zl-sub);
+  font-variant-numeric: tabular-nums;
+}
+.zl .zl-ct { margin: 4px 0; }
+.zl .zl-ct::-webkit-slider-runnable-track {
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #cfe0ff, #fff6e8 45%, #ffc070 80%, #ff9a3c);
+}
+.zl .zl-ct::-moz-range-track {
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #cfe0ff, #fff6e8 45%, #ffc070 80%, #ff9a3c);
+}
+.zl .zl-ct::-webkit-slider-thumb { margin-top: -3px; background: #fff; border: 2px solid var(--zl-ink); }
+.zl .zl-ct::-moz-range-thumb { background: #fff; border: 2px solid var(--zl-ink); }
+.zl-presets { display: flex; flex-wrap: wrap; gap: 5px; }
+.zl .zl-presets button {
+  border: 1px solid var(--zl-line);
+  background: var(--zl-tile);
+  color: var(--zl-ink);
+  border-radius: 99px;
+  padding: .32rem .7rem;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.zl .zl-presets button[aria-pressed="true"] { background: var(--zl-ink); color: var(--zl-tile); border-color: var(--zl-ink); }
+.zl-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.zl .zl-swatches button {
+  all: unset;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px #0002;
+}
+.zl .zl-swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--zl-well), 0 0 0 4px var(--zl-ink); }
+/* Custom colour: a rainbow swatch with the native picker stretched invisibly over it */
+.zl-swatches label {
+  position: relative;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+}
+.zl .zl-swatches input[type=color] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.zl .zl-field select {
+  width: 100%;
+  font-weight: 500;
+  padding: .45rem .6rem;
+  border-radius: 10px;
+  border: 1px solid var(--zl-line);
+  background: var(--zl-tile);
+  color: var(--zl-ink);
+}
+.zl > button { grid-column: 1 / -1; justify-self: start; }
+
+@media (prefers-reduced-motion: reduce) {
+  .zl-more svg + svg { transition: none; }
+}

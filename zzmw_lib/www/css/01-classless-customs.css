@@ -192,6 +192,18 @@ button img {
   border-radius: 8px;
 }
 
+/* .button-important: the main action of a panel (eg "Feed now"). On phones it takes the full width so it's easy to
+ * hit; on bigger screens it's a normal button. */
+@media (max-width: 40rem) {
+  .button-important {
+    display: block;
+    width: 100%;
+    margin: .5rem 0;
+    padding: .8em 1em;
+    font-size: 100%;
+  }
+}
+
 .gallery {
   /* It's not possible to make a responsive grid with default classless, but this does the trick. Use like this:
         <div className="gallery">

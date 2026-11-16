@@ -24,10 +24,10 @@ rebuild_ui::
 	@# Bundle and cache bust
 	$(MAKE) _rebuild_ui_finalize
 
-# Finalize UI build: bundle zmw.js, hash filename, update HTML
+# Finalize UI build: bundle zmw.js, hash filename, update HTML (js and css links)
 # Expects ./www/app.rel.js to already exist
 .PHONY: _rebuild_ui_finalize
-_rebuild_ui_finalize:
+_rebuild_ui_finalize: _cache_bust_css
 	@# Bundle everything in one big js file
 	@echo "Deleting old cache-busted files:" ./www/app.rel.*.js 2>/dev/null || echo "(none)"
 	rm -f ./www/app.rel.*.js
@@ -41,6 +41,11 @@ _rebuild_ui_finalize:
 			echo "Updating $$f hash to $$HASH"; \
 			sed -i "s|app\.rel[^\"]*\.js|app.rel.$$HASH.js|g" "$$f"; \
 		done
+
+# Add ?v=<hash> to css links, so browsers refetch stylesheets after a deploy (see the script for details)
+.PHONY: _cache_bust_css
+_cache_bust_css:
+	../scripts/cache_bust_css.sh ./www ../zzmw_lib/www
 
 .PHONY: install_svc
 install_svc::

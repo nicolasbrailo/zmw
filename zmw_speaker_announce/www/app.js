@@ -173,18 +173,32 @@ class TTSAnnounce extends React.Component {
           onChange={e => this.setState({ ttsPhrase: e.target.value })}
         />
 
+        {/* Voice options on one line, actions + volume on the next, so the panel fits a phone */}
         <div className="ctrl-box-with-range">
-          <button onClick={this.onTTSRequested}>
-            Shout
-          </button>
-
           <select
+            style={{flex: "1 1 0", minWidth: 0, margin: 0}}
             value={this.state.ttsLang}
             onChange={e => this.setState({ ttsLang: e.target.value })}>
             {this.state.ttsLanguages && this.state.ttsLanguages.map(lang =>
               <option key={lang.value} value={lang.value}>{lang.label}</option>
             )}
           </select>
+
+          <label style={{whiteSpace: "nowrap"}}>
+            <input
+              type="checkbox"
+              checked={this.state.fuzzyTts}
+              disabled={this.state.fuzzyAvailable === false}
+              onChange={e => this.setState({ fuzzyTts: e.target.checked })}
+            />
+            Fuzzy TTS
+          </label>
+        </div>
+
+        <div className="ctrl-box-with-range">
+          <button onClick={this.onTTSRequested}>
+            Shout
+          </button>
 
           {!this.canRecordMic ? (
               this.state.httpsServer ? (
@@ -207,16 +221,6 @@ class TTSAnnounce extends React.Component {
               <button onClick={this.onMicRecRequested}>Record</button>
             )
           )}
-
-          <label>
-            <input
-              type="checkbox"
-              checked={this.state.fuzzyTts}
-              disabled={this.state.fuzzyAvailable === false}
-              onChange={e => this.setState({ fuzzyTts: e.target.checked })}
-            />
-            Fuzzy TTS
-          </label>
 
           <label>Vol</label>
           <input

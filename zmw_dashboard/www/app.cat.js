@@ -901,7 +901,7 @@ class CatFeeder extends React.Component {
             <p>{this.state.metadata.description} {this.state.metadata.model}</p>
           </div>
 
-          <button onClick={() => this.handleFeedNow()}>Feed Now</button>
+          <button className="button-important" onClick={() => this.handleFeedNow()}>Feed Now</button>
 
           <details ref={this.settingsRef}>
             <summary>Settings</summary>
@@ -1148,6 +1148,33 @@ function thingAvailabilityProps(thing) {
   };
 }
 
+// "FloorlampLeft" -> "Floorlamp left", "A_Dormir" -> "A dormir"
+function prettyThingName(name) {
+  return name.replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+    .replace(/ ([A-Z])(?=[a-z])/g, (m, c) => ' ' + c.toLowerCase());
+}
+
+// z2m reports color temp in mireds; people think in Kelvin. Some lights use a 0-255 scale instead, show those raw.
+function miredToKelvin(mired) {
+  return mired >= 100 ? `${Math.round(1e6 / mired / 50) * 50} K` : String(mired);
+}
+
+// z2m may report "FFA7FF", a color input needs "#ffa7ff"
+function normalizeRgb(rgb) {
+  if (!rgb) return '#ffffff';
+  return (rgb.startsWith('#') ? rgb : '#' + rgb).toLowerCase();
+}
+
+const ZL_RGB_SWATCHES = ['#ffffff', '#ff3b30', '#ff9500', '#ffd60a', '#34c759', '#00c7be', '#0a84ff', '#bf5af2'];
+
+// Material Icons "tune" and "expand_more" (Apache 2.0), inline so the page doesn't fetch anything
+const ZL_ICON_TUNE = (
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>);
+const ZL_ICON_EXPAND = (
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>);
+
 class ZmwLight extends React.Component {
   constructor(props) {
     super(props);
@@ -1157,6 +1184,7 @@ class ZmwLight extends React.Component {
       color_temp: props.light.color_temp,
       color_rgb: props.light.color_rgb || '#ffffff',
       effect: props.light.effect,
+      settingsOpen: false,
     };
   }
 
@@ -1213,22 +1241,31 @@ class ZmwLight extends React.Component {
     }
 
     const colorTempMeta = meta.actions.color_temp.value.meta;
-    const presets = colorTempMeta.presets || [];
+    const colorTemp = this.state.color_temp ?? Math.round((colorTempMeta.value_min + colorTempMeta.value_max) / 2);
+    // Some bulbs report the same value under several names (eg Tradfri's coolest and cool), show each value once
+    const presets = (colorTempMeta.presets || []).filter(
+      (preset, idx, all) => all.findIndex(p => p.value === preset.value) === idx);
 
     return (
-      <div>
-      <label>Temperature</label>
-      <DebouncedRange
-        min={colorTempMeta.value_min}
-        max={colorTempMeta.value_max}
-        value={this.state.color_temp}
-        onChange={(e) => this.onColorTempChange(e)}
-      />
-      <select value={this.state.color_temp} onChange={(e) => this.onColorTempChange(e)}>
-        {presets.map((preset) => (
-          <option key={preset.name} value={preset.value}>{preset.name}</option>
-        ))}
-      </select>
+      <div className="zl-field">
+        <div>Color temperature<span>{miredToKelvin(colorTemp)}</span></div>
+        <DebouncedRange
+          className="zl-ct"
+          min={colorTempMeta.value_min}
+          max={colorTempMeta.value_max}
+          value={colorTemp}
+          onChange={(e) => this.onColorTempChange(e)}
+        />
+        {presets.length > 0 && (
+          <div className="zl-presets">
+            {presets.map((preset) => (
+              <button key={preset.value} type="button" aria-pressed={Number(colorTemp) === preset.value}
+                      onClick={() => this.onColorTempChange({ target: { value: preset.value } })}>
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -1239,14 +1276,20 @@ class ZmwLight extends React.Component {
       return null;
     }
 
+    const rgb = normalizeRgb(this.state.color_rgb);
     return (
-      <div>
-      <label>RGB</label>
-      <input
-        type="color"
-        value={this.state.color_rgb}
-        onChange={(e) => this.onColorRgbChange(e)}
-      />
+      <div className="zl-field">
+        <div>Color<span>{rgb.toUpperCase()}</span></div>
+        <div className="zl-swatches">
+          {ZL_RGB_SWATCHES.map((color) => (
+            <button key={color} type="button" style={{ background: color }} aria-label={`Color ${color}`}
+                    aria-pressed={rgb === color}
+                    onClick={() => this.onColorRgbChange({ target: { value: color } })} />
+          ))}
+          <label title="Custom color">
+            <input type="color" aria-label="Custom color" value={rgb} onChange={(e) => this.onColorRgbChange(e)} />
+          </label>
+        </div>
       </div>
     );
   }
@@ -1260,60 +1303,82 @@ class ZmwLight extends React.Component {
     const effectValues = meta.actions.effect.value.meta.values || [];
 
     return (
-      <div>
-      <label>Effect</label>
-      <select value={this.state.effect || ''} onChange={(e) => this.onEffectChange(e)}>
-        <option value="">None</option>
-        {effectValues.map((effect) => (
-          <option key={effect} value={effect}>{effect}</option>
-        ))}
-      </select>
+      <div className="zl-field">
+        <div>Effect</div>
+        <select value={this.state.effect || ''} onChange={(e) => this.onEffectChange(e)}>
+          <option value="">None</option>
+          {effectValues.map((effect) => (
+            <option key={effect} value={effect}>{effect}</option>
+          ))}
+        </select>
       </div>
     );
   }
 
-  renderExtraCfgs() {
-    const meta = this.props.meta;
-    if (!(meta.actions.color_temp || meta.actions.color_rgb || meta.actions.effect)) {
-      return null;
-    }
+  // Every bulb reports effects, even plain white ones: only those with color controls get a settings panel,
+  // unless showAllSettings is set (the standalone lights page, where effects should stay reachable)
+  hasSettings() {
+    const actions = this.props.meta?.actions;
+    if (!actions) return false;
+    return !!(actions.color_temp || actions.color_rgb || (this.props.showAllSettings && actions.effect));
+  }
 
+  renderSettingsPanel() {
+    const meta = this.props.meta;
     return (
-      <details className="light_details">
-        <summary>⚙</summary>
-        {meta.name} ({meta.description} / {meta.model})
+      <div className="zl-panel">
+        <div className="zl-dev">{meta.description} ({meta.model})</div>
         {this.renderColorTemp()}
         {this.renderColorRgb()}
         {this.renderEffect()}
-      </details>
+      </div>
     );
   }
 
+  renderSubtitle() {
+    const light = this.props.light;
+    if (light.available === false) return 'Offline';
+    if (!this.state.state) return 'Off';
+    if (this.state.brightness == null) return 'On';
+    const pct = Math.max(1, Math.round(this.state.brightness / 254 * 100));
+    const hasColorTemp = this.props.meta?.actions?.color_temp && this.state.color_temp != null;
+    return hasColorTemp ? `${pct}% · ${miredToKelvin(this.state.color_temp)}` : `${pct}%`;
+  }
 
   render() {
     const light = this.props.light;
-    const meta = this.props.meta;
     const displayName = light.thing_name.startsWith(this.props.prefix)
       ? light.thing_name.slice(this.props.prefix.length)
       : light.thing_name;
+    const inputId = `${light.thing_name}_light_is_on`;
     return (
-      <li {...thingAvailabilityProps(light)}>
+      <div className={this.state.state ? 'zl-row' : 'zl-row zl-off'} {...thingAvailabilityProps(light)}>
+        <label className="zl-name" htmlFor={inputId}>
+          {prettyThingName(displayName)}<small>{this.renderSubtitle()}</small>
+        </label>
+        {this.hasSettings() ? (
+          <button type="button" className="zl-more" aria-expanded={this.state.settingsOpen}
+                  aria-label={`${displayName}: more settings`}
+                  onClick={() => this.setState(s => ({ settingsOpen: !s.settingsOpen }))}>
+            {ZL_ICON_TUNE}{ZL_ICON_EXPAND}
+          </button>
+        ) : <span />}
         <input
-          id={`${light.thing_name}_light_is_on`}
+          id={inputId}
+          className="zl-sw"
           type="checkbox"
-          value="true"
-          checked={this.state.state}
+          checked={!!this.state.state}
           onChange={(e) => this.onStateChange(e)}
         />
-        <label htmlFor={`${light.thing_name}_light_is_on`}>{displayName}</label>
         <DebouncedRange
+          className="zl-bri"
           min={0}
           max={254}
           value={this.state.brightness}
           onChange={(e) => this.onBrightnessChange(e)}
         />
-        {this.renderExtraCfgs()}
-      </li>
+        {this.state.settingsOpen && this.renderSettingsPanel()}
+      </div>
     );
   }
 }
@@ -1327,9 +1392,8 @@ class ZmwButton extends React.Component {
     let displayName = this.props.name.startsWith(this.props.prefix)
       ? this.props.name.slice(this.props.prefix.length)
       : this.props.name;
-    displayName = displayName.replace(/_/g, ' ').trim();
     return (
-      <button onClick={() => this.onClick()}>{displayName}</button>
+      <button type="button" onClick={() => this.onClick()}>{prettyThingName(displayName)}</button>
     );
   }
 }
@@ -1361,28 +1425,34 @@ class ZmwSwitch extends React.Component {
     const displayName = sw.thing_name.startsWith(this.props.prefix)
       ? sw.thing_name.slice(this.props.prefix.length)
       : sw.thing_name;
+    const inputId = `${sw.thing_name}_switch_is_on`;
     return (
-      <li {...thingAvailabilityProps(sw)}>
+      <div className={this.state.state ? 'zl-row' : 'zl-row zl-off'} {...thingAvailabilityProps(sw)}>
+        <label className="zl-name" htmlFor={inputId}>
+          {prettyThingName(displayName)}<small>{sw.available === false ? 'Offline' : 'Switch'}</small>
+        </label>
+        <span />
         <input
-          id={`${sw.thing_name}_switch_is_on`}
+          id={inputId}
+          className="zl-sw"
           type="checkbox"
-          value="true"
-          checked={this.state.state}
+          checked={!!this.state.state}
           onChange={(e) => this.onStateChange(e)}
         />
-        <label htmlFor={`${sw.thing_name}_switch_is_on`}>{displayName}</label>
-      </li>
+      </div>
     );
   }
 }
 
 class MqttLights extends React.Component {
-  static buildProps(api_base_path = '', buttons = []) {
+  // groupBadges: optional {groupName: text} shown on each group's tile (eg the room temperature)
+  static buildProps(api_base_path = '', buttons = [], groupBadges = {}) {
     return {
       key: 'MqttLights',
       local_storage: new LocalStorageManager(),
       api_base_path: api_base_path,
       buttons: buttons,
+      groupBadges: groupBadges,
     };
   }
 
@@ -1396,6 +1466,7 @@ class MqttLights extends React.Component {
       groups: {},
       sortedPrefixes: [],
       loading: true,
+      openGroup: null,
     };
   }
 
@@ -1564,43 +1635,77 @@ class MqttLights extends React.Component {
     }
 
     return (
-      <div id="zmw_lights">
-        {this.state.sortedPrefixes.map((prefix) => {
-          const things = this.state.groups[prefix] || [];
-          const buttons = things.filter(t => t.type === 'button');
-          const switches = things.filter(t => t.type === 'switch');
-          const lights = things.filter(t => t.type === 'light');
-          return (
-            <details key={prefix}>
-              <summary>{prefix}</summary>
-              <ul>
-                <li>
-                {(prefix !== 'Others') && (
-                  <><ZmwButton key={`${prefix}_All_On`}
-                             name={`${prefix}_All_On`}
-                             prefix={prefix}
-                             url={`${this.props.api_base_path}/all_lights_on/prefix/${prefix}`} />
-                  <ZmwButton key={`${prefix}_All_Off`}
-                             name={`${prefix}_All_Off`}
-                             prefix={prefix}
-                             url={`${this.props.api_base_path}/all_lights_off/prefix/${prefix}`} /></>
-                )}
-                {buttons.map((t) => (
-                  <ZmwButton key={t.name} name={t.data.name} url={t.data.url} prefix={prefix} />
-                ))}
-                </li>
-                {switches.map((t) => (
-                  <ZmwSwitch key={t.name} switch={t.data} prefix={prefix} api_base_path={this.props.api_base_path} />
-                ))}
-                {lights.map((t) => (
-                  <ZmwLight key={t.name} light={t.data} meta={this.state.meta[t.name]} prefix={prefix} api_base_path={this.props.api_base_path} />
-                ))}
-              </ul>
-            </details>
-          );
-        })}
+      <div className="zl">
+        {this.state.sortedPrefixes.map((prefix) => this.renderGroup(prefix))}
         { this.props.runningStandaloneApp && (
           <button onClick={() => this.clearCache()}>Clear cache</button>)}
+      </div>
+    );
+  }
+
+  // One tile per group: name, badge, a dot per light/switch and an on-count. Tapping it opens the group full-width
+  // (tiles keep their order, only one group open at a time).
+  renderGroup(prefix) {
+    const things = this.state.groups[prefix] || [];
+    const buttons = things.filter(t => t.type === 'button');
+    const switches = things.filter(t => t.type === 'switch');
+    const lights = things.filter(t => t.type === 'light');
+    const toggles = [...switches, ...lights];
+    const reachable = toggles.filter(t => t.data.available !== false);
+    const onCount = reachable.filter(t => t.data.state).length;
+    let summary = `${onCount} of ${reachable.length} on`;
+    if (onCount === 0) summary = 'All off';
+    else if (onCount === reachable.length) summary = 'All on';
+
+    const isOpen = this.state.openGroup === prefix;
+    const badge = (this.props.groupBadges || {})[prefix];
+    let className = 'zl-group';
+    if (onCount > 0) className += ' zl-lit';
+    if (isOpen) className += ' zl-open';
+
+    return (
+      <div key={prefix} className={className}>
+        <button type="button" className="zl-ghead" aria-expanded={isOpen}
+                onClick={() => this.setState({ openGroup: isOpen ? null : prefix })}>
+          <span className="zl-gname">{prefix}</span>
+          <span className="zl-gbadge">{badge || ''}</span>
+          <span className="zl-dots">
+            {toggles.map((t) => {
+              let dot = '';
+              if (t.data.available === false) dot = 'zl-na';
+              else if (t.data.state) dot = 'zl-on';
+              return <i key={t.name} className={dot} />;
+            })}
+          </span>
+          <span className="zl-gsum">{summary}</span>
+        </button>
+        {isOpen && (
+          <div className="zl-gbody">
+            <div className="zl-chips">
+              {(prefix !== 'Others') && (
+                <><ZmwButton key={`${prefix}_All_On`}
+                           name={`${prefix}_All_On`}
+                           prefix={prefix}
+                           url={`${this.props.api_base_path}/all_lights_on/prefix/${prefix}`} />
+                <ZmwButton key={`${prefix}_All_Off`}
+                           name={`${prefix}_All_Off`}
+                           prefix={prefix}
+                           url={`${this.props.api_base_path}/all_lights_off/prefix/${prefix}`} /></>
+              )}
+              {buttons.map((t) => (
+                <ZmwButton key={t.name} name={t.data.name} url={t.data.url} prefix={prefix} />
+              ))}
+            </div>
+            {switches.map((t) => (
+              <ZmwSwitch key={t.name} switch={t.data} prefix={prefix} api_base_path={this.props.api_base_path} />
+            ))}
+            {lights.map((t) => (
+              <ZmwLight key={t.name} light={t.data} meta={this.state.meta[t.name]} prefix={prefix}
+                        showAllSettings={this.props.runningStandaloneApp}
+                        api_base_path={this.props.api_base_path} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -2510,18 +2615,32 @@ class TTSAnnounce extends React.Component {
           onChange={e => this.setState({ ttsPhrase: e.target.value })}
         />
 
+        {/* Voice options on one line, actions + volume on the next, so the panel fits a phone */}
         <div className="ctrl-box-with-range">
-          <button onClick={this.onTTSRequested}>
-            Shout
-          </button>
-
           <select
+            style={{flex: "1 1 0", minWidth: 0, margin: 0}}
             value={this.state.ttsLang}
             onChange={e => this.setState({ ttsLang: e.target.value })}>
             {this.state.ttsLanguages && this.state.ttsLanguages.map(lang =>
               <option key={lang.value} value={lang.value}>{lang.label}</option>
             )}
           </select>
+
+          <label style={{whiteSpace: "nowrap"}}>
+            <input
+              type="checkbox"
+              checked={this.state.fuzzyTts}
+              disabled={this.state.fuzzyAvailable === false}
+              onChange={e => this.setState({ fuzzyTts: e.target.checked })}
+            />
+            Fuzzy TTS
+          </label>
+        </div>
+
+        <div className="ctrl-box-with-range">
+          <button onClick={this.onTTSRequested}>
+            Shout
+          </button>
 
           {!this.canRecordMic ? (
               this.state.httpsServer ? (
@@ -2544,16 +2663,6 @@ class TTSAnnounce extends React.Component {
               <button onClick={this.onMicRecRequested}>Record</button>
             )
           )}
-
-          <label>
-            <input
-              type="checkbox"
-              checked={this.state.fuzzyTts}
-              disabled={this.state.fuzzyAvailable === false}
-              onChange={e => this.setState({ fuzzyTts: e.target.checked })}
-            />
-            Fuzzy TTS
-          </label>
 
           <label>Vol</label>
           <input
@@ -2919,14 +3028,17 @@ class AlertsList extends React.Component {
     if (this.state.alerts.length === 0) {
       return null;
     }
+    // Alerts come as "ServiceName: message"; show the service name as the card's title
     return (
-      <div className="card warn">
-        <p>Alert!</p>
-        <ul>
-          {this.state.alerts.map((alert, idx) => (
-            <li key={idx}>{alert}</li>
-          ))}
-        </ul>
+      <div className="dash-alerts">
+        {this.state.alerts.map((alert, idx) => {
+          const sep = alert.indexOf(': ');
+          return (
+            <div key={idx} className="dash-alert" role="alert">
+              {sep > 0 ? <><b>{alert.slice(0, sep)}</b><span>{alert.slice(sep + 2)}</span></> : <span>{alert}</span>}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -3010,22 +3122,63 @@ class LightsSection extends React.Component {
   render() {
     return (
       <section id="lights-section">
-        <a className="section-badge" href={ProxiedServices.get('ZmwLights')}><img src="/ZmwLights/favicon.ico"/></a>
         {React.createElement(
           MqttLights,
-          MqttLights.buildProps('/ZmwLights', this.state.scenes))}
+          MqttLights.buildProps('/ZmwLights', this.state.scenes, this.props.groupBadges))}
       </section>
     );
   }
 }
 
-function SensorsListSection(props) {
+// A temperature sensor whose name starts with a light group's name ("CocinaTempSensor" -> "Cocina") is shown on that
+// group's tile. Everything else (or a second sensor for the same group) goes in the sensors list.
+function splitSensorsByGroup(groupNames, temperatures) {
+  const groupBadges = {};
+  const otherSensors = [];
+  // Longest names first, so a group named "TVRoomBack" wins over "TVRoom"
+  const names = [...groupNames].sort((a, b) => b.length - a.length);
+  for (const sensor of Object.keys(temperatures).sort()) {
+    const value = temperatures[sensor];
+    if (value == null) continue;
+    const group = names.find(g => sensor.startsWith(g));
+    if (group && !(group in groupBadges)) {
+      groupBadges[group] = `${Number(value).toFixed(1)}°`;
+    } else {
+      otherSensors.push([sensor, Number(value)]);
+    }
+  }
+  return { groupBadges, otherSensors };
+}
+
+function useRoomTemperatures() {
+  const [split, setSplit] = React.useState({ groupBadges: {}, otherSensors: [] });
+  React.useEffect(() => {
+    let groups = null;
+    let temps = null;
+    const done = () => {
+      if (groups && temps) setSplit(splitSensorsByGroup(groups.map(g => g.name), temps));
+    };
+    mJsonGet('/ZmwLights/get_groups', (res) => { groups = res || []; done(); });
+    mJsonGet('/ZmwSensormon/sensors/get_all/temperature', (res) => { temps = res || {}; done(); });
+  }, []);
+  return split;
+}
+
+function SensorsSection(props) {
+  if (props.sensors.length === 0) {
+    return null;
+  }
+  const sensormon = ProxiedServices.get('ZmwSensormon');
   return (
     <section id="sensors-list-section">
-      <a className="section-badge" href={ProxiedServices.get('ZmwSensormon')}><img src="/ZmwSensormon/favicon.ico"/></a>
-      {React.createElement(
-        SensorsList,
-        { metrics: ['temperature'], api_base_path: '/ZmwSensormon' })}
+      <h4 className="dash-heading"><a href={sensormon}>Sensors</a></h4>
+      <div className="dash-minis">
+        {props.sensors.map(([name, value]) => (
+          <a key={name} href={sensormon ? `${sensormon}/index.html?sensor=${encodeURIComponent(name)}` : undefined}>
+            {name}<b>{value.toFixed(1)}°</b>
+          </a>
+        ))}
+      </div>
     </section>
   );
 }
@@ -3097,8 +3250,6 @@ function SonosCtrlSection(props) {
 }
 
 function ConfigSection(props) {
-  const store = React.useMemo(() => new LocalStorageManager(), []);
-  const savedTheme = store.cacheGet("ZmwDashboardConfig")?.theme || "no-theme";
   const [userLinks, setUserLinks] = React.useState([]);
 
   React.useEffect(() => {
@@ -3106,12 +3257,6 @@ function ConfigSection(props) {
       setUserLinks(links || []);
     });
   }, []);
-
-  const handleThemeChange = (e) => {
-    const theme = e.target.value;
-    document.documentElement.setAttribute('data-theme', theme);
-    store.cacheSave("ZmwDashboardConfig", { theme });
-  };
 
   const handleClearCache = () => {
     localStorage.clear();
@@ -3122,27 +3267,10 @@ function ConfigSection(props) {
     <section id="config-section">
       <img className="section-badge" src="/settings.ico"/>
       <div style={{display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem', alignItems: 'center'}}>
-        <label>Fix things:</label>
+        <label>Fixes:</label>
         <div><button alt="This fixes things if something is out of sync" onClick={handleClearCache}>Clear cache</button></div>
 
-        <label htmlFor="configTheme">Theme:</label>
-        <div>
-          <select id="configTheme" defaultValue={savedTheme} onChange={handleThemeChange}>
-            <option value="no-theme">no theme</option>
-            <option value="dark">dark</option>
-            <option value="light">light</option>
-            <option value="sepia">sepia</option>
-            <option value="milligram">milligram</option>
-            <option value="pure">pure</option>
-            <option value="sakura">sakura</option>
-            <option value="skeleton">skeleton</option>
-            <option value="bootstrap">bootstrap</option>
-            <option value="medium">medium</option>
-            <option value="tufte">tufte</option>
-          </select>
-        </div>
-
-        <label>More services:</label>
+        <label>More:</label>
         <div>
           {userLinks.map((link, idx) => (
             <button key={idx} onClick={() => window.open(link.url, '_blank')}>
@@ -3161,6 +3289,7 @@ function ConfigSection(props) {
 function Dashboard(props) {
   const [expandedSection, setExpandedSection] = React.useState(null);
   const contentRef = React.useRef(null);
+  const { groupBadges, otherSensors } = useRoomTemperatures();
 
   const toggleSection = (section) => {
     const newSection = expandedSection === section ? null : section;
@@ -3191,9 +3320,10 @@ function Dashboard(props) {
   return (
     <main>
       <AlertsList />
-      <LightsSection />
-      <SensorsListSection />
+      <LightsSection groupBadges={groupBadges} />
+      <SensorsSection sensors={otherSensors} />
 
+      <h4 className="dash-heading">More</h4>
       <section id="zmw_other_services">
         { renderSvcBtn('Shout', 'ZmwSpeakerAnnounce') }
         { renderSvcBtn('Cat', 'ZmwCatSnackDispenser') }
@@ -3201,7 +3331,11 @@ function Dashboard(props) {
         { renderSvcBtn('Sucks', 'ZmwSucks') }
         { renderSvcBtn('Heat', 'ZmwHeating') }
         { renderSvcBtn('Sonos', 'ZmwSonosCtrl') }
-        { renderIcoBtn('⚙', '/settings.ico') }
+        <button onClick={() => window.open(ProxiedServices.get('ZmwServicemon'), '_blank')}>
+          <img src="/ZmwServicemon/favicon.ico" alt=""/>
+          Svcs
+        </button>
+        { renderIcoBtn('Settings', '/settings.ico') }
       </section>
 
       <div ref={contentRef}>
@@ -3211,7 +3345,7 @@ function Dashboard(props) {
         {expandedSection === 'Sucks' && <SucksSection />}
         {expandedSection === 'Heat' && <MqttHeatingSection />}
         {expandedSection === 'Sonos' && <SonosCtrlSection />}
-        {expandedSection === '⚙' && <ConfigSection />}
+        {expandedSection === 'Settings' && <ConfigSection />}
       </div>
     </main>
   );
@@ -3219,10 +3353,7 @@ function Dashboard(props) {
 
 Dashboard.buildProps = () => ({ key: 'dashboard' });
 
-// Initialize: fetch prefetch data and start React app in parallel
-const store = new LocalStorageManager();
-const opts = store.cacheGet("ZmwDashboardConfig", null);
-document.documentElement.setAttribute('data-theme', opts?.theme);
-
+// Initialize: fetch prefetch data and start React app in parallel. Colors come from dashboard.css and follow the
+// phone's light/dark setting, so there's no theme to restore.
 ProxiedServices.init(() => {}); // Fetch in background for badge links
 z2mStartReactApp('#app_root', Dashboard);
