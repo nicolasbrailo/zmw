@@ -10,8 +10,9 @@ Connects to each robot, exposes its state, stats, settings and schedule, and sta
 
 Problems are sent over Telegram (via ZmwTelegram), and shown as service alerts (`/svc_alerts`) while they last:
 
-- Scheduled runs: 2 minutes after a run in the robot's own schedule was due, check the robot is cleaning. Uses the
-  robot's timezone, and its last known schedule if it's offline. The alert clears when the robot starts a mission.
+- Scheduled runs: 2 minutes after a scheduled run was due, check the robot is cleaning. For the robot's own
+  schedule, uses the robot's timezone, and its last known schedule if it's offline. The alert clears when the robot
+  starts a mission. Works the same for schedules in the service config (see Schedule).
 - Missions: every 5 minutes, check running robots. Reports if a robot gets stuck, reports an error, has a full bin,
   or disconnects. Each problem is reported once, unless it clears and comes back. When a mission ends, its result
   (completed, failed, cancelled) comes from the robot's own mission counters.
@@ -26,6 +27,18 @@ scheduled time) are controlled by these top level config keys:
 Missions not started by the schedule always notify problems and failures, but not completion.
 - Service alerts also include: bin full, errors, stuck, a rejected password, robots not found on the network, and
   robots not connected for 30 minutes. A robot that is not found is only logged the first time.
+
+## Schedule
+
+A robot can follow its own schedule (set in the iRobot app), or one in the service config (`schedule`, see
+Configuration). With the service schedule, the service sends `start` when a run is due (or up to 2 minutes late, eg
+if the service was restarting), unless the robot is already cleaning. Times are local to the service. These runs
+are monitored and notified like the robot's own scheduled runs.
+
+Only one schedule is followed: if a robot has its own (any enabled entry, even if on hold), the service schedule is
+ignored, an error is logged when the service first sees the robot, and it shows as a service alert until one of
+them is removed. If the robot has no
+schedule of its own but was never seen connected, the service schedule is followed.
 
 ## Configuration
 
@@ -44,6 +57,8 @@ list, one entry per robot:
     service can reach it
   - `fixed_ip`: always connect to `ip`, never rediscover
 - `ip`: fixed robot IP. Required with (and only allowed with) `discovery_mechanism` `fixed_ip`
+- `schedule` (optional): runs for the service to start, as a list of `{"day": "Mon", "time": "10:00"}`. Days are
+  `Sun` to `Sat`, times are 24h and local to the service. Ignored if the robot has its own schedule (see Schedule)
 - `ignore` (optional): if true, this entry is skipped at startup (eg to keep config for a robot not in use yet)
 
 Robots are discovered at startup, and again if they stay disconnected for 5 minutes (eg if DHCP gave them a new

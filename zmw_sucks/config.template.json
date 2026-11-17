@@ -7,6 +7,7 @@
       "blid": "robotid from discovery, eg 04FD601F15964AE788C1A2DA12BCF70F",
       "password": "local password, see README",
       "discovery_mechanism": "broadcast, unifi or fixed_ip (needs ip). See README",
+      "schedule": [{"day": "Mon", "time": "10:00"}, {"day": "Wed", "time": "11:00"}],
       "ignore": false
     }
   ]

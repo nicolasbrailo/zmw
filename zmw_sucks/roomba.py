@@ -71,6 +71,32 @@ def _parse_schedule(reported):
     }
 
 
+def parse_service_schedule(dev_cfg):
+    """ The schedule in a robot's config (a list of {"day": "Mon", "time": "10:00"}), in the same format as the
+    robot's own (see _parse_schedule), or None if there isn't one. Times are local to the service (no timezone) """
+    entries = []
+    for entry in dev_cfg.get("schedule") or []:
+        day, at = entry.get("day"), str(entry.get("time"))
+        try:
+            hour, minute = (int(part) for part in at.split(":"))
+        except ValueError:
+            hour, minute = -1, -1
+        if day not in SCHEDULE_DAYS or not (0 <= hour < 24 and 0 <= minute < 60):
+            raise ValueError(f"Roomba '{dev_cfg['alias']}' has a bad schedule entry {entry}, expected something "
+                             f"like {{\"day\": \"Mon\", \"time\": \"10:00\"}}, with day one of {SCHEDULE_DAYS}")
+        entries.append({"enabled": True, "days": [day], "day_nums": [SCHEDULE_DAYS.index(day)],
+                        "hour": hour, "min": minute, "command": "start"})
+    if not entries:
+        return None
+    return {"paused": False, "timezone": None, "entries": entries}
+
+
+def has_own_schedule(robot_schedule):
+    """ True if the robot's own schedule (eg set in the iRobot app) has any enabled entry. On hold still counts: the
+    robot may resume it at any time """
+    return robot_schedule is not None and any(e["enabled"] for e in robot_schedule["entries"])
+
+
 class Discovery:
     """ Finds robots' IPs by BLID. Shared by all robots: discovery binds a fixed port, so only one can run at a
     time. Each run learns the IPs of all robots that answer. """
@@ -126,6 +152,8 @@ class Roomba:
         used if this robot's discovery_mechanism is unifi """
         self.alias = dev_cfg["alias"]
         self._discovery_mechanism = get_discovery_mechanism(dev_cfg)
+        # Run by the service (see MissionMonitor), unless the robot has its own schedule
+        self.service_schedule = parse_service_schedule(dev_cfg)
         self._find_ip_in_unifi = find_ip_in_unifi
         self._fixed_ip = dev_cfg.get("ip")
         self._blid = dev_cfg["blid"]
@@ -290,6 +318,10 @@ class Roomba:
             passes = "auto"
         else:
             passes = "two" if reported.get("twoPass") else "one"
+        schedule = _parse_schedule(reported)
+        service_schedule = None
+        if self.service_schedule is not None:
+            service_schedule = {**self.service_schedule, "ignored": has_own_schedule(schedule)}
         return {
             "alias": self.alias,
             "connected": True,
@@ -333,7 +365,8 @@ class Roomba:
                 "bin_pause": bool(reported.get("binPause")),
                 "child_lock": bool(reported.get("childLock")),
             },
-            "schedule": _parse_schedule(reported),
+            "schedule": schedule,
+            "service_schedule": service_schedule,
             "wifi": {
                 "rssi": signal.get("rssi"),
                 "snr": signal.get("snr"),

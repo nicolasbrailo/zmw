@@ -158,14 +158,28 @@ class ZmwSucks extends React.Component {
     );
   }
 
-  renderSchedule(sch) {
-    if (!sch.entries || sch.entries.length === 0) {
-      return (<p><small>No schedule set on the robot</small></p>);
+  // The schedule the robot follows: its own (eg set in the iRobot app) if it has one, else the one in the
+  // service config. Same rule as the service's MissionMonitor.
+  renderSchedule(r) {
+    const own = r.schedule;
+    const cfg = r.service_schedule;
+    // cfg.ignored comes from the service, so the UI can't disagree with what it actually does
+    const useCfg = cfg && !cfg.ignored;
+    const hasOwn = own && own.entries && own.entries.length > 0;
+    if (!useCfg && !hasOwn) {
+      return (<p><small>No schedule set</small></p>);
     }
+    const sch = useCfg ? cfg : own;
+    const source = useCfg ? 'config' : 'device';
     const pad = (n) => String(n ?? 0).padStart(2, '0');
     return (
       <details>
         <summary>Schedule{sch.paused ? ' (on hold)' : ''}</summary>
+        <p><small>Source: {source}</small></p>
+        {cfg && cfg.ignored && (
+          <p className="warn"><small>The schedule in the service config is ignored, because the robot has its
+            own. Remove one of them.</small></p>
+        )}
         <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
           <thead><tr><th>Days</th><th>Time</th><th>Active</th></tr></thead>
           <tbody>
@@ -179,6 +193,7 @@ class ZmwSucks extends React.Component {
           </tbody>
         </table>
         {sch.timezone && (<p><small>Times in the robot's timezone, {sch.timezone}</small></p>)}
+        {source === 'config' && (<p><small>Times local to the service</small></p>)}
       </details>
     );
   }
@@ -208,7 +223,7 @@ class ZmwSucks extends React.Component {
             <tr><td>IP</td><td>{r.ip}</td></tr>
           </tbody>
         </table>
-        {this.renderSchedule(r.schedule)}
+        {this.renderSchedule(r)}
         {this.renderSettings(r)}
         {this.renderLifetime(r.lifetime, r.battery)}
         <button onClick={() => this.sendCommand('start', r.alias)}>Start</button>

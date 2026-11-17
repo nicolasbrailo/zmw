@@ -228,6 +228,9 @@ class ZmwSucks(ZmwMqttService):
                                          "day_nums": "Days, 0 = Sunday", "hour": "Start hour",
                                          "min": "Start minute", "command": "Usually 'start'"}],
                         },
+                        "service_schedule": "Schedule from the service config, run by the service, or null. Same "
+                                            "format as schedule (times local to the service), plus 'ignored': "
+                                            "true if the robot has its own schedule, so this one isn't run",
                         "wifi": {"rssi": "Signal strength, dBm", "snr": "Signal to noise ratio"},
                         "position_supported": "Robot answers position requests (null until known)",
                         "position": "Last known position, or null: {x_m, y_m, theta_rad}, origin at the dock",
