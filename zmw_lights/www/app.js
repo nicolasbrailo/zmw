@@ -412,13 +412,15 @@ class ZmwSwitch extends React.Component {
 
 class MqttLights extends React.Component {
   // groupBadges: optional {groupName: text or [texts]} shown on each group's tile (eg the room's temperatures)
-  static buildProps(api_base_path = '', buttons = [], groupBadges = {}) {
+  // groupExtras: optional {groupName: element} shown in an open group after its lights (eg the room's speakers)
+  static buildProps(api_base_path = '', buttons = [], groupBadges = {}, groupExtras = {}) {
     return {
       key: 'MqttLights',
       local_storage: new LocalStorageManager(),
       api_base_path: api_base_path,
       buttons: buttons,
       groupBadges: groupBadges,
+      groupExtras: groupExtras,
     };
   }
 
@@ -625,6 +627,7 @@ class MqttLights extends React.Component {
 
     const isOpen = this.state.openGroup === prefix;
     const badges = [].concat((this.props.groupBadges || {})[prefix] || []);
+    const extras = (this.props.groupExtras || {})[prefix];
     let className = 'zl-group';
     if (onCount > 0) className += ' zl-lit';
     if (isOpen) className += ' zl-open';
@@ -672,6 +675,7 @@ class MqttLights extends React.Component {
                         showAllSettings={this.props.runningStandaloneApp}
                         api_base_path={this.props.api_base_path} />
             ))}
+            {extras && <><hr className="zl-sep" />{extras}</>}
           </div>
         )}
       </div>
