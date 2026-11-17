@@ -5,10 +5,11 @@ import pathlib
 import threading
 
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
+from zzmw_lib.mqtt_request_reply import MqttRequestReply
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 
-from roomba import Discovery, Roomba, SETTINGS
+from roomba import Discovery, Roomba, SETTINGS, get_discovery_mechanism
 from mission_monitor import MissionMonitor
 
 log = build_logger("ZmwSucks")
@@ -28,7 +29,12 @@ _DISCONNECTED_ALERT_SECS = 30 * 60
 class ZmwSucks(ZmwMqttService):
     """ ZmwService for a set of Roombas """
     def __init__(self, cfg, www, sched):
-        super().__init__(cfg, "zmw_sucks", scheduler=sched, svc_deps=['ZmwTelegram'])
+        roomba_cfgs = [r for r in cfg["roombas"] if not r.get("ignore", False)]
+        svc_deps = ['ZmwTelegram']
+        if any(get_discovery_mechanism(r) == "unifi" for r in roomba_cfgs):
+            svc_deps.append('ZmwUnifiClientmon')
+        super().__init__(cfg, "zmw_sucks", scheduler=sched, svc_deps=svc_deps)
+        self._rr = MqttRequestReply(self.message_svc)
 
         # roombapy is asyncio only, run it in its own loop
         self._loop = asyncio.new_event_loop()
@@ -43,7 +49,8 @@ class ZmwSucks(ZmwMqttService):
                 continue
             if dev_cfg["alias"] in self._roombas:
                 raise ValueError(f"Duplicated Roomba alias '{dev_cfg['alias']}' in config")
-            self._roombas[dev_cfg["alias"]] = Roomba(self._loop, discovery, dev_cfg, self._on_roomba_state_change)
+            self._roombas[dev_cfg["alias"]] = Roomba(self._loop, discovery, dev_cfg, self._on_roomba_state_change,
+                                                     self._find_ip_in_unifi)
 
         self._monitor = MissionMonitor(sched, lambda: list(self._roombas.values()), self._send_telegram,
                                        notify_on_schedule_success=cfg.get("notify_on_schedule_success", False),
@@ -63,6 +70,23 @@ class ZmwSucks(ZmwMqttService):
             self.message_svc("ZmwTelegram", "send_text", {'msg': msg})
         except RuntimeError as ex:
             log.warning("Can't send Telegram notification '%s': %s", msg, ex)
+
+    def _find_ip_in_unifi(self, blid):
+        """ IP of the robot with this BLID, as known by ZmwUnifiClientmon, or None. Robots are found by hostname
+        (Roomba-<blid> or iRobot-<blid>). Blocks while waiting for a reply, don't call from the MQTT thread. """
+        try:
+            clients = self._rr.request("ZmwUnifiClientmon", "get_all_clients", {}, "get_all_clients_reply",
+                                       timeout=5)
+        except RuntimeError as ex:
+            # ZmwUnifiClientmon isn't up (yet). The robot shows as not found meanwhile.
+            log.debug("Can't ask ZmwUnifiClientmon for %s: %s", blid, ex)
+            return None
+        suffix = f"-{blid}".lower()
+        for client in clients or []:
+            ip = client.get("ip")
+            if client.get("hostname", "").lower().endswith(suffix) and ip and ip != "(unknown)":
+                return ip
+        return None
 
     def get_service_alerts(self):
         alerts = []
@@ -122,9 +146,10 @@ class ZmwSucks(ZmwMqttService):
                            "Checks scheduled runs start, and monitors missions: problems are sent over Telegram.",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Empty: talks to the robots' own MQTT servers, and only publishes to its own topic (and Telegram's).
-            "reads_mqtt_topic": [],
-            "writes_mqtt_topic": [],
+            # Talks to the robots' own MQTT servers, and publishes to its own topic (and Telegram's). Asks
+            # ZmwUnifiClientmon for robot IPs, if any robot uses the unifi discovery_mechanism.
+            "reads_mqtt_topic": ["zmw_unifi_clientmon"],
+            "writes_mqtt_topic": ["zmw_unifi_clientmon"],
             "commands": {
                 "get_state": {
                     "description": "Current state of all robots. Response on get_state_reply",
@@ -255,7 +280,7 @@ class ZmwSucks(ZmwMqttService):
                 pass
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
-        # We only send to ZmwTelegram, nothing to do with its messages
-        pass
+        # Only ZmwUnifiClientmon replies are interesting; we only send to ZmwTelegram
+        self._rr.on_reply(subtopic, payload)
 
 service_runner(ZmwSucks)

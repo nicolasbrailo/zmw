@@ -25,6 +25,8 @@ _DISCOVERY_WINDOW_SECS = 5
 _POSITION_POLL_SECS = 5
 _POSITION_MAX_TIMEOUTS = 3
 
+DISCOVERY_MECHANISMS = ("broadcast", "unifi", "fixed_ip")
+
 # cleanSchedule2 day numbers
 SCHEDULE_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -70,21 +72,26 @@ def _parse_schedule(reported):
 
 
 class Discovery:
-    """ Finds robots' IPs by BLID, with a UDP broadcast. Shared by all robots: discovery binds a fixed port, so only
-    one can run at a time. Each run learns the IPs of all robots that answer. """
+    """ Finds robots' IPs by BLID. Shared by all robots: discovery binds a fixed port, so only one can run at a
+    time. Each run learns the IPs of all robots that answer. """
     def __init__(self):
         # asyncio.Lock binds to the running loop on first use, so it's safe to create it out of the loop
         self._lock = asyncio.Lock()
         self._known_ips = {}
 
-    async def find_ip(self, blid):
-        """ IP of the robot with this BLID, or None if it didn't answer """
+    async def find_ip(self, blid, ip=None):
+        """ IP of the robot with this BLID, or None if it didn't answer. Without ip, asks with a UDP broadcast (same
+        subnet only). With ip, only asks that IP (works across subnets): useful to check a robot really is there """
         async with self._lock:
             discovery = RoombaDiscovery()
             try:
-                robots = await discovery.get_all(timeout=_DISCOVERY_WINDOW_SECS)
+                if ip is None:
+                    robots = await discovery.get_all(timeout=_DISCOVERY_WINDOW_SECS)
+                else:
+                    robot = await discovery.get(ip, timeout=_DISCOVERY_WINDOW_SECS)
+                    robots = [] if robot is None else [robot]
             except Exception as ex:  # pylint: disable=broad-exception-caught
-                log.warning("Roomba discovery failed: %s", ex)
+                log.warning("Roomba discovery%s failed: %s", "" if ip is None else f" at {ip}", ex)
                 robots = []
             finally:
                 await discovery.aclose()
@@ -94,13 +101,32 @@ class Discovery:
                     log.info("Discovered Roomba %s (%s) at %s", robot.blid, robot.robot_name, robot.ip)
                 self._known_ips[robot.blid] = robot.ip
             found_blids = {robot.blid for robot in robots}
+            if ip is not None and robots and blid not in found_blids:
+                log.warning("Expected Roomba %s at %s, but found %s", blid, ip, robots[0].blid)
             return self._known_ips.get(blid) if blid in found_blids else None
+
+
+def get_discovery_mechanism(dev_cfg):
+    """ How to find a robot's IP: broadcast (same subnet only), unifi (ask ZmwUnifiClientmon, then probe that IP),
+    or fixed_ip. Defaults to fixed_ip if the config has an ip, else broadcast """
+    mechanism = dev_cfg.get("discovery_mechanism", "fixed_ip" if "ip" in dev_cfg else "broadcast")
+    if mechanism not in DISCOVERY_MECHANISMS:
+        raise ValueError(f"Roomba '{dev_cfg['alias']}' has unknown discovery_mechanism '{mechanism}', "
+                         f"expected one of {DISCOVERY_MECHANISMS}")
+    if (mechanism == "fixed_ip") != ("ip" in dev_cfg):
+        raise ValueError(f"Roomba '{dev_cfg['alias']}': ip must be set if (and only if) discovery_mechanism "
+                         "is fixed_ip")
+    return mechanism
 
 
 class Roomba:
     """ One robot. All robots share the service's asyncio loop """
-    def __init__(self, loop, discovery, dev_cfg, on_state_change):
+    def __init__(self, loop, discovery, dev_cfg, on_state_change, find_ip_in_unifi):
+        """ find_ip_in_unifi: blocking callable, BLID to the IP the UniFi controller knows for it (or None). Only
+        used if this robot's discovery_mechanism is unifi """
         self.alias = dev_cfg["alias"]
+        self._discovery_mechanism = get_discovery_mechanism(dev_cfg)
+        self._find_ip_in_unifi = find_ip_in_unifi
         self._fixed_ip = dev_cfg.get("ip")
         self._blid = dev_cfg["blid"]
         self._password = dev_cfg["password"]
@@ -119,9 +145,20 @@ class Roomba:
         self._position_supported = None
         self._task = asyncio.run_coroutine_threadsafe(self._run(), self._loop)
 
+    async def _find_ip(self):
+        match self._discovery_mechanism:
+            case "fixed_ip":
+                return self._fixed_ip
+            case "broadcast":
+                return await self._discovery.find_ip(self._blid)
+            case "unifi":
+                ip = await asyncio.to_thread(self._find_ip_in_unifi, self._blid)
+                # Confirm the robot is really there: UniFi may still list a stale IP
+                return None if ip is None else await self._discovery.find_ip(self._blid, ip)
+
     async def _run(self):
         while True:
-            self._ip = self._fixed_ip or await self._discovery.find_ip(self._blid)
+            self._ip = await self._find_ip()
             if self._ip is None:
                 # Only log the first time: an offline robot would spam the log. It's a service alert meanwhile.
                 if not self.not_found:
@@ -160,17 +197,22 @@ class Roomba:
                     return
             finally:
                 position_task.cancel()
-            log.warning("%s disconnected from %s for over %d secs, will rediscover it",
-                        self.alias, self._ip, _REDISCOVER_AFTER_DISCONNECTED_SECS)
             await self._client.disconnect()
 
     async def _wait_until_lost(self):
-        """ Returns False if the robot rejected our credentials (no point retrying), or True if the connection
-        has been down long enough that the robot should be rediscovered. Never returns for a fixed ip robot,
-        roombapy keeps reconnecting to it. """
+        """ Returns False if the robot rejected our credentials (no point retrying), or True if the robot should be
+        rediscovered. Never returns for a fixed ip robot, unless its credentials are rejected: roombapy keeps
+        reconnecting to it. """
         disconnected_since = None
         while True:
             await asyncio.sleep(_CONNECTION_CHECK_SECS)
+            if self._client.auth_error is not None and not self._fixed_ip:
+                # roombapy reconnects to the last IP without checking who's there. If the robot moved, its old IP
+                # may now belong to another robot, which will reject our credentials. Rediscover: if the robot
+                # really rejects them, the next connect() will say so.
+                log.warning("%s at %s rejected credentials on reconnect, will rediscover it in case its IP "
+                            "changed", self.alias, self._ip)
+                return True
             if self._client.auth_error is not None:
                 log.error("%s at %s rejected credentials, won't retry", self.alias, self._ip)
                 self.auth_rejected = True
@@ -181,6 +223,8 @@ class Roomba:
             if disconnected_since is None:
                 disconnected_since = time.monotonic()
             elif time.monotonic() - disconnected_since > _REDISCOVER_AFTER_DISCONNECTED_SECS:
+                log.warning("%s disconnected from %s for over %d secs, will rediscover it",
+                            self.alias, self._ip, _REDISCOVER_AFTER_DISCONNECTED_SECS)
                 return True
 
     async def _poll_position(self):

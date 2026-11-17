@@ -35,12 +35,19 @@ list, one entry per robot:
 - `alias`: unique name for the robot, used in MQTT topics (`zmw_sucks/<alias>/state`) and endpoints
 - `blid`: robot ID
 - `password`: the robot's local MQTT password (not the iRobot account password)
-- `ip` (optional): fixed robot IP. If not set, the robot is found by BLID with a UDP broadcast
+- `discovery_mechanism` (optional): how to find the robot's IP. Defaults to `fixed_ip` if `ip` is set, else
+  `broadcast`:
+  - `broadcast`: find the robot by BLID with a UDP broadcast. Only works if the robot is on the same subnet as the
+    service
+  - `unifi`: ask ZmwUnifiClientmon for the IP of the client with hostname `Roomba-<blid>` (or `iRobot-<blid>`),
+    then check the robot answers discovery there. Works across subnets (eg a robot in an IoT VLAN), as long as the
+    service can reach it
+  - `fixed_ip`: always connect to `ip`, never rediscover
+- `ip`: fixed robot IP. Required with (and only allowed with) `discovery_mechanism` `fixed_ip`
 - `ignore` (optional): if true, this entry is skipped at startup (eg to keep config for a robot not in use yet)
 
 Robots are discovered at startup, and again if they stay disconnected for 5 minutes (eg if DHCP gave them a new
-IP). Discovery is a broadcast, so robots must be on the same subnet as the service. Robots that can't be found or
-connected to are retried every 30 secs, and show as not connected.
+IP). Robots that can't be found or connected to are retried every 30 secs, and show as not connected.
 
 The BLID is the `robotid` the robot reports on discovery (UDP 5678, `irobotmcs`). The password can be fetched
 locally with `roombapy discover <ip>`, after holding the robot's HOME button for ~2 seconds while docked. Some
