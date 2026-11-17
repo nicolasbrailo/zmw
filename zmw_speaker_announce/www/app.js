@@ -1,3 +1,18 @@
+// zmw.css makes table rows flex and gives tds flex:1, but not ths, so the header bunches up to the left.
+// Give header and body cells the same flex (and padding, ths have more by default) per column so they line up.
+// ths are also right-aligned by default, while tds (flex boxes) end up left-aligned: left-align both.
+const HISTORY_COL = (grow) => ({
+  flex: `${grow} 1 0`, minWidth: 0, padding: ".2rem .4rem", overflowWrap: "anywhere", textAlign: "left",
+});
+const HISTORY_COLS = {
+  time: HISTORY_COL(2),
+  source: HISTORY_COL(1.5),
+  phrase: HISTORY_COL(4),
+  voice: HISTORY_COL(2),
+  vol: HISTORY_COL(0.7),
+  link: HISTORY_COL(0.7),
+};
+
 class TTSAnnounce extends React.Component {
   static buildProps(api_base_path = '', https_server = '') {
     return {
@@ -72,6 +87,7 @@ class TTSAnnounce extends React.Component {
 
     const newEntry = {
       timestamp: new Date().toISOString(),
+      source: "http",
       phrase: phrase,
       lang: this.state.ttsLang,
       volume: this.state.ttsVolume,
@@ -268,24 +284,26 @@ class TTSAnnounce extends React.Component {
             <table>
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Phrase</th>
-                  <th>Lang</th>
-                  <th>Vol</th>
-                  <th>Link</th>
+                  <th style={HISTORY_COLS.time}>Time</th>
+                  <th style={HISTORY_COLS.source}>Source</th>
+                  <th style={HISTORY_COLS.phrase}>Phrase</th>
+                  <th style={HISTORY_COLS.voice}>Voice</th>
+                  <th style={HISTORY_COLS.vol}>Vol</th>
+                  <th style={HISTORY_COLS.link}>Link</th>
                 </tr>
               </thead>
               <tbody>
                 {this.state.announcementHistory.slice().reverse().map((item, idx) => (
                   <tr key={idx}>
-                    <td>{new Date(item.timestamp).toLocaleString()}</td>
-                    <td>
+                    <td style={HISTORY_COLS.time}>{new Date(item.timestamp).toLocaleString()}</td>
+                    <td style={HISTORY_COLS.source}>{item.source}</td>
+                    <td style={{...HISTORY_COLS.phrase, flexDirection: "column"}}>
                       {item.phrase}
                       {item.fuzzy_text && <div><small><em>{item.fuzzy_text}</em></small></div>}
                     </td>
-                    <td>{item.lang || "default"}</td>
-                    <td>{item.volume}</td>
-                    <td><a href={item.uri}>🔊</a></td>
+                    <td style={HISTORY_COLS.voice}>{item.voice || item.lang || "default"}</td>
+                    <td style={HISTORY_COLS.vol}>{item.volume}</td>
+                    <td style={HISTORY_COLS.link}><a href={item.uri}>🔊</a></td>
                   </tr>
                 ))}
               </tbody>

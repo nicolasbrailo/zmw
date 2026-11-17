@@ -11,6 +11,7 @@ from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
 from zzmw_lib.service_runner import service_runner
 
+import pytelegrambot
 from pytelegrambot import TelegramLongpollBot, TelegramRateLimitError, TelegramHttpError
 import requests.exceptions
 
@@ -37,6 +38,12 @@ def _voice_dest_path(download_dir, voice_msg):
     ts = int(time.time())
     return os.path.join(download_dir, f'voice_{from_id}_{ts}{ext}')
 
+
+# pytelegrambot discards incoming messages over 150 chars or 20 words. Raise it so bots (eg an LLM sending
+# /bot_shout with a daily report) can send long commands: a ~160 word report is ~1K chars with its JSON, so
+# this leaves ~2x headroom. The lib reads these per message, so overriding the module globals is enough
+pytelegrambot._MAX_USER_MESSAGE_LEN = 2048  # pylint: disable=protected-access
+pytelegrambot._MAX_USER_CMD_TOKS = 500  # pylint: disable=protected-access
 
 _MAX_VOICE_DURATION_SECS = 60
 _MAX_WAV_SIZE_BYTES = 5 * 1024 * 1024

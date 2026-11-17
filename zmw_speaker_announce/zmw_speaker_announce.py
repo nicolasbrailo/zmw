@@ -1,5 +1,7 @@
 """MQTT speaker announcement service using Sonos."""
+import difflib
 import json
+import re
 import shutil
 import os
 import pathlib
@@ -54,6 +56,53 @@ GOOGLE_TTS_LANGUAGES = [
 ]
 
 _ZMW_TTS_TIMEOUT = 10
+
+
+def _norm_voice_name(name):
+    return re.sub(r'[^a-z0-9]', '', name.lower())
+
+
+def _voice_aliases(voice):
+    """Names a voice may be asked for by. Configured names have a description, eg 'GLaDOS (Murderous AI)',
+    and voice_ids are like 'en_US-glados-high'."""
+    name = voice['name']
+    vid = voice['voice_id']
+    aliases = {name, re.sub(r'\(.*?\)', '', name), name.split()[0] if name.split() else name, vid}
+    vid_parts = vid.split('-')
+    if len(vid_parts) >= 2:
+        aliases.add(vid_parts[1])
+    return {a for a in (_norm_voice_name(a) for a in aliases) if a}
+
+
+def find_voice(voices, query):
+    """Fuzzy search for a voice: exact alias, then unique substring, then closest spelling (for typos).
+    Returns a voice_id, or None if nothing (or more than one voice) matches."""
+    q = _norm_voice_name(query)
+    if not q or not voices:
+        return None
+    aliases = {v['voice_id']: _voice_aliases(v) for v in voices}
+
+    exact = [vid for vid, al in aliases.items() if q in al]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        log.warning("Voice '%s' is ambiguous: %s", query, exact)
+        return None
+
+    partial = [vid for vid, al in aliases.items() if any(q in a or a in q for a in al if len(a) > 2)]
+    if len(partial) == 1:
+        return partial[0]
+    if partial:
+        log.warning("Voice '%s' is ambiguous: %s", query, partial)
+        return None
+
+    alias_to_vid = {a: vid for vid, al in aliases.items() for a in al}
+    close = difflib.get_close_matches(q, alias_to_vid.keys(), n=1, cutoff=0.75)
+    return alias_to_vid[close[0]] if close else None
+
+# Bot (LLM) announcements may be long reports: a 160 word report takes ~12s with a high quality voice, a
+# max-length (2K, see zmw_telegram) message ~30s
+_ZMW_TTS_BOT_TIMEOUT = 60
 _ZMW_TTS_VOICES_TIMEOUT = 2
 
 
@@ -105,14 +154,19 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             log.info("HTTPS server available at: %s", self._https.server_url)
 
 
-    def _record_announcement(self, phrase, lang, volume, uri, fuzzy_text=None, notify=True):
+    def _record_announcement(self, phrase, lang, volume, uri, *, source, tts_result=None, notify=True):
+        """source is who asked for it: mqtt, http, telegram_user or telegram_bot. tts_result is what
+        _get_tts_asset returned, for TTS announcements."""
         entry = {
             'timestamp': datetime.now().isoformat(),
+            'source': source,
             'phrase': phrase,
             'lang': lang,
+            'voice': tts_result.get('voice_id') if tts_result else None,
             'volume': volume,
             'uri': uri,
         }
+        fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
         if fuzzy_text:
             entry['fuzzy_text'] = fuzzy_text
         self._announcement_history.append(entry)
@@ -164,26 +218,46 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         return GOOGLE_TTS_LANGUAGES
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
-        if svc_name == 'ZmwTelegram' and subtopic.startswith("on_command/shout"):
+        if svc_name == 'ZmwTelegram' and subtopic in ("on_command/shout", "on_command/bot_shout"):
             if 'cmd_args' not in payload:
-                log.warning("ZmwTelegram::shout called with invalid payload: %s", payload)
+                log.warning("ZmwTelegram::%s called with invalid payload: %s", subtopic, payload)
                 return
-            txt = ' '.join(payload['cmd_args']).strip()
+            if subtopic == "on_command/bot_shout":
+                txt, voice, speakers = self._parse_bot_shout(payload['cmd_args'])
+                # Bot messages are already LLM-written, don't paraphrase. Never fall back to Google TTS
+                kwargs = {'voice': voice, 'speakers': speakers, 'fuzzy': False, 'is_bot': True}
+            else:
+                txt, kwargs = ' '.join(payload['cmd_args']).strip(), {}
             if len(txt) == 0:
-                log.warning("ZmwTelegram::shout called with no text: %s", payload)
+                log.warning("ZmwTelegram::%s called with no text: %s", subtopic, payload)
                 return
             # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
-            threading.Thread(target=self._handle_shout, args=(txt,), daemon=True).start()
+            threading.Thread(target=self._handle_shout, args=(txt,), kwargs=kwargs, daemon=True).start()
+        if svc_name == 'ZmwTelegram' and subtopic == "on_command/bot_shout_voices":
+            threading.Thread(target=self._bot_reply_voices, daemon=True).start()
+        if svc_name == 'ZmwTelegram' and subtopic == "on_command/bot_shout_speakers":
+            # Speaker discovery is slow, don't block the MQTT thread
+            threading.Thread(target=self._bot_reply_speakers, daemon=True).start()
         self._rr.on_reply(subtopic, payload)
 
     def on_service_came_up(self, service_name):
         super().on_service_came_up(service_name)
-        if service_name == "ZmwTextToSpeech" and self._tts_mode != 'force_google_tts':
+        if service_name == "ZmwTextToSpeech":
+            # Fetch voices even in force_google_tts mode: bot commands always use ZMW TTS
             # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
             threading.Thread(target=self._fetch_zmw_tts_voices, daemon=True).start()
         if service_name == "ZmwTelegram":
             self.message_svc("ZmwTelegram",
                              "register_command", {'cmd': 'shout', 'descr': 'Announce something over speakers'})
+            # Commands for bots (eg an LLM), named /bot_[service]_[command]
+            self.message_svc("ZmwTelegram", "register_command", {
+                'cmd': 'bot_shout',
+                'descr': 'Announce over speakers, args as JSON: {"msg": "text", "voice?": "name", '
+                         '"speakers?": ["name", ...]}. See bot_shout_voices and bot_shout_speakers'})
+            self.message_svc("ZmwTelegram", "register_command", {
+                'cmd': 'bot_shout_voices', 'descr': 'List voices for bot_shout, as JSON'})
+            self.message_svc("ZmwTelegram", "register_command", {
+                'cmd': 'bot_shout_speakers', 'descr': 'List speakers for bot_shout, as JSON'})
 
     def _fetch_zmw_tts_voices(self, retries=3):
         """Request voice list from ZmwTextToSpeech, retrying to allow subscription to settle."""
@@ -200,35 +274,92 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                 time.sleep(2)
         log.warning("ZMW TTS get_voices returned no voices after %d attempts", retries)
 
-    def _handle_shout(self, txt):
+    def _find_zmw_tts_voice(self, name):
+        """Returns the voice_id for a voice name (eg 'glados') or voice_id, or None if not a known voice."""
+        return find_voice(self._zmw_tts_voices, name)
+
+    def _parse_bot_shout(self, cmd_args):
+        """Parse '/bot_shout {"msg": "text", "voice": "name", "speakers": ["spk1", "spk2"]}'. voice and
+        speakers are optional; an unknown voice falls back to the default one. Returns (txt, voice, speakers),
+        txt is empty if the request is invalid."""
+        # Telegram splits args on ' ', so joining them back gives the original JSON
+        try:
+            args = json.loads(' '.join(cmd_args))
+        except json.JSONDecodeError:
+            log.warning("ZmwTelegram::bot_shout called with invalid JSON: %s", cmd_args)
+            return '', None, None
+        if not isinstance(args, dict) or not isinstance(args.get('msg'), str):
+            log.warning("ZmwTelegram::bot_shout needs a JSON object with a msg, got: %s", args)
+            return '', None, None
+
+        voice = None
+        if args.get('voice'):
+            voice = self._find_zmw_tts_voice(str(args['voice']))
+            if voice is None:
+                log.warning("ZmwTelegram::bot_shout requested unknown voice '%s', using default", args['voice'])
+
+        speakers = args.get('speakers')
+        if isinstance(speakers, str):
+            speakers = [speakers]
+        if not isinstance(speakers, list):
+            speakers = None
+        speakers = [str(s).strip() for s in speakers if str(s).strip()] if speakers else None
+        return args['msg'].strip(), voice, speakers or None
+
+    def _bot_reply_voices(self):
+        if not self._zmw_tts_voices:
+            # Maybe ZmwTextToSpeech wasn't up when we started
+            self._fetch_zmw_tts_voices(retries=1)
+        if not self._zmw_tts_voices:
+            self.message_svc("ZmwTelegram", "send_text", {'msg': 'bot_shout_voices: ZmwTextToSpeech unavailable'})
+            return
+        voices = [{'voice': v['name'], 'locale': v['locale']} for v in self._zmw_tts_voices]
+        self.message_svc("ZmwTelegram", "send_text", {'msg': json.dumps(voices)})
+
+    def _bot_reply_speakers(self):
+        self.message_svc("ZmwTelegram", "send_text", {'msg': json.dumps(sorted(get_sonos_by_name()))})
+
+    def _handle_shout(self, txt, voice=None, speakers=None, fuzzy=True, is_bot=False):
+        """Announce txt. voice=None uses the default TTS voice, speakers=None announces on all speakers.
+        is_bot: request from a bot, may be long and must use ZMW TTS (never fall back to Google TTS)."""
         try:
             vol = None
-            local_path, tts_result = self._get_tts_asset(txt, lang_or_voice=None, fuzzy=True)
+            log.info("Shout '%s' with voice %s on speakers %s", txt, voice or 'default', speakers or 'all')
+            if is_bot:
+                local_path, tts_result = self._get_tts_asset(txt, lang_or_voice=voice, fuzzy=fuzzy,
+                                                             zmw_tts_only=True, timeout=_ZMW_TTS_BOT_TIMEOUT)
+            else:
+                local_path, tts_result = self._get_tts_asset(txt, lang_or_voice=voice, fuzzy=fuzzy)
             remote_path = f"{self._public_tts_base}/{local_path}"
-            fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
-            self._record_announcement(txt, None, vol, remote_path, fuzzy_text=fuzzy_text)
-            self._sonos_announce(remote_path, vol, msg=txt, synced=True)
-        except Exception:
+            self._record_announcement(txt, voice, vol, remote_path, tts_result=tts_result,
+                                      source='telegram_bot' if is_bot else 'telegram_user')
+            self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
+        except Exception as ex:
             log.exception("Failed to handle shout: '%s'", txt)
+            if is_bot:
+                self.message_svc("ZmwTelegram", "send_text", {'msg': f"bot_shout failed: {ex}"})
 
-    def _get_tts_asset(self, text, lang_or_voice, fuzzy=True):
-        """Get a TTS mp3 asset. Returns (local_filename, tts_result_dict).
+    def _get_tts_asset(self, text, lang_or_voice, fuzzy=True, zmw_tts_only=False, timeout=_ZMW_TTS_TIMEOUT):
+        """Get a TTS mp3 asset. Returns (local_filename, tts_result_dict). tts_result_dict is ZmwTextToSpeech's
+        reply, or only {'voice_id': 'google_tts:<lang>'} for Google TTS.
 
         When zmw_tts is active, lang_or_voice is a voice_id (from web) or language code (from MQTT).
-        Falls back to Google TTS if zmw_tts fails and fallback is allowed.
+        Falls back to Google TTS if zmw_tts fails and fallback is allowed. zmw_tts_only overrides
+        tts_mode: always use zmw_tts and never fall back.
         """
-        if self._use_zmw_tts():
-            local_fname, tts_result = self._request_zmw_tts(text, lang_or_voice, fuzzy=fuzzy)
+        if zmw_tts_only or self._use_zmw_tts():
+            local_fname, tts_result = self._request_zmw_tts(text, lang_or_voice, fuzzy=fuzzy, timeout=timeout)
             if local_fname:
                 return local_fname, tts_result
-            if self._can_fallback_to_google():
+            if not zmw_tts_only and self._can_fallback_to_google():
                 log.warning("ZMW TTS failed for '%s', falling back to Google TTS", text)
-                return get_local_path_tts(self._tts_assets_cache_path, text,
-                                          self._cfg['tts_default_lang']), None
+                lang = self._cfg['tts_default_lang']
+                return get_local_path_tts(self._tts_assets_cache_path, text, lang), {'voice_id': f'google_tts:{lang}'}
             raise RuntimeError("ZMW TTS failed and no fallback available")
-        return get_local_path_tts(self._tts_assets_cache_path, text, lang_or_voice), None
+        return (get_local_path_tts(self._tts_assets_cache_path, text, lang_or_voice),
+                {'voice_id': f'google_tts:{lang_or_voice}'})
 
-    def _request_zmw_tts(self, text, lang_or_voice, fuzzy=True):
+    def _request_zmw_tts(self, text, lang_or_voice, fuzzy=True, timeout=_ZMW_TTS_TIMEOUT):
         """Send TTS request to ZmwTextToSpeech, copy result to local cache. Returns (filename, result) or (None, None)."""
         # If the value looks like a voice_id (contains '-'), use it as speaker;
         # otherwise treat it as a language code
@@ -239,7 +370,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             payload["language"] = lang_or_voice
 
         result = self._rr.request("ZmwTextToSpeech", "tts", payload,
-                                    "tts_reply", timeout=_ZMW_TTS_TIMEOUT)
+                                    "tts_reply", timeout=timeout)
         if not result or 'mp3_path' not in result:
             log.warning("Can't query ZMW TTS response is '%s'", result)
             return None, None
@@ -315,7 +446,11 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                 },
                 "announcement_history_reply": {
                     "description": "Announcement history",
-                    "payload": [{"timestamp": "ISO timestamp", "phrase?": "Text", "lang": "Language", "volume": "Volume", "uri": "Asset URI"}]
+                    "payload": [{"timestamp": "ISO timestamp",
+                                 "source": "Who requested it: mqtt, http, telegram_user or telegram_bot",
+                                 "phrase?": "Text", "lang": "Requested language or voice",
+                                 "voice": "Voice used (ZMW TTS voice_id, or google_tts:<lang>); null if not TTS",
+                                 "volume": "Volume", "uri": "Asset URI"}]
                 },
                 "get_mqtt_description_reply": {
                     "description": "Service description",
@@ -342,8 +477,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         local_path, tts_result = self._get_tts_asset(txt, lang, fuzzy=fuzzy)
         remote_path = f"{self._public_tts_base}/{local_path}"
-        fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
-        self._record_announcement(txt, lang, vol, remote_path, fuzzy_text=fuzzy_text)
+        self._record_announcement(txt, lang, vol, remote_path, tts_result=tts_result, source='http')
         self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
         return {}
 
@@ -362,7 +496,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         vol = self._get_payload_vol(request.form)
         log.info("Saved recording to '%s' -> '%s'. Will announce at vol=%s", mp3_path, remote_path, vol)
-        self._record_announcement('<user recording>', '', vol, remote_path, notify=False)
+        self._record_announcement('<user recording>', '', vol, remote_path, source='http', notify=False)
         self._sonos_announce(remote_path, vol, synced=False)
         return {}
 
@@ -409,8 +543,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         msg = {'local_path': local_path, 'uri': remote_path}
         self.publish_own_svc_message("tts_reply", msg)
         vol = self._get_payload_vol(payload)
-        fuzzy_text = tts_result.get('text') if tts_result and tts_result.get('fuzzy') else None
-        self._record_announcement(payload['msg'], lang, vol, remote_path, fuzzy_text=fuzzy_text)
+        self._record_announcement(payload['msg'], lang, vol, remote_path, tts_result=tts_result, source='mqtt')
         self._sonos_announce(remote_path, vol, msg=payload['msg'], synced=True)
 
     def _save_asset_to_www(self, local_path):
@@ -466,7 +599,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         vol = self._get_payload_vol(payload)
         log.info("Announcing asset %s with volume %d", asset_uri, vol)
-        self._record_announcement('<asset playback>', '', vol, asset_uri, notify=False)
+        self._record_announcement('<asset playback>', '', vol, asset_uri, source='mqtt', notify=False)
         self._sonos_announce(asset_uri, vol, synced=False)
 
 

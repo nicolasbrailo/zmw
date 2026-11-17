@@ -33,6 +33,20 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 
 An HTTPS server is started alongside the normal HTTP server. HTTP routes `/zmw.css` and `/zmw.js` are mirrored to HTTPS. The microphone recording UI requires HTTPS because browsers require a secure context for `getUserMedia`. Sonos speakers fetch audio over HTTP (they cannot validate self-signed certificates).
 
+## Telegram
+
+Registers these commands with ZmwTelegram. The `bot_*` ones are meant for bots (eg an LLM sending a daily report), and are named `/bot_[service]_[command]` (Telegram only allows lowercase letters, digits and underscores in command names).
+
+- `/shout <text>` - Announce text on all speakers, with the default voice and fuzzy mode.
+- `/bot_shout {"msg": "text", "voice?": "name", "speakers?": ["name", ...]}` - Announce text, args as JSON. Never fuzzy (the text is already LLM-written), always uses ZmwTextToSpeech (never falls back to Google TTS, regardless of `tts_mode`) with a longer timeout, since reports can be long. TTS failures are reported back over Telegram.
+  - `voice`: a voice name or voice_id, fuzzy matched: case and punctuation are ignored, and it matches part of the name (`glados`, `vincent`, or a description like `pirate`) or a misspelling (`galdos`). If missing, ambiguous, or not a known voice (only logged, not reported back), ZmwTextToSpeech picks its default voice for its own `default_language` (this service's `tts_default_lang` isn't used).
+  - `speakers`: if missing or empty, all speakers. Unknown names are skipped and only logged; if none match, nothing plays.
+  - Volume can't be set, and `announce_volume` isn't applied: Sonos picks the volume (same as `/shout`).
+- `/bot_shout_voices` - Replies with a JSON list of voices: `[{"voice": "Glados", "locale": "en_US"}, ...]`.
+- `/bot_shout_speakers` - Replies with a JSON list of speaker names.
+
+Replies go to ZmwTelegram's broadcast chat, which rate-limits outgoing messages. ZmwTelegram drops incoming messages over 2048 chars (including the command and its JSON), so keep reports under ~300 words.
+
 ## MQTT
 
 **Topic:** `zmw_speaker_announce`

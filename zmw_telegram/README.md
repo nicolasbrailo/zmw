@@ -25,6 +25,8 @@ MQTT-to-Telegram bridge for bidirectional messaging. Runs a long-polling Telegra
 
 Outgoing messages are rate-limited to 3 messages per 60 seconds. If the limit is exceeded, further messages are dropped and the cooldown resets with each attempt (i.e. the window only expires after 60 seconds of silence).
 
+Incoming messages over 2048 chars or 500 words are dropped. This overrides pytelegrambot's own, much lower, limits (150 chars / 20 words), so bots can send long commands (eg `/bot_shout` with a daily report).
+
 ## Voice Processing
 
 Voice and audio messages are downloaded and transcoded to WAV (PCM 16-bit, 16kHz mono) for STT compatibility. Constraints:
