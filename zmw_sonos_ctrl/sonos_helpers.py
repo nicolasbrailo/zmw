@@ -16,7 +16,10 @@ log = build_logger("ZmwSonosHelpers")
 # Set timeout for all SoCo HTTP requests to speakers (default is None/no timeout)
 soco.config.REQUEST_TIMEOUT = 5
 SOCO_DISCOVER_TIMEOUT = 3
+# get_all_sonos_state() serves its cache for this long, then refreshes it in the background while still serving the
+# old copy. Past SONOS_STATE_MAX_STALE_SECS the cache is too old to show, and callers wait for a fresh read.
 SONOS_STATE_CACHE_TTL_SECS = 30
+SONOS_STATE_MAX_STALE_SECS = 10 * 60
 
 # How long a speaker stays in the alert list after it last failed to answer
 SPEAKER_UNREACHABLE_ALERT_SECS = 60
@@ -29,6 +32,9 @@ _DISCOVERY_ALERT_KEY = ''
 
 _sonos_state_cache = None
 _sonos_state_cache_time = 0
+# Guards the two above. _sonos_state_refresh is held while a refresh is in progress, so only one runs at a time.
+_sonos_state_lock = threading.Lock()
+_sonos_state_refresh = threading.Lock()
 
 # alert key -> (last_failure_timestamp, message). Written from the discovery thread pools.
 _recent_alerts = {}
@@ -308,34 +314,8 @@ def _get_single_speaker_state(spk):
     return spk, speaker_data
 
 
-def get_all_sonos_state(speaker_timeout_secs=5, groups_zones_timeout_secs=5):
-    """Discover all Sonos speakers and return their state.
-
-    Queries all speakers in parallel in two phases:
-    1. Fetch basic speaker state (with speaker_timeout_secs timeout)
-    2. Fetch groups/zones (with groups_zones_timeout_secs timeout)
-
-    If groups/zones fetching fails or times out, speakers are still returned.
-    Results are cached for SONOS_STATE_CACHE_TTL_SECS seconds.
-
-    On a LAN a speaker that hasn't answered in 5 seconds is dead, so both phases give up at that point.
-    Worst case is SOCO_DISCOVER_TIMEOUT (3) + one REQUEST_TIMEOUT (5, because soco.discover() returns
-    zone.all_zones, ie it makes a SOAP call to the first responder after its own timeout window elapses)
-    + both phase timeouts (5 + 5) = 18s. That is over the 15s timeout callers like the dashboard use when
-    proxying /world_state, so the phase timeouts must not grow, and callers rely on the cache below to
-    keep the common case fast.
-    """
-    def _cache(state):
-        global _sonos_state_cache, _sonos_state_cache_time
-        _sonos_state_cache = state
-        _sonos_state_cache_time = time.time()
-        return state
-
-    # Return cached state if still valid
-    if _sonos_state_cache is not None and (time.time() - _sonos_state_cache_time) < SONOS_STATE_CACHE_TTL_SECS:
-        log.info("Returning cached Sonos state (age: %.1fs)", time.time() - _sonos_state_cache_time)
-        return _sonos_state_cache
-
+def _read_sonos_state(speaker_timeout_secs, groups_zones_timeout_secs):
+    """Query every speaker for its state. Slow (see get_all_sonos_state): only call it through the cache."""
     speakers = []
     speakers_by_name = {}
     groups = {}
@@ -344,13 +324,9 @@ def get_all_sonos_state(speaker_timeout_secs=5, groups_zones_timeout_secs=5):
 
     discovered = _discover_speakers()
     if not discovered:
-        # Cache the empty result too: without this, every request pays the full discovery timeout for as
+        # This empty result is cached too: without that, every request pays the full discovery timeout for as
         # long as the Sonos network is down, which is the case the cache is most needed for.
-        return _cache({
-            'speakers': [],
-            'groups': {},
-            'zones': [],
-        })
+        return {'speakers': [], 'groups': {}, 'zones': []}
 
     executor = ThreadPoolExecutor(max_workers=len(discovered))
     try:
@@ -378,13 +354,9 @@ def get_all_sonos_state(speaker_timeout_secs=5, groups_zones_timeout_secs=5):
         _shutdown_without_waiting(executor)
 
     if not speakers_by_name:
-        # Cache the empty result too: without this, every request pays the full discovery timeout for as
+        # This empty result is cached too: without that, every request pays the full discovery timeout for as
         # long as the Sonos network is down, which is the case the cache is most needed for.
-        return _cache({
-            'speakers': [],
-            'groups': {},
-            'zones': [],
-        })
+        return {'speakers': [], 'groups': {}, 'zones': []}
 
     log.info("Discovering Sonos zones and groups...")
 
@@ -417,11 +389,85 @@ def get_all_sonos_state(speaker_timeout_secs=5, groups_zones_timeout_secs=5):
     finally:
         _shutdown_without_waiting(executor)
 
-    return _cache({
+    return {
         'speakers': sorted(speakers, key=lambda s: s['name']),
         'groups': dict(sorted(groups.items())),
         'zones': sorted(zones),
-    })
+    }
+
+
+def _cached_sonos_state():
+    """(state, age_secs) of the cache, or (None, None) if there is none."""
+    with _sonos_state_lock:
+        if _sonos_state_cache is None:
+            return None, None
+        return _sonos_state_cache, time.time() - _sonos_state_cache_time
+
+
+def _refresh_sonos_state(speaker_timeout_secs, groups_zones_timeout_secs):
+    """Read the state into the cache. If another refresh is already running, wait for it and use its result."""
+    if not _sonos_state_refresh.acquire(blocking=False):
+        with _sonos_state_refresh:
+            pass
+        return _cached_sonos_state()[0]
+
+    try:
+        state = _read_sonos_state(speaker_timeout_secs, groups_zones_timeout_secs)
+        global _sonos_state_cache, _sonos_state_cache_time
+        with _sonos_state_lock:
+            _sonos_state_cache = state
+            _sonos_state_cache_time = time.time()
+        return state
+    finally:
+        _sonos_state_refresh.release()
+
+
+def get_all_sonos_state(speaker_timeout_secs=5, groups_zones_timeout_secs=5):
+    """Discover all Sonos speakers and return their state.
+
+    Queries all speakers in parallel in two phases:
+    1. Fetch basic speaker state (with speaker_timeout_secs timeout)
+    2. Fetch groups/zones (with groups_zones_timeout_secs timeout)
+
+    If groups/zones fetching fails or times out, speakers are still returned.
+
+    On a LAN a speaker that hasn't answered in 5 seconds is dead, so both phases give up at that point.
+    Worst case is SOCO_DISCOVER_TIMEOUT (3) + one REQUEST_TIMEOUT (5, because soco.discover() returns
+    zone.all_zones, ie it makes a SOAP call to the first responder after its own timeout window elapses)
+    + both phase timeouts (5 + 5) = 18s. That is over the 15s timeout callers like the dashboard use when
+    proxying /world_state, so the phase timeouts must not grow, and callers rely on the cache below to
+    keep the common case fast.
+
+    The cache is stale-while-revalidate: up to SONOS_STATE_CACHE_TTL_SECS it is returned as is; after that it is
+    still returned straight away, while a background thread refreshes it, until it's SONOS_STATE_MAX_STALE_SECS
+    old. Only the first call after startup or after a long idle period waits for the speakers. The cache holds
+    plain data, never SoCo objects: commands look speakers up again, so a stale cache can show an old volume or a
+    speaker that just went offline, but it can't send a command to the wrong IP. The reply has 'age_secs', so a
+    caller that got a stale copy knows to ask again in a few seconds.
+    """
+    state, age = _cached_sonos_state()
+    if state is None or age >= SONOS_STATE_MAX_STALE_SECS:
+        log.info("Sonos state cache %s, reading speakers", "is empty" if state is None else f"too old ({age:.0f}s)")
+        state, age = _refresh_sonos_state(speaker_timeout_secs, groups_zones_timeout_secs), 0
+        if state is None:
+            # We waited on another caller's refresh, and it failed
+            state = {'speakers': [], 'groups': {}, 'zones': []}
+    elif age >= SONOS_STATE_CACHE_TTL_SECS and not _sonos_state_refresh.locked():
+        log.info("Sonos state cache is %.0fs old, refreshing in the background", age)
+        threading.Thread(target=_refresh_sonos_state,
+                         args=(speaker_timeout_secs, groups_zones_timeout_secs), daemon=True).start()
+    return {**state, 'age_secs': round(age, 1)}
+
+
+def _patch_cached_speakers(names, **fields):
+    """Update speakers in the cache after we changed them, so the next get_all_sonos_state() shows the change
+    without waiting for a refresh. The cached dicts are replaced, never edited, as callers may hold the old ones."""
+    global _sonos_state_cache
+    with _sonos_state_lock:
+        if _sonos_state_cache is None:
+            return
+        speakers = [{**spk, **fields} if spk['name'] in names else spk for spk in _sonos_state_cache['speakers']]
+        _sonos_state_cache = {**_sonos_state_cache, 'speakers': speakers}
 
 
 def sonos_debug_state(spk, log_fn):
@@ -484,6 +530,7 @@ def sonos_set_volume(spk, spk_name, volume):
     try:
         spk.volume = volume
         log.info("Set %s volume to %s", spk_name, volume)
+        _patch_cached_speakers({spk_name}, volume=volume)
     except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException) as ex:
         log_speaker_query_failure('set volume', spk_name, ex)
 
@@ -518,6 +565,38 @@ def _sonos_pause_if_playing(coord):
         return False
     coord.pause()
     return True
+
+def sonos_toggle_play(name):
+    """Pause the group the named speaker is in if it's playing, resume it if it's paused. Never throws.
+
+    Returns the group's new transport state, or None if the speaker can't be reached. Only a group coordinator
+    can play or pause, so this toggles every speaker grouped with the named one.
+    """
+    spk = ls_speakers().get(name)
+    if spk is None:
+        log.warning("Can't toggle playback on %s, speaker not found", name)
+        return None
+
+    try:
+        coord = _get_coordinator(spk)
+        if coord.get_current_transport_info().get('current_transport_state') == 'PLAYING':
+            coord.pause()
+            new_state = 'PAUSED_PLAYBACK'
+        else:
+            # Throws (UPnP error 701) if there's nothing to resume, eg a stopped speaker with an empty queue
+            coord.play()
+            new_state = 'PLAYING'
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException, soco.exceptions.SoCoException) as ex:
+        log_speaker_query_failure('toggle playback', name, ex)
+        return None
+
+    log.info("Toggled playback on group of %s: %s", name, new_state)
+    # Group members from the cache: asking each speaker for its name would be one more network call per speaker
+    state, _ = _cached_sonos_state()
+    groups = (state or {}).get('groups', {}).values()
+    members = next((set(m) for m in groups if name in m), {name})
+    _patch_cached_speakers(members, transport_state=new_state)
+    return new_state
 
 def sonos_pause(names):
     """Pause playback on the named speakers. Never throws.

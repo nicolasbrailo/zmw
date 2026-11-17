@@ -53,6 +53,7 @@ class ZmwSonosCtrl(ZmwMqttService):
         www.serve_url('/stop_all_playback', self._stop_all, methods=['PUT'])
         www.serve_url('/get_spotify_context', self._www_get_spotify_context)
         www.serve_url('/volume', self._set_volume, methods=['PUT'])
+        www.serve_url('/play_pause', self._play_pause, methods=['PUT'])
         www.serve_url('/volume_up', self._volume_up, methods=['PUT', 'GET'])
         www.serve_url('/volume_down', self._volume_down, methods=['PUT', 'GET'])
         www.serve_url('/next_track', self._next_track, methods=['PUT', 'GET'])
@@ -154,7 +155,7 @@ class ZmwSonosCtrl(ZmwMqttService):
             "announcements": {
                 "world_state_reply": {
                     "description": "Network state",
-                    "payload": {"speakers": "List of speaker state", "groups": "Map of coordinator name to member", "zones": "List of zone names"}
+                    "payload": {"speakers": "List of speaker state", "groups": "Map of coordinator name to member", "zones": "List of zone names", "age_secs": "Age of this state; if over 30, a refresh is running"}
                 },
                 "ls_speakers_reply": {
                     "description": "speaker list",
@@ -300,6 +301,16 @@ class ZmwSonosCtrl(ZmwMqttService):
                 continue
             sonos_set_volume(devs[spk_name], spk_name, volume)
         return {}
+
+    def _play_pause(self):
+        # Expects {"speaker": "name"}, and toggles the group that speaker is in
+        name = (request.get_json(silent=True) or {}).get('speaker')
+        if not name:
+            return {"error": "Missing 'speaker'"}, 400
+        new_state = sonos_toggle_play(name)
+        if new_state is None:
+            return {"error": f"Can't toggle playback on {name}"}, 502
+        return {"transport_state": new_state}
 
     def _volume_up(self, vol=5):
         return self._on_coordinator('turn volume up', lambda coord: sonos_adjust_volume_all(coord.group.members, vol))
