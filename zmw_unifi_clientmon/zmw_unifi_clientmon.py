@@ -78,6 +78,10 @@ class ZmwUnifiClientmon(ZmwMqttService):
                     "description": "Event history (joins/leaves)",
                     "params": {}
                 },
+                "get_all_clients": {
+                    "description": "List all connected clients, not just interesting ones (eg to find a device's IP)",
+                    "params": {}
+                },
             },
             "announcements": {
                 "client_joined": {
@@ -102,6 +106,10 @@ class ZmwUnifiClientmon(ZmwMqttService):
                 },
                 "ls_reply": {
                     "description": "List of connected interesting clients",
+                    "payload": [{"hostname": "str", "mac": "str", "ip": "str"}]
+                },
+                "get_all_clients_reply": {
+                    "description": "List of all connected clients, as of the last poll",
                     "payload": [{"hostname": "str", "mac": "str", "ip": "str"}]
                 },
                 "get_history_reply": {
@@ -244,6 +252,9 @@ class ZmwUnifiClientmon(ZmwMqttService):
             case "get_history":
                 self.publish_own_svc_message("get_history_reply",
                     list(self._event_history))
+            case "get_all_clients":
+                self.publish_own_svc_message("get_all_clients_reply",
+                    list(self._unifi.all_clients.values()))
             case "get_mqtt_description":
                 self.publish_own_svc_message("get_mqtt_description_reply",
                     self.get_mqtt_description())
