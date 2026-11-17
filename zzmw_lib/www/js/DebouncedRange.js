@@ -38,6 +38,7 @@ class DebouncedRange extends React.Component {
         onTouchStart={(e) => this.onMouseDown(e.target.value)}
         onTouchEnd={(e) => this.onMouseUp(e.target.value)}
         className={this.props.className}
+        disabled={this.props.disabled}
         min={this.props.min}
         max={this.props.max}
         value={this.state.value}

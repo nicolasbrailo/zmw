@@ -288,6 +288,20 @@
 }
 .zl > button { grid-column: 1 / -1; justify-self: start; }
 
+/* Extra rows a page adds to an open group (groupExtras, eg the dashboard's speakers), after a separator. The
+ * separator draws the line, so the first row after it doesn't draw its own. */
+.zl .zl-sep { margin: .5rem 0 0; border: 0; border-top: 2px solid var(--zl-line); }
+.zl-sep + .zl-row { border-top: 0; }
+.zl .zl-more:disabled, .zl .zl-bri:disabled { opacity: .4; cursor: default; }
+/* Speaker: name, play/pause, volume */
+.zl-spk { grid-template-columns: 1fr auto; }
+.zl .zl-spk .zl-name { cursor: default; }
+/* Speaker icon before the name, so speakers don't read as lights */
+.zl-spk .zl-name img { width: 1.1rem; height: 1.1rem; margin-right: .35rem; vertical-align: -.15rem; }
+.zl-spk .zl-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zl .zl-spk .zl-more { padding: 0 .55rem; }
+.zl-spk .zl-more svg { width: 20px; height: 20px; }
+
 @media (prefers-reduced-motion: reduce) {
   .zl-more svg + svg { transition: none; }
 }

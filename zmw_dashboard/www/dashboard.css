@@ -180,6 +180,6 @@ main .ctrl-box-with-range input[type=range] { flex: 1 1 8rem; width: auto; min-w
   .zl { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
   /* Open room: lights in newspaper columns, so an open settings panel only makes its own column longer */
   .zl-open .zl-gbody { columns: 2 18rem; column-gap: 28px; }
-  .zl-open .zl-chips { column-span: all; }
+  .zl-open .zl-chips, .zl-open .zl-sep { column-span: all; }
   .zl-open .zl-row { break-inside: avoid; }
 }

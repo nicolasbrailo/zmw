@@ -150,23 +150,35 @@ class LightsSection extends React.Component {
       <section id="lights-section">
         {React.createElement(
           MqttLights,
-          MqttLights.buildProps('/ZmwLights', this.state.scenes, this.props.groupBadges))}
+          MqttLights.buildProps('/ZmwLights', this.state.scenes, this.props.groupBadges, this.props.groupExtras))}
       </section>
     );
   }
 }
 
-// A temperature sensor whose name starts with a light group's name ("CocinaTempSensor" -> "Cocina") is shown on that
-// group's tile; a room with several sensors shows all of them. Sensors that match no group go in the sensors list.
+// Things named after a light group belong to that group's tile: "CocinaTempSensor" goes in "Cocina". Group names
+// are tried longest first, so a group named "TVRoomBack" wins over "TVRoom". Returns the group's name, or undefined.
+function findGroupFor(thingName, groupNames) {
+  return [...groupNames].sort((a, b) => b.length - a.length).find(g => thingName.startsWith(g));
+}
+
+function useLightGroupNames() {
+  const [names, setNames] = React.useState(null);
+  React.useEffect(() => {
+    mJsonGet('/ZmwLights/get_groups', (res) => setNames((res || []).map(g => g.name)));
+  }, []);
+  return names;
+}
+
+// A temperature sensor is shown on its room's tile; a room with several sensors shows all of them. Sensors that match
+// no group go in the sensors list.
 function splitSensorsByGroup(groupNames, temperatures) {
   const groupBadges = {};
   const otherSensors = [];
-  // Longest names first, so a group named "TVRoomBack" wins over "TVRoom"
-  const names = [...groupNames].sort((a, b) => b.length - a.length);
   for (const sensor of Object.keys(temperatures).sort()) {
     const value = temperatures[sensor];
     if (value == null) continue;
-    const group = names.find(g => sensor.startsWith(g));
+    const group = findGroupFor(sensor, groupNames);
     if (group) {
       groupBadges[group] = [...(groupBadges[group] || []), `${Number(value).toFixed(1)}°`];
     } else {
@@ -176,18 +188,133 @@ function splitSensorsByGroup(groupNames, temperatures) {
   return { groupBadges, otherSensors };
 }
 
-function useRoomTemperatures() {
-  const [split, setSplit] = React.useState({ groupBadges: {}, otherSensors: [] });
+function useRoomTemperatures(groupNames) {
+  const [temps, setTemps] = React.useState(null);
   React.useEffect(() => {
-    let groups = null;
-    let temps = null;
-    const done = () => {
-      if (groups && temps) setSplit(splitSensorsByGroup(groups.map(g => g.name), temps));
-    };
-    mJsonGet('/ZmwLights/get_groups', (res) => { groups = res || []; done(); });
-    mJsonGet('/ZmwSensormon/sensors/get_all/temperature', (res) => { temps = res || {}; done(); });
+    mJsonGet('/ZmwSensormon/sensors/get_all/temperature', (res) => setTemps(res || {}));
   }, []);
-  return split;
+  return React.useMemo(() => {
+    if (!groupNames || !temps) return { groupBadges: {}, otherSensors: [] };
+    return splitSensorsByGroup(groupNames, temps);
+  }, [groupNames, temps]);
+}
+
+const SONOS_API = '/ZmwSonosCtrl';
+const SONOS_CACHE_KEY = 'sonos_world_state';
+// Same as the Sonos service's SONOS_STATE_CACHE_TTL_SECS: a reply older than this is being refreshed by the service
+const SONOS_STATE_TTL_SECS = 30;
+
+const DASH_ICON_PLAY = (
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>);
+const DASH_ICON_PAUSE = (
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>);
+
+// Sonos speakers. The Sonos service has to talk to every speaker, so it may answer much later than the lights; this
+// never holds them up. It starts from the last state saved in local storage, with the controls disabled until the
+// service confirms each speaker is there. A speaker we knew about that doesn't answer stays listed, disabled, until
+// the next load.
+function useSpeakers() {
+  const storage = React.useMemo(() => new LocalStorageManager(), []);
+  const [world, setWorld] = React.useState(() => {
+    const cached = storage.cacheGet_ignoreExpire(SONOS_CACHE_KEY) || {};
+    return { speakers: cached.speakers || [], groups: cached.groups || {}, live: {}, loaded: false };
+  });
+
+  const refresh = React.useCallback((retryIfStale = true) => {
+    mAjax({
+      url: `${SONOS_API}/world_state`,
+      type: 'GET',
+      dataType: 'JSON',
+      success: (res) => {
+        storage.cacheSave(SONOS_CACHE_KEY, { speakers: res.speakers, groups: res.groups });
+        setWorld(prev => {
+          const live = Object.fromEntries(res.speakers.map(spk => [spk.name, true]));
+          const gone = prev.speakers.filter(spk => !live[spk.name]);
+          return { speakers: [...res.speakers, ...gone], groups: res.groups, live, loaded: true };
+        });
+        // An old copy means the service is reading the speakers again in the background: fetch the new state
+        if (retryIfStale && res.age_secs > SONOS_STATE_TTL_SECS) {
+          setTimeout(() => refresh(false), 3000);
+        }
+      },
+      // Sonos being down isn't worth a popup: its speakers just stay disabled
+      error: () => setWorld(prev => ({ ...prev, live: {}, loaded: true })),
+    });
+  }, []);
+
+  React.useEffect(() => refresh(), []);
+
+  const setVolume = (name, volume) => {
+    setWorld(prev => ({
+      ...prev,
+      speakers: prev.speakers.map(spk => spk.name === name ? { ...spk, volume } : spk),
+    }));
+    mJsonPut(`${SONOS_API}/volume`, { [name]: volume });
+  };
+  const togglePlay = (name) => mJsonPut(`${SONOS_API}/play_pause`, { speaker: name }, () => refresh(false));
+
+  return { ...world, refresh, setVolume, togglePlay };
+}
+
+function speakerSubtitle(spk, sonos) {
+  if (!sonos.loaded) return 'Connecting...';
+  if (!sonos.live[spk.name]) return 'Offline';
+  let what = 'Stopped';
+  if (spk.is_playing_tv) what = 'TV';
+  else if (spk.is_playing_line_in) what = 'Line in';
+  else if (spk.transport_state === 'PLAYING') what = 'Playing';
+  else if (spk.transport_state === 'PAUSED_PLAYBACK') what = 'Paused';
+  // Play/pause works on a whole group, so say which speakers are in it
+  const group = Object.values(sonos.groups).find(members => members.includes(spk.name)) || [];
+  const others = group.filter(name => name !== spk.name);
+  return others.length ? `${what} · with ${others.join(', ')}` : what;
+}
+
+function SpeakerRow(props) {
+  const { spk, room, sonos } = props;
+  const live = !!sonos.live[spk.name];
+  const playing = spk.transport_state === 'PLAYING';
+  // TV and line in can't be paused, and a stopped speaker may have nothing to resume
+  const canToggle = live && !spk.is_playing_tv && !spk.is_playing_line_in
+    && (playing || spk.transport_state === 'PAUSED_PLAYBACK');
+  const displayName = (spk.name.startsWith(room) && spk.name !== room) ? spk.name.slice(room.length) : spk.name;
+  return (
+    <div className="zl-row zl-spk">
+      <span className="zl-name">
+        <img src={`${SONOS_API}/favicon.ico`} alt="" />
+        {prettyThingName(displayName)}<small>{speakerSubtitle(spk, sonos)}</small>
+      </span>
+      <button type="button" className="zl-more" disabled={!canToggle}
+              aria-label={`${displayName}: ${playing ? 'pause' : 'play'}`}
+              onClick={() => sonos.togglePlay(spk.name)}>
+        {playing ? DASH_ICON_PAUSE : DASH_ICON_PLAY}
+      </button>
+      <DebouncedRange className="zl-bri" min={0} max={100} value={spk.volume ?? 0}
+                      disabled={!live || spk.volume == null}
+                      onChange={(e) => sonos.setVolume(spk.name, Number(e.target.value))} />
+    </div>
+  );
+}
+
+// Rendered only while its room is open: opening a room is a good moment to pick up changes made elsewhere
+function RoomSpeakers(props) {
+  React.useEffect(() => props.sonos.refresh(false), []);
+  return props.speakers.map(spk => <SpeakerRow key={spk.name} spk={spk} room={props.room} sonos={props.sonos} />);
+}
+
+// {room: <RoomSpeakers/>} for every room with a speaker. Rooms without one get nothing, not even the separator.
+// Speakers that match no room aren't shown here; the Sonos panel under "More" still has them.
+function speakersByRoom(groupNames, sonos) {
+  const byRoom = {};
+  for (const spk of sonos.speakers) {
+    const room = groupNames && findGroupFor(spk.name, groupNames);
+    if (room) byRoom[room] = [...(byRoom[room] || []), spk];
+  }
+  const extras = {};
+  for (const [room, speakers] of Object.entries(byRoom)) {
+    extras[room] = <RoomSpeakers key={room} room={room} speakers={speakers} sonos={sonos} />;
+  }
+  return extras;
 }
 
 function SensorsSection(props) {
@@ -315,7 +442,9 @@ function ConfigSection(props) {
 function Dashboard(props) {
   const [expandedSection, setExpandedSection] = React.useState(null);
   const contentRef = React.useRef(null);
-  const { groupBadges, otherSensors } = useRoomTemperatures();
+  const groupNames = useLightGroupNames();
+  const { groupBadges, otherSensors } = useRoomTemperatures(groupNames);
+  const sonos = useSpeakers();
 
   const toggleSection = (section) => {
     const newSection = expandedSection === section ? null : section;
@@ -346,7 +475,7 @@ function Dashboard(props) {
   return (
     <main>
       <AlertsList />
-      <LightsSection groupBadges={groupBadges} />
+      <LightsSection groupBadges={groupBadges} groupExtras={speakersByRoom(groupNames, sonos)} />
       <SensorsSection sensors={otherSensors} />
 
       <h4 className="dash-heading">More</h4>
