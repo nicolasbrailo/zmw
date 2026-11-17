@@ -37,11 +37,19 @@ table {
 tr {
   display: flex;
 }
-td {
+/* Rows are flex, not table rows: ths need the same flex and padding as tds to line up with them */
+td, th {
   flex: 1;
-  display: flex;
+  /* Without these, a long word stretches its cell (tds are flex, so their text won't shrink below its
+     longest word unless it can break anywhere), and the column stops lining up with other rows */
+  min-width: 0;
+  overflow-wrap: anywhere;
   white-space: normal;
+  text-align: left;
   padding: .1rem; margin: 0;
+}
+td {
+  display: flex;
   border-radius: 4px;
 }
 td button {

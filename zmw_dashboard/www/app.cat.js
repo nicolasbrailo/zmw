@@ -1445,7 +1445,7 @@ class ZmwSwitch extends React.Component {
 }
 
 class MqttLights extends React.Component {
-  // groupBadges: optional {groupName: text} shown on each group's tile (eg the room temperature)
+  // groupBadges: optional {groupName: text or [texts]} shown on each group's tile (eg the room's temperatures)
   static buildProps(api_base_path = '', buttons = [], groupBadges = {}) {
     return {
       key: 'MqttLights',
@@ -1658,7 +1658,7 @@ class MqttLights extends React.Component {
     else if (onCount === reachable.length) summary = 'All on';
 
     const isOpen = this.state.openGroup === prefix;
-    const badge = (this.props.groupBadges || {})[prefix];
+    const badges = [].concat((this.props.groupBadges || {})[prefix] || []);
     let className = 'zl-group';
     if (onCount > 0) className += ' zl-lit';
     if (isOpen) className += ' zl-open';
@@ -1668,7 +1668,9 @@ class MqttLights extends React.Component {
         <button type="button" className="zl-ghead" aria-expanded={isOpen}
                 onClick={() => this.setState({ openGroup: isOpen ? null : prefix })}>
           <span className="zl-gname">{prefix}</span>
-          <span className="zl-gbadge">{badge || ''}</span>
+          <span className="zl-gbadge">
+            {badges.map((text, idx) => <span key={idx}>{text}</span>)}
+          </span>
           <span className="zl-dots">
             {toggles.map((t) => {
               let dot = '';
@@ -2440,6 +2442,17 @@ class SonosCtrl extends React.Component {
     );
   }
 }
+// Table rows are flex (see zmw.css): give the header and body cells of a column the same flex so they line up
+const HISTORY_COL = (grow) => ({flex: `${grow} 1 0`});
+const HISTORY_COLS = {
+  time: HISTORY_COL(2),
+  source: HISTORY_COL(1.5),
+  phrase: HISTORY_COL(4),
+  voice: HISTORY_COL(2),
+  vol: HISTORY_COL(0.7),
+  link: HISTORY_COL(0.7),
+};
+
 class TTSAnnounce extends React.Component {
   static buildProps(api_base_path = '', https_server = '') {
     return {
@@ -2514,6 +2527,7 @@ class TTSAnnounce extends React.Component {
 
     const newEntry = {
       timestamp: new Date().toISOString(),
+      source: "http",
       phrase: phrase,
       lang: this.state.ttsLang,
       volume: this.state.ttsVolume,
@@ -2710,24 +2724,26 @@ class TTSAnnounce extends React.Component {
             <table>
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Phrase</th>
-                  <th>Lang</th>
-                  <th>Vol</th>
-                  <th>Link</th>
+                  <th style={HISTORY_COLS.time}>Time</th>
+                  <th style={HISTORY_COLS.source}>Source</th>
+                  <th style={HISTORY_COLS.phrase}>Phrase</th>
+                  <th style={HISTORY_COLS.voice}>Voice</th>
+                  <th style={HISTORY_COLS.vol}>Vol</th>
+                  <th style={HISTORY_COLS.link}>Link</th>
                 </tr>
               </thead>
               <tbody>
                 {this.state.announcementHistory.slice().reverse().map((item, idx) => (
                   <tr key={idx}>
-                    <td>{new Date(item.timestamp).toLocaleString()}</td>
-                    <td>
+                    <td style={HISTORY_COLS.time}>{new Date(item.timestamp).toLocaleString()}</td>
+                    <td style={HISTORY_COLS.source}>{item.source}</td>
+                    <td style={{...HISTORY_COLS.phrase, flexDirection: "column"}}>
                       {item.phrase}
                       {item.fuzzy_text && <div><small><em>{item.fuzzy_text}</em></small></div>}
                     </td>
-                    <td>{item.lang || "default"}</td>
-                    <td>{item.volume}</td>
-                    <td><a href={item.uri}>🔊</a></td>
+                    <td style={HISTORY_COLS.voice}>{item.voice || item.lang || "default"}</td>
+                    <td style={HISTORY_COLS.vol}>{item.volume}</td>
+                    <td style={HISTORY_COLS.link}><a href={item.uri}>🔊</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -2898,14 +2914,28 @@ class ZmwSucks extends React.Component {
     );
   }
 
-  renderSchedule(sch) {
-    if (!sch.entries || sch.entries.length === 0) {
-      return (<p><small>No schedule set on the robot</small></p>);
+  // The schedule the robot follows: its own (eg set in the iRobot app) if it has one, else the one in the
+  // service config. Same rule as the service's MissionMonitor.
+  renderSchedule(r) {
+    const own = r.schedule;
+    const cfg = r.service_schedule;
+    // cfg.ignored comes from the service, so the UI can't disagree with what it actually does
+    const useCfg = cfg && !cfg.ignored;
+    const hasOwn = own && own.entries && own.entries.length > 0;
+    if (!useCfg && !hasOwn) {
+      return (<p><small>No schedule set</small></p>);
     }
+    const sch = useCfg ? cfg : own;
+    const source = useCfg ? 'config' : 'device';
     const pad = (n) => String(n ?? 0).padStart(2, '0');
     return (
       <details>
         <summary>Schedule{sch.paused ? ' (on hold)' : ''}</summary>
+        <p><small>Source: {source}</small></p>
+        {cfg && cfg.ignored && (
+          <p className="warn"><small>The schedule in the service config is ignored, because the robot has its
+            own. Remove one of them.</small></p>
+        )}
         <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
           <thead><tr><th>Days</th><th>Time</th><th>Active</th></tr></thead>
           <tbody>
@@ -2919,6 +2949,7 @@ class ZmwSucks extends React.Component {
           </tbody>
         </table>
         {sch.timezone && (<p><small>Times in the robot's timezone, {sch.timezone}</small></p>)}
+        {source === 'config' && (<p><small>Times local to the service</small></p>)}
       </details>
     );
   }
@@ -2948,7 +2979,7 @@ class ZmwSucks extends React.Component {
             <tr><td>IP</td><td>{r.ip}</td></tr>
           </tbody>
         </table>
-        {this.renderSchedule(r.schedule)}
+        {this.renderSchedule(r)}
         {this.renderSettings(r)}
         {this.renderLifetime(r.lifetime, r.battery)}
         <button onClick={() => this.sendCommand('start', r.alias)}>Start</button>
@@ -3131,7 +3162,7 @@ class LightsSection extends React.Component {
 }
 
 // A temperature sensor whose name starts with a light group's name ("CocinaTempSensor" -> "Cocina") is shown on that
-// group's tile. Everything else (or a second sensor for the same group) goes in the sensors list.
+// group's tile; a room with several sensors shows all of them. Sensors that match no group go in the sensors list.
 function splitSensorsByGroup(groupNames, temperatures) {
   const groupBadges = {};
   const otherSensors = [];
@@ -3141,8 +3172,8 @@ function splitSensorsByGroup(groupNames, temperatures) {
     const value = temperatures[sensor];
     if (value == null) continue;
     const group = names.find(g => sensor.startsWith(g));
-    if (group && !(group in groupBadges)) {
-      groupBadges[group] = `${Number(value).toFixed(1)}°`;
+    if (group) {
+      groupBadges[group] = [...(groupBadges[group] || []), `${Number(value).toFixed(1)}°`];
     } else {
       otherSensors.push([sensor, Number(value)]);
     }

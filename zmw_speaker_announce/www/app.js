@@ -1,9 +1,5 @@
-// zmw.css makes table rows flex and gives tds flex:1, but not ths, so the header bunches up to the left.
-// Give header and body cells the same flex (and padding, ths have more by default) per column so they line up.
-// ths are also right-aligned by default, while tds (flex boxes) end up left-aligned: left-align both.
-const HISTORY_COL = (grow) => ({
-  flex: `${grow} 1 0`, minWidth: 0, padding: ".2rem .4rem", overflowWrap: "anywhere", textAlign: "left",
-});
+// Table rows are flex (see zmw.css): give the header and body cells of a column the same flex so they line up
+const HISTORY_COL = (grow) => ({flex: `${grow} 1 0`});
 const HISTORY_COLS = {
   time: HISTORY_COL(2),
   source: HISTORY_COL(1.5),
