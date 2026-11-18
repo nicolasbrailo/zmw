@@ -1,6 +1,15 @@
 # ZmwSpeakerAnnounce
 
-Sonos speaker announcement service with TTS, pre-recorded asset playback, and live microphone recording support. Announcements are broadcast to all discovered Sonos speakers on the network.
+Speaker announcement service with TTS, pre-recorded asset playback, and live microphone recording support. Announcements play on all Sonos speakers on the network and on the homeboards that can play audio, or only on the ones requested.
+
+## Speakers
+
+A speaker is either a Sonos (by its name) or a homeboard (by its id, case-insensitive), and both can be mixed in one request. No list means all of them.
+
+- **Sonos**: discovered on the network (or `speaker_ip_list`), played through the Sonos API.
+- **Homeboards**: the ones ZmwHomeboard declares can play audio (`ls_audio_targets`, and `audio_targets` when that changes). Played by sending `announce_audio` to ZmwHomeboard for each one. While ZmwHomeboard is down, there are no homeboard speakers.
+
+`announcement_in_progress` carries the requested `speakers`, so services mirroring the text (eg ZmwHomeboard) can show it only where the announcement plays.
 
 ![](README_screenshot.png)
 
@@ -24,7 +33,7 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 - `/` - Web UI for TTS input and microphone recording (served from `www/` directory, available over both HTTP and HTTPS)
 - `/announce_tts?phrase=X&lang=X&vol=N&fuzzy=true` - Trigger a TTS announcement (fuzzy defaults to true)
 - `/announce_user_recording` - Upload and announce a recorded audio file (PUT/POST, `audio_data` multipart field)
-- `/ls_speakers` - JSON array of discovered Sonos speaker names (sorted)
+- `/ls_speakers` - JSON array of speaker names: Sonos speakers, then homeboards (each sorted)
 - `/announcement_history` - JSON array of the 10 most recent announcements
 - `/svc_config` - JSON with internal config (HTTPS server URL)
 - `/tts/*` - Cached TTS audio assets (served to Sonos speakers over HTTP)
@@ -40,10 +49,10 @@ Registers these commands with ZmwTelegram. The `bot_*` ones are meant for bots (
 - `/shout <text>` - Announce text on all speakers, with the default voice and fuzzy mode.
 - `/bot_shout {"msg": "text", "voice?": "name", "speakers?": ["name", ...]}` - Announce text, args as JSON. Never fuzzy (the text is already LLM-written), always uses ZmwTextToSpeech (never falls back to Google TTS, regardless of `tts_mode`) with a longer timeout, since reports can be long. TTS failures are reported back over Telegram.
   - `voice`: a voice name or voice_id, fuzzy matched: case and punctuation are ignored, and it matches part of the name (`glados`, `vincent`, or a description like `pirate`) or a misspelling (`galdos`). If missing, ambiguous, or not a known voice (only logged, not reported back), ZmwTextToSpeech picks its default voice for its own `default_language` (this service's `tts_default_lang` isn't used).
-  - `speakers`: if missing or empty, all speakers. Unknown names are skipped and only logged; if none match, nothing plays.
+  - `speakers`: Sonos names and homeboard ids (see Speakers). If missing or empty, all speakers. Unknown names are skipped and only logged; if none match, nothing plays.
   - Volume can't be set, and `announce_volume` isn't applied: Sonos picks the volume (same as `/shout`).
 - `/bot_shout_voices` - Replies with a JSON list of voices: `[{"voice": "Glados", "locale": "en_US"}, ...]`.
-- `/bot_shout_speakers` - Replies with a JSON list of speaker names.
+- `/bot_shout_speakers` - Replies with a JSON list of speakers: `[{"name": "SpeakerCocina", "kind": "sonos"}, {"name": "portalcocina", "kind": "homeboard"}, ...]`.
 
 Replies go to ZmwTelegram's broadcast chat, which rate-limits outgoing messages. ZmwTelegram drops incoming messages over 2048 chars (including the command and its JSON), so keep reports under ~300 words.
 

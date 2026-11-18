@@ -104,13 +104,14 @@ def find_voice(voices, query):
 # max-length (2K, see zmw_telegram) message ~30s
 _ZMW_TTS_BOT_TIMEOUT = 60
 _ZMW_TTS_VOICES_TIMEOUT = 2
+_HOMEBOARD_LS_TIMEOUT = 2
 
 
 class ZmwSpeakerAnnounce(ZmwMqttService):
     """MQTT proxy for Sonos speaker announcements."""
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_speaker_announce", scheduler=_sched,
-                         svc_deps=["ZmwTextToSpeech", "ZmwTelegram"])
+                         svc_deps=["ZmwTextToSpeech", "ZmwTelegram", "ZmwHomeboard"])
         self._cfg = cfg
         self._announce_vol = cfg['announce_volume']
         self._announcement_history = deque(maxlen=10)
@@ -118,6 +119,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         # TTS mode: "auto" (default), "force_google_tts", "force_zmw_tts"
         self._tts_mode = cfg.get('tts_mode', 'auto')
         self._zmw_tts_voices = None
+        # Ids of the homeboards that can play audio, kept up to date by ZmwHomeboard's audio_targets
+        self._homeboard_audio_targets = []
 
         self._rr = MqttRequestReply(self.message_svc)
 
@@ -140,7 +143,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._https.register_www_dir(os.path.join(pathlib.Path(__file__).parent.resolve(), 'www'), '/')
         self._https.serve_url('/announce_user_recording', self._announce_user_recording, methods=['PUT', 'POST'])
         self._https.serve_url('/announce_tts', self._www_announce_tts)
-        self._https.serve_url('/ls_speakers', lambda: json.dumps(sorted(list(get_sonos_by_name()))))
+        self._https.serve_url('/ls_speakers', lambda: json.dumps([t['name'] for t in self._list_speakers()]))
         self._https.serve_url('/announcement_history', lambda: json.dumps(list(self._announcement_history)))
         self._https.serve_url('/svc_config', lambda: json.dumps({
             'https_server': self._https.server_url,
@@ -154,9 +157,10 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             log.info("HTTPS server available at: %s", self._https.server_url)
 
 
-    def _record_announcement(self, phrase, lang, volume, uri, *, source, tts_result=None, notify=True):
+    def _record_announcement(self, phrase, lang, volume, uri, *, source, tts_result=None, speakers=None,
+                             notify=True):
         """source is who asked for it: mqtt, http, telegram_user or telegram_bot. tts_result is what
-        _get_tts_asset returned, for TTS announcements."""
+        _get_tts_asset returned, for TTS announcements. speakers is what was requested (None: all)."""
         entry = {
             'timestamp': datetime.now().isoformat(),
             'source': source,
@@ -172,17 +176,43 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._announcement_history.append(entry)
 
         # Broadcast the spoken text as the announcement starts playing, so other
-        # services (e.g. ZmwHomeboard) can mirror it. Only meaningful for TTS
-        # announcements; asset/recording playbacks pass notify=False.
+        # services (e.g. ZmwHomeboard) can mirror it, on the same speakers. Only
+        # meaningful for TTS announcements; asset/recording playbacks pass notify=False.
         if notify:
             spoken = fuzzy_text or phrase
             if spoken:
-                self.publish_own_svc_message("announcement_in_progress", {"msg": spoken})
+                self.publish_own_svc_message("announcement_in_progress", {"msg": spoken, "speakers": speakers})
 
-    def _sonos_announce(self, uri, vol, speakers=None, msg=None, *, synced):
+    def _homeboard_targets(self):
+        """Ids of the homeboards that can play audio, or none while ZmwHomeboard is down."""
+        if "ZmwHomeboard" not in self.get_known_services():
+            return []
+        return list(self._homeboard_audio_targets)
+
+    def _list_speakers(self):
+        """Every announcement target: [{'name': ..., 'kind': 'sonos' | 'homeboard'}]. Slow (Sonos discovery), and
+        waits for ZmwHomeboard: don't call from the MQTT thread."""
+        if "ZmwHomeboard" in self.get_known_services():
+            # Asking is what makes ZmwHomeboard drop homeboards that have been offline for too long
+            self._fetch_homeboard_audio_targets(retries=1)
+        sonos = [{'name': n, 'kind': 'sonos'} for n in sorted(get_sonos_by_name())]
+        homeboards = [{'name': n, 'kind': 'homeboard'} for n in sorted(self._homeboard_targets())]
+        return sonos + homeboards
+
+    def _announce(self, uri, vol, speakers=None, msg=None, *, synced):
         """Play uri on the speakers, and broadcast what's being played so other services can react.
-        msg is the text a TTS request asked to say; None for recordings and assets. synced trades
-        latency for better playback sync between speakers (a skew is very noticeable in TTS)."""
+        speakers are Sonos names and homeboard ids; None plays on all of them. msg is the text a TTS
+        request asked to say; None for recordings and assets. synced trades latency for better playback
+        sync between Sonos speakers (a skew is very noticeable in TTS); homeboards can't be synced."""
+        all_homeboards = self._homeboard_targets()
+        if speakers is None:
+            sonos, homeboards = None, all_homeboards
+        else:
+            # Homeboard ids are generated from free text device names: don't make callers match their case
+            hb_by_lower = {hb.lower(): hb for hb in all_homeboards}
+            homeboards = [hb_by_lower[s.lower()] for s in speakers if s.lower() in hb_by_lower]
+            sonos = [s for s in speakers if s.lower() not in hb_by_lower]
+
         playing = {
             'uri': uri,
             'volume': vol,
@@ -191,7 +221,22 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if msg:
             playing['msg'] = msg
         self.publish_own_svc_message("currently_playing", playing)
-        sonos_announce(uri, volume=vol, ws_api_cfg=self._cfg, speakers=speakers, synced=synced)
+
+        # Before Sonos, which blocks until it's playing
+        for hb_id in homeboards:
+            cmd = {'homeboard_id': hb_id, 'uri': uri}
+            if vol is not None:
+                cmd['volume'] = vol
+            if msg:
+                cmd['msg'] = msg
+            try:
+                self.message_svc("ZmwHomeboard", "announce_audio", cmd)
+            except RuntimeError:
+                log.warning("Can't announce on homeboard '%s', ZmwHomeboard is down", hb_id)
+
+        # An empty list would mean every Sonos to sonos_announce
+        if sonos is None or sonos:
+            sonos_announce(uri, volume=vol, ws_api_cfg=self._cfg, speakers=sonos, synced=synced)
 
     # --- ZMW TTS integration ---
 
@@ -238,6 +283,8 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         if svc_name == 'ZmwTelegram' and subtopic == "on_command/bot_shout_speakers":
             # Speaker discovery is slow, don't block the MQTT thread
             threading.Thread(target=self._bot_reply_speakers, daemon=True).start()
+        if svc_name == 'ZmwHomeboard' and subtopic == "audio_targets":
+            self._set_homeboard_audio_targets(payload)
         self._rr.on_reply(subtopic, payload)
 
     def on_service_came_up(self, service_name):
@@ -246,6 +293,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             # Fetch voices even in force_google_tts mode: bot commands always use ZMW TTS
             # Run in a thread to avoid blocking the MQTT callback thread (would deadlock)
             threading.Thread(target=self._fetch_zmw_tts_voices, daemon=True).start()
+        if service_name == "ZmwHomeboard":
+            # audio_targets only says when it changes: ask for the current list
+            threading.Thread(target=self._fetch_homeboard_audio_targets, daemon=True).start()
         if service_name == "ZmwTelegram":
             self.message_svc("ZmwTelegram",
                              "register_command", {'cmd': 'shout', 'descr': 'Announce something over speakers'})
@@ -258,6 +308,27 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                 'cmd': 'bot_shout_voices', 'descr': 'List voices for bot_shout, as JSON'})
             self.message_svc("ZmwTelegram", "register_command", {
                 'cmd': 'bot_shout_speakers', 'descr': 'List speakers for bot_shout, as JSON'})
+
+    def _set_homeboard_audio_targets(self, homeboards):
+        if not isinstance(homeboards, list) or not all(isinstance(hb, str) for hb in homeboards):
+            log.warning("ZmwHomeboard sent bad audio targets: %s", homeboards)
+            return
+        if homeboards != self._homeboard_audio_targets:
+            log.info("Homeboards that can play audio: %s", homeboards)
+        self._homeboard_audio_targets = homeboards
+
+    def _fetch_homeboard_audio_targets(self, retries=3):
+        """Request the audio-capable homeboards, retrying to allow subscription to settle."""
+        import time
+        for attempt in range(retries):
+            result = self._rr.request("ZmwHomeboard", "ls_audio_targets", {},
+                                      "ls_audio_targets_reply", timeout=_HOMEBOARD_LS_TIMEOUT)
+            if result is not None:
+                self._set_homeboard_audio_targets(result)
+                return
+            if attempt < retries - 1:
+                time.sleep(2)
+        log.warning("ZmwHomeboard ls_audio_targets got no reply after %d attempts", retries)
 
     def _fetch_zmw_tts_voices(self, retries=3):
         """Request voice list from ZmwTextToSpeech, retrying to allow subscription to settle."""
@@ -317,7 +388,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self.message_svc("ZmwTelegram", "send_text", {'msg': json.dumps(voices)})
 
     def _bot_reply_speakers(self):
-        self.message_svc("ZmwTelegram", "send_text", {'msg': json.dumps(sorted(get_sonos_by_name()))})
+        self.message_svc("ZmwTelegram", "send_text", {'msg': json.dumps(self._list_speakers())})
 
     def _handle_shout(self, txt, voice=None, speakers=None, fuzzy=True, is_bot=False):
         """Announce txt. voice=None uses the default TTS voice, speakers=None announces on all speakers.
@@ -331,9 +402,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             else:
                 local_path, tts_result = self._get_tts_asset(txt, lang_or_voice=voice, fuzzy=fuzzy)
             remote_path = f"{self._public_tts_base}/{local_path}"
-            self._record_announcement(txt, voice, vol, remote_path, tts_result=tts_result,
+            self._record_announcement(txt, voice, vol, remote_path, tts_result=tts_result, speakers=speakers,
                                       source='telegram_bot' if is_bot else 'telegram_user')
-            self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
+            self._announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
         except Exception as ex:
             log.exception("Failed to handle shout: '%s'", txt)
             if is_bot:
@@ -388,17 +459,18 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
     def get_mqtt_description(self):
         return {
-            "description": "Text-to-speech announcements. Say a message out loud on speakers. Useful for calling people or announcing things. Broadcasts to all known Sonos speakers",
+            "description": "Text-to-speech announcements. Say a message out loud on speakers. Useful for calling people or announcing things. Plays on all Sonos speakers and audio-capable homeboards, or on the ones requested",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: /shout command. (ZmwTextToSpeech is request/reply only, so not a read.)
-            "reads_mqtt_topic": ["zmw_telegram"],
-            # Writes: synthesis requests, plus registering the /shout command.
-            "writes_mqtt_topic": ["zmw_text_to_speech", "zmw_telegram"],
+            # Reads: /shout commands, and which homeboards can play audio. (ZmwTextToSpeech is request/reply
+            # only, so not a read.)
+            "reads_mqtt_topic": ["zmw_telegram", "zmw_homeboard"],
+            # Writes: synthesis requests, registering the /shout commands, and announce_audio to homeboards.
+            "writes_mqtt_topic": ["zmw_text_to_speech", "zmw_telegram", "zmw_homeboard"],
             "llm_skip_commands": ["ls"],
             "commands": {
                 "ls": {
-                    "description": "List speakers. Response on ls_reply",
+                    "description": "List speakers (Sonos and homeboards that can play audio). Response on ls_reply",
                     "params": {}
                 },
                 "tts": {
@@ -421,7 +493,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             },
             "announcements": {
                 "ls_reply": {
-                    "description": "List of speaker names",
+                    "description": "List of speaker names: Sonos speakers, then homeboard ids",
                     "payload": ["speaker_name_1", "speaker_name_2"]
                 },
                 "tts_reply": {
@@ -432,15 +504,16 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                     }
                 },
                 "announcement_in_progress": {
-                    "description": "Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text",
-                    "payload": {"msg": "The text being announced"}
+                    "description": "Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text, on the same speakers",
+                    "payload": {"msg": "The text being announced",
+                                "speakers": "Requested speaker names, Sonos or homeboard (null: all speakers)"}
                 },
                 "currently_playing": {
                     "description": "Published whenever the speakers are asked to play a sound (TTS, user recording or asset)",
                     "payload": {
                         "uri": "URL of the audio being played",
                         "volume": "Requested volume 0-100 (null: speaker default)",
-                        "speakers": "List of target speaker names (null: all speakers)",
+                        "speakers": "List of target speaker names, Sonos or homeboard (null: all speakers)",
                         "msg?": "Original text of the TTS request; absent for recordings and assets",
                     }
                 },
@@ -477,8 +550,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
 
         local_path, tts_result = self._get_tts_asset(txt, lang, fuzzy=fuzzy)
         remote_path = f"{self._public_tts_base}/{local_path}"
-        self._record_announcement(txt, lang, vol, remote_path, tts_result=tts_result, source='http')
-        self._sonos_announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
+        self._record_announcement(txt, lang, vol, remote_path, tts_result=tts_result, speakers=speakers,
+                                  source='http')
+        self._announce(remote_path, vol, speakers=speakers, msg=txt, synced=True)
         return {}
 
     def _announce_user_recording(self):
@@ -497,7 +571,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(request.form)
         log.info("Saved recording to '%s' -> '%s'. Will announce at vol=%s", mp3_path, remote_path, vol)
         self._record_announcement('<user recording>', '', vol, remote_path, source='http', notify=False)
-        self._sonos_announce(remote_path, vol, synced=False)
+        self._announce(remote_path, vol, synced=False)
         return {}
 
     def on_service_received_message(self, subtopic, payload):
@@ -505,7 +579,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
             return
         match subtopic:
             case "ls":
-                self.publish_own_svc_message("ls_reply", sorted(list(get_sonos_by_name())))
+                # Waits for ZmwHomeboard, can't block the MQTT callback thread (would deadlock)
+                threading.Thread(target=lambda: self.publish_own_svc_message(
+                    "ls_reply", [t['name'] for t in self._list_speakers()]), daemon=True).start()
             case "tts":
                 return self._tts_and_play(payload)
             case "play_asset":
@@ -544,7 +620,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self.publish_own_svc_message("tts_reply", msg)
         vol = self._get_payload_vol(payload)
         self._record_announcement(payload['msg'], lang, vol, remote_path, tts_result=tts_result, source='mqtt')
-        self._sonos_announce(remote_path, vol, msg=payload['msg'], synced=True)
+        self._announce(remote_path, vol, msg=payload['msg'], synced=True)
 
     def _save_asset_to_www(self, local_path):
         try:
@@ -600,7 +676,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         vol = self._get_payload_vol(payload)
         log.info("Announcing asset %s with volume %d", asset_uri, vol)
         self._record_announcement('<asset playback>', '', vol, asset_uri, source='mqtt', notify=False)
-        self._sonos_announce(asset_uri, vol, synced=False)
+        self._announce(asset_uri, vol, synced=False)
 
 
     def _get_payload_vol(self, payload):
