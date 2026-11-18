@@ -16,6 +16,13 @@ HB ?= homeboard
 test_ls:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/list' -m '{}'
 
+# Homeboards that can play audio: the list on request (test_ls_audio_targets), and whenever it changes
+test_listen_audio_targets:
+	mosquitto_sub -v -h 127.0.0.1 -t 'zmw_homeboard/audio_targets' -t 'zmw_homeboard/ls_audio_targets_reply'
+
+test_ls_audio_targets:
+	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/ls_audio_targets' -m '{}'
+
 test_next:
 	mosquitto_pub -h 127.0.0.1 -t 'zmw_homeboard/next' -m '{"homeboard_id": "$(HB)"}'
 

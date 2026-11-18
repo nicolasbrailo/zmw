@@ -1,5 +1,6 @@
 import os
 import pathlib
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -35,6 +36,19 @@ _QR_URL_TEMPLATE = "{www_url}/index.html?hb_id={hb_id}"
 
 # How long a mirrored speaker announcement stays on the overlay, in seconds.
 _SPEAKER_ANNOUNCE_OVERLAY_SECS = 60
+
+# An audio-capable homeboard that goes offline stays an audio target for this long: devices drop off the broker
+# and reconnect often, and the list shouldn't flap with them. Only checked when the list is needed.
+_AUDIO_TARGET_OFFLINE_TTL_SECS = 10 * 60
+
+
+def can_play_audio(host_info):
+    """Whether a homeboard plays announce_audio, going by its availability record.
+
+    Devices that can say so with an `announce_audio` flag (AstroDock, on Portals, sets it from its "Play audio
+    announcements" switch). Without it (eg the Raspberry Pi homeboards) there's no audio.
+    """
+    return host_info.get('announce_audio') is True
 
 
 class ZmwHomeboard(ZmwMqttService):
@@ -79,6 +93,13 @@ class ZmwHomeboard(ZmwMqttService):
         # record, per subtopic. Only touched from the MQTT loop thread.
         self._republished = {}
 
+        # The homeboards that can play audio, as last published on audio_targets,
+        # and since when each offline homeboard has been offline. Used from both
+        # MQTT loop threads, under the lock.
+        self._audio_targets_lock = threading.Lock()
+        self._published_audio_targets = None
+        self._offline_since = {}
+
         # Registered before the MQTT link starts: its callbacks build overlays,
         # and the overlay's QR code points at this UI.
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
@@ -113,6 +134,29 @@ class ZmwHomeboard(ZmwMqttService):
         _sched.add_job(self._clear_all_overlays,
                        trigger='cron', hour=23, minute=0)
         self._janitor = HomeboardJanitor(self._core, _sched)
+
+    def _audio_targets(self):
+        """Ids of the homeboards that can play audio announcements: online, or offline for less than
+        _AUDIO_TARGET_OFFLINE_TTL_SECS. Called whenever the list is needed, which is also when homeboards
+        that have been offline for too long drop out of it: audio_targets is published if the list changed."""
+        now = time.time()
+        with self._audio_targets_lock:
+            targets = []
+            for hb in self._core.list_homeboards():
+                if not can_play_audio(hb.get('host_info') or {}):
+                    continue
+                if hb['state'] == 'online':
+                    self._offline_since.pop(hb['id'], None)
+                elif now - self._offline_since.setdefault(hb['id'], now) > _AUDIO_TARGET_OFFLINE_TTL_SECS:
+                    continue
+                targets.append(hb['id'])
+
+            if targets == self._published_audio_targets:
+                return targets
+            self._published_audio_targets = targets
+        log.info("Homeboards that can play audio: %s", targets)
+        self.publish_own_svc_message('audio_targets', targets)
+        return targets
 
     def _active_homeboards(self):
         """Homeboards worth composing/pushing overlays to.
@@ -311,6 +355,9 @@ class ZmwHomeboard(ZmwMqttService):
         return sent_to, failed
 
     def _on_hb_host_info(self, hb_id, _data):
+        # Every availability record: a board going on/offline (noted, but only dropped from the list after a
+        # while), or switching audio announcements on/off
+        self._audio_targets()
         log.info("Config for '%s' changed, recomputing overlay", hb_id)
         # Recompute everyone: weather comes from ZmwMeteoRelay's cache, so
         # this is cheap unless we have many homeboards.
@@ -381,9 +428,10 @@ class ZmwHomeboard(ZmwMqttService):
                                 run_date=datetime.now() + timedelta(seconds=2))
 
     def on_dep_published_message(self, svc_name, subtopic, payload):
-        # Mirror live speaker announcements onto every homeboard overlay: when
+        # Mirror live speaker announcements onto the homeboard overlays: when
         # ZmwSpeakerAnnounce speaks something, show the same text as if 'announce'
-        # had been called over MQTT for each homeboard.
+        # had been called over MQTT for each homeboard. Only on the homeboards it
+        # was targeted at, if it was targeted (speakers is null when it plays everywhere).
         if svc_name == "ZmwSpeakerAnnounce" and subtopic == "announcement_in_progress":
             if not isinstance(payload, dict):
                 log.warning("ZmwSpeakerAnnounce announcement_in_progress with bad payload: %s", payload)
@@ -391,23 +439,18 @@ class ZmwHomeboard(ZmwMqttService):
             text = (payload.get('msg') or '').strip()
             if not text:
                 return
-            log.info("Mirroring speaker announcement onto homeboards: '%s'", text)
-            for hb in self._active_homeboards():
+            speakers = payload.get('speakers')
+            targets = self._active_homeboards()
+            if isinstance(speakers, list):
+                # Same as ZmwSpeakerAnnounce, homeboard ids are matched regardless of case
+                wanted = {s.lower() for s in speakers if isinstance(s, str)}
+                targets = [hb for hb in targets if hb['id'].lower() in wanted]
+            log.info("Mirroring speaker announcement onto homeboards %s: '%s'", [hb['id'] for hb in targets], text)
+            for hb in targets:
                 self._set_announce(hb['id'], text, _SPEAKER_ANNOUNCE_OVERLAY_SECS)
 
-        # Whenever the speakers play anything (TTS, recordings, assets), tell
-        # every homeboard what's playing.
-        elif svc_name == "ZmwSpeakerAnnounce" and subtopic == "currently_playing":
-            if not isinstance(payload, dict) or not payload.get('uri'):
-                log.warning("ZmwSpeakerAnnounce currently_playing with bad payload: %s", payload)
-                return
-            failed = []
-            for hb in self._active_homeboards():
-                if not self._core.announce_audio(hb['id'], payload['uri'],
-                                                 payload.get('volume'), payload.get('msg')):
-                    failed.append(hb['id'])
-            if failed:
-                log.warning("announce_audio failed for %s, payload: %s", failed, payload)
+        # Audio isn't mirrored: ZmwSpeakerAnnounce sends announce_audio to the
+        # homeboards it targets (see audio_targets)
 
         # Someone rang: every homeboard gets the ring, with the door's streams so it can show who's there
         elif svc_name == "ZmwDoorman" and subtopic == "on_doorbell_ring":
@@ -521,9 +564,10 @@ class ZmwHomeboard(ZmwMqttService):
             "description": "Homeboard service integration",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: mirrors live speaker announcements onto the overlay,
-            # forwards what the speakers are playing to every homeboard, and
-            # tells them when the doorbell rings.
+            # Reads: mirrors live speaker announcements onto the overlay, and
+            # tells them when the doorbell rings. Audio announcements come in as
+            # announce_audio commands from ZmwSpeakerAnnounce, for the homeboards
+            # it targets.
             # Own state is published too (consumed by ZmwSensormon).
             "reads_mqtt_topic": ["zmw_speaker_announce", "zmw_doorman"],
             "writes_mqtt_topic": [],
@@ -575,13 +619,18 @@ class ZmwHomeboard(ZmwMqttService):
                     }
                 },
                 "announce_audio": {
-                    "description": "Tell a homeboard that the speakers are playing an audio file",
+                    "description": "Play an audio file on a homeboard, showing msg while it plays. Only for "
+                                   "homeboards that can play audio (see ls_audio_targets); dropped for others",
                     "params": {
                         "homeboard_id": "Name of the target homeboard",
-                        "uri": "URL of the audio being played",
-                        "volume?": "Volume 0-100 the speakers were asked to use",
+                        "uri": "URL of the audio to play",
+                        "volume?": "Volume 0-100 (default: the device's, 40% on a Portal)",
                         "msg?": "Text being spoken, when the audio comes from a TTS request",
                     }
+                },
+                "ls_audio_targets": {
+                    "description": "List the homeboards that can play audio. Response on ls_audio_targets_reply",
+                    "params": {}
                 },
                 "doorbell_ring": {
                     "description": "Tell a homeboard the doorbell rang (sent to all of them on every ring)",
@@ -614,6 +663,16 @@ class ZmwHomeboard(ZmwMqttService):
                 },
             },
             "announcements": {
+                "audio_targets": {
+                    "description": "The homeboards that can play audio (announce_audio), sent whenever that "
+                                   "changes. A homeboard that goes offline is only dropped once it's been offline "
+                                   "for a while, the next time the list is needed",
+                    "payload": ["homeboard_id", "..."]
+                },
+                "ls_audio_targets_reply": {
+                    "description": "Response to ls_audio_targets",
+                    "payload": ["homeboard_id", "..."]
+                },
             }
         }
 
@@ -624,6 +683,9 @@ class ZmwHomeboard(ZmwMqttService):
         # commands are never nested
         if '/' in subtopic:
             return
+        # Self-echo of our own announcement
+        if subtopic == 'audio_targets':
+            return
         if not isinstance(payload, dict):
             log.warning("Ignoring '%s' with non-dict payload: %s", subtopic, payload)
             return
@@ -632,6 +694,9 @@ class ZmwHomeboard(ZmwMqttService):
 
         if subtopic == "list":
             self.publish_own_svc_message(f'list_reply', self._core.list_homeboards())
+            ok = True
+        elif subtopic == "ls_audio_targets":
+            self.publish_own_svc_message('ls_audio_targets_reply', self._audio_targets())
             ok = True
         elif subtopic == "next":
             ok = self._core.next(hb_id)
@@ -652,8 +717,13 @@ class ZmwHomeboard(ZmwMqttService):
                                     payload.get('msg', ''),
                                     payload.get('timeout_secs', 60))
         elif subtopic == "announce_audio":
-            ok = self._core.announce_audio(hb_id, payload.get('uri'),
-                                           payload.get('volume'), payload.get('msg'))
+            if hb_id not in self._audio_targets():
+                log.warning("Homeboard '%s' can't play audio (or has been offline for a while), dropping "
+                            "announce_audio", hb_id)
+                ok = False
+            else:
+                ok = self._core.announce_audio(hb_id, payload.get('uri'),
+                                               payload.get('volume'), payload.get('msg'))
         elif subtopic == "doorbell_ring":
             ok = self._core.doorbell_ring(hb_id, payload.get('rtsp_urls') or {})
         elif subtopic == "set_svg_overlay":

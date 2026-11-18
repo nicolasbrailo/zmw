@@ -63,6 +63,25 @@ each under `zmw_homeboard/<prefix>/`:
 
 Each is sent only when that part changed, and not at all while it's null.
 
+## Speaker announcements
+
+Every spoken announcement from ZmwSpeakerAnnounce (`announcement_in_progress`) is shown as text on the
+homeboards' overlay: on all of them for an announcement that plays everywhere, or only on the homeboards it
+was targeted at (its `speakers`). So an announcement targeted only at Sonos speakers shows on none, and the
+Raspberry Pi homeboards, which can't be targeted, only show announcements that play everywhere.
+
+Audio is targeted: ZmwSpeakerAnnounce sends `announce_audio` for each homeboard it should play on. Only
+homeboards that can play audio take it, and this service tells ZmwSpeakerAnnounce which ones those are: on
+`ls_audio_targets`, and on `audio_targets` whenever the list changes (both a JSON list of homeboard ids). A
+homeboard is listed when its `availability` record says `"announce_audio": true` (AstroDock sets it from its
+"Play audio announcements" switch). Without the flag, like the Raspberry Pi homeboards, there's no audio.
+
+Devices drop off the broker and reconnect often, so a homeboard that goes offline stays listed until it's been
+offline for 10 minutes (`_AUDIO_TARGET_OFFLINE_TTL_SECS`). Nothing is published when it goes away: it's only
+dropped the next time the list is needed (an availability record from any homeboard, `ls_audio_targets`, or an
+`announce_audio` for it), and only then is `audio_targets` sent. An announcement sent while it's offline is
+lost, as any other command would be.
+
 ## WWW UI
 
 `www/app.js` shows every known homeboard and drives it through these endpoints,
