@@ -114,6 +114,17 @@ function thingAvailabilityProps(thing) {
   };
 }
 
+// Subtitle for an offline thing. z2m's last_seen may be an ISO string or epoch ms, depending on its config.
+function offlineSubtitle(thing) {
+  const seen = thing.last_seen != null ? new Date(thing.last_seen) : null;
+  if (!seen || isNaN(seen)) return 'Offline';
+  const sameDay = seen.toDateString() === new Date().toDateString();
+  const when = sameDay
+    ? seen.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : seen.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `Offline · last seen ${when}`;
+}
+
 // "FloorlampLeft" -> "Floorlamp left", "A_Dormir" -> "A dormir"
 function prettyThingName(name) {
   return name.replace(/_/g, ' ')
@@ -303,7 +314,7 @@ class ZmwLight extends React.Component {
 
   renderSubtitle() {
     const light = this.props.light;
-    if (light.available === false) return 'Offline';
+    if (light.available === false) return offlineSubtitle(light);
     if (!this.state.state) return 'Off';
     if (this.state.brightness == null) return 'On';
     const pct = Math.max(1, Math.round(this.state.brightness / 254 * 100));
@@ -395,7 +406,7 @@ class ZmwSwitch extends React.Component {
     return (
       <div className={this.state.state ? 'zl-row' : 'zl-row zl-off'} {...thingAvailabilityProps(sw)}>
         <label className="zl-name" htmlFor={inputId}>
-          {prettyThingName(displayName)}<small>{sw.available === false ? 'Offline' : 'Switch'}</small>
+          {prettyThingName(displayName)}<small>{sw.available === false ? offlineSubtitle(sw) : 'Switch'}</small>
         </label>
         <span />
         <input

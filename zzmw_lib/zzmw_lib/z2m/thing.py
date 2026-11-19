@@ -117,6 +117,8 @@ class Zigbee2MqttThing:
     # False while the network reports the device as offline (<topic>/<name>/availability). Devices that never report
     # availability are always available.
     available: bool = True
+    # Network's last_seen timestamp for this device (only if z2m's last_seen option is enabled). Out of schema.
+    last_seen: str = None
 
     def dictify(self):
         """ Get metadata on this thing """
@@ -135,6 +137,7 @@ class Zigbee2MqttThing:
             "user_defined": self.user_defined,
             "z2m_topic": self.z2m_topic,
             "available": self.available,
+            "last_seen": self.last_seen,
         }
 
     def debug_str(self):
@@ -178,6 +181,8 @@ class Zigbee2MqttThing:
                     self.battery = val
                 elif mqtt_msg_field == 'voltage':
                     self.voltage = val
+                elif mqtt_msg_field == 'last_seen':
+                    self.last_seen = val
                 else:
                     log.warning(
                         'Unsupported action in mqtt message: thing %s ID %d has no %s, will add it',
@@ -293,6 +298,9 @@ class Zigbee2MqttThing:
         state['thing_name'] = self.name
         state['extras'] = self.extras.get_all()
         state['available'] = self.available
+        if not self.available:
+            # Only while offline: last_seen changes on every message, it would make every update look like a change
+            state['last_seen'] = self.last_seen
         return state
 
     def make_mqtt_status_update(self):
