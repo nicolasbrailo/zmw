@@ -48,7 +48,7 @@ class DoorMan extends React.Component {
 
   requestSnap() {
     this.setState({ snapLoading: true, snapKey: this.state.snapKey + 1 });
-    fetch(`${this.props.api_base_path}/request_snap`, { method: 'PUT' });
+    mFetch(`${this.props.api_base_path}/request_snap`, { method: 'PUT' });
     setTimeout(() => {
       this.setState({ snapLoading: false, snapKey: this.state.snapKey + 1 });
       this.fetchStats();
@@ -100,7 +100,7 @@ class DoorMan extends React.Component {
   }
 
   skipChimes() {
-    fetch(`${this.props.api_base_path}/skip_chimes`, { method: 'PUT' })
+    mFetch(`${this.props.api_base_path}/skip_chimes`, { method: 'PUT' })
       .then(res => res.json())
       .then(res => {
         if (res.error || !res.skipping_chimes_timeout_secs) {
@@ -200,23 +200,6 @@ class DoorMan extends React.Component {
     );
   }
 }
-function millisecToNextSlotChg() {
-  const now = new Date();
-  const qr = Math.floor(now.getMinutes() / 15);
-  const nxt_slot_chg_min = (15 * (qr + 1)) % 60;
-  const slot_chg = new Date();
-  slot_chg.setMinutes(nxt_slot_chg_min);
-  slot_chg.setSeconds(0);
-  const ms_to_chg = (slot_chg - now);
-
-  if (nxt_slot_chg_min == 0) {
-    // If we're rolling over to start of the hour, add one hour
-    return ms_to_chg + 60 * 60 * 1000;
-  }
-
-  return ms_to_chg;
-}
-
 function renderScheduleTable(sched, slotGenerator) {
   const qr_groupped_sched = {};
   for (let hr=0; hr<24; ++hr) {
@@ -267,10 +250,16 @@ class HeatingControls extends React.Component {
   }
 
   componentDidMount() {
-    // If no data provided via props, fetch it
+    // If no data provided via props, fetch it (and keep it fresh, same as MqttHeating). Otherwise the parent owns
+    // the data and its refreshing.
     if (!this.props.allow_on && this.props.api_base_path) {
       this._refresh();
+      this._poller = mPoll(this._refresh, 30000);
     }
+  }
+
+  componentWillUnmount() {
+    this._poller?.stop();
   }
 
   componentDidUpdate(prevProps) {
@@ -448,9 +437,8 @@ class MqttHeating extends React.Component {
     this._toggleConfig = this._toggleConfig.bind(this);
     this._renderSlot = this._renderSlot.bind(this);
     this._renderTemplateSlot = this._renderTemplateSlot.bind(this);
-
-    const app_visibility = new VisibilityCallback();
-    app_visibility.app_became_visible = this.refresh;
+    this._poll = this._poll.bind(this);
+    this._poller = null;
 
     this.state = {
       configuring: false,
@@ -459,17 +447,24 @@ class MqttHeating extends React.Component {
       allow_on: null,
       mqtt_thing_reports_on: null,
       monitoring_sensors: null,
-      refreshId: null,
-      app_visibility,
     };
   }
 
-  refresh() {
-    if (this.state.refreshId) {
-      // Calling clearTimeout with an invalid id doesn't throw an error
-      clearTimeout(this.state.refreshId);
-    }
+  componentDidMount() {
+    this._poller = mPoll(this._poll, 30000);
+  }
 
+  componentWillUnmount() {
+    this._poller?.stop();
+  }
+
+  _poll() {
+    // Refreshing while configuring would replace the template being edited
+    // Rest of the time, poll the backend for current state, as the state may come from this UI or from another backend service
+    if (!this.state.configuring) this.refresh();
+  }
+
+  refresh() {
     if (this.state.configuring) {
       console.log("Configuring: will refresh schedule");
       mJsonGet(`${this.props.api_base_path}/template_schedule`, tmpl_state => {
@@ -483,8 +478,7 @@ class MqttHeating extends React.Component {
       this.setState({active_schedule: state.active_schedule,
                      allow_on: state.allow_on,
                      mqtt_thing_reports_on: state.mqtt_thing_reports_on,
-                     monitoring_sensors: state.monitoring_sensors,
-                     refreshId: setInterval(this.refresh, millisecToNextSlotChg())});
+                     monitoring_sensors: state.monitoring_sensors});
     });
   }
 
@@ -2608,7 +2602,7 @@ class TTSAnnounce extends React.Component {
       form.append("audio_data", blob, "mic_cap.ogg");
       form.append("vol", this.state.ttsVolume);
 
-      fetch(`${this.props.api_base_path}/announce_user_recording`, {
+      mFetch(`${this.props.api_base_path}/announce_user_recording`, {
         method: 'POST',
         body: form
       }).then(resp => {
@@ -2781,29 +2775,27 @@ class ZmwSucks extends React.Component {
     super(props);
     this.state = {
       robots: null,
+      history: {},
     };
     this.fetchState = this.fetchState.bind(this);
-    this.refreshInterval = null;
+    this.poller = null;
   }
 
   componentDidMount() {
     this.fetchState();
-    this.refreshInterval = setInterval(this.fetchState, 5000);
+    this.poller = mPoll(this.fetchState, 5000);
   }
 
   componentWillUnmount() {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-    }
-  }
-
-  on_app_became_visible() {
-    this.fetchState();
+    this.poller?.stop();
   }
 
   fetchState() {
     mJsonGet(`${this.props.api_base_path}/get_state`, (res) => {
       this.setState({ robots: res });
+    });
+    mJsonGet(`${this.props.api_base_path}/get_history`, (res) => {
+      this.setState({ history: res });
     });
   }
 
@@ -2969,11 +2961,61 @@ class ZmwSucks extends React.Component {
     );
   }
 
+  formatRunResult(run) {
+    const known = {
+      running: 'running',
+      ok: 'completed',
+      failed: 'failed',
+      cancelled: 'cancelled',
+      unknown: 'ended, not completed',
+      missed: 'didn\'t start',
+    };
+    const txt = known[run.result] || run.result;
+    return (run.result === 'ok' || run.result === 'running') ? txt : (<span className="warn">{txt}</span>);
+  }
+
+  renderHistory(alias) {
+    const runs = this.state.history[alias] || [];
+    if (runs.length === 0) {
+      return (<p><small>No runs yet</small></p>);
+    }
+    const fmtTime = (secs) => secs ? new Date(secs * 1000).toLocaleString() : '?';
+    return (
+      <details>
+        <summary>History</summary>
+        <table style={{width: '100%', maxWidth: '500px'}}>
+          <thead><tr><th>Started</th><th>By</th><th>Result</th><th>Duration</th><th>Cleaned</th></tr></thead>
+          <tbody>
+            {runs.map((run, i) => (<React.Fragment key={i}>
+              <tr>
+                <td>{fmtTime(run.start)}</td>
+                <td>{run.scheduled
+                       ? `schedule${run.scheduled_time ? ` ${run.scheduled_time}` : ''}`
+                       : this.formatInitiator(run.initiator)}</td>
+                <td>{this.formatRunResult(run)}</td>
+                <td>{run.minutes ?? '-'}{run.minutes !== null && run.minutes !== undefined ? ' min' : ''}</td>
+                <td>{run.sqft !== null && run.sqft !== undefined ? this.formatArea(run.sqft) : '-'}</td>
+              </tr>
+              {(run.problems.length > 0 || run.details) && (
+                <tr><td colSpan="5"><small>
+                  {run.problems.length > 0 && `Problems: ${run.problems.join(', ')}. `}
+                  {run.details}
+                  {run.end && ` Ended ${fmtTime(run.end)}.`}
+                </small></td></tr>
+              )}
+            </React.Fragment>))}
+          </tbody>
+        </table>
+      </details>
+    );
+  }
+
   renderRobot(r) {
     if (!r.connected) {
       return (
         <div key={r.alias} className="card warn">
           <p><b>{r.alias}</b>: not connected</p>
+          {this.renderHistory(r.alias)}
         </div>
       );
     }
@@ -2996,6 +3038,7 @@ class ZmwSucks extends React.Component {
         </table>
         {this.renderSchedule(r)}
         {this.renderSettings(r)}
+        {this.renderHistory(r.alias)}
         {this.renderLifetime(r.lifetime, r.battery)}
         <button onClick={() => this.sendCommand('start', r.alias)}>Start</button>
         <button onClick={() => this.sendCommand('pause', r.alias)}>Pause</button>
@@ -3057,11 +3100,11 @@ class AlertsList extends React.Component {
 
   componentDidMount() {
     this.fetchAlerts();
-    this.interval = setInterval(() => this.fetchAlerts(), 30000);
+    this.poller = mPoll(() => this.fetchAlerts(), 30000);
   }
 
   componentWillUnmount() {
-    if (this.interval) clearInterval(this.interval);
+    this.poller?.stop();
   }
 
   fetchAlerts() {
