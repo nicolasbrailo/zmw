@@ -42,7 +42,7 @@ class UnifiClientmon extends React.Component {
   }
 
   setTrusted(mac, trusted) {
-    fetch('/device_trust', {
+    mFetch('/device_trust', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac, trusted }),
@@ -53,7 +53,7 @@ class UnifiClientmon extends React.Component {
     if (!confirm(`Forget ${mac}? It will be reported as a new device next time it's seen online.`)) {
       return;
     }
-    fetch('/device_forget', {
+    mFetch('/device_forget', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac }),
@@ -76,7 +76,7 @@ class UnifiClientmon extends React.Component {
   }
 
   saveAlias(mac) {
-    fetch('/device_alias', {
+    mFetch('/device_alias', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac, alias: this.state.aliasInput }),

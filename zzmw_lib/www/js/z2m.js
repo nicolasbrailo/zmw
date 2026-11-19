@@ -2,6 +2,22 @@ function m$(elem) {
   return document.getElementById(elem);
 }
 
+// Drop-in fetch() replacement that keeps mNet's state up to date: use it for any request that can't go through
+// mAjax (eg POST or FormData bodies). Rejects with fetch's own error, tagged with `netDown` so that
+// showGlobalError ignores it (mNet reports it instead).
+function mFetch(...args) {
+  return fetch(...args).then(
+    (response) => {
+      mNetMarkUp();
+      return response;
+    },
+    (err) => {
+      mNetMarkDown();
+      err.netDown = true;
+      throw err;
+    });
+}
+
 function mAjax(cfg) {
   const method = (cfg.type || 'GET').toUpperCase();
   const isJson = cfg.dataType?.toLowerCase() === 'json';
@@ -38,11 +54,9 @@ function mAjax(cfg) {
     console.error("Request.data is not null for non-PUT method, not sure if valid", cfg);
   }
 
-  fetch(url, options)
-    // A rejected fetch means the server wasn't reachable at all (vs an HTTP error, which still is a response)
-    .catch((err) => { throw { netDown: true, cause: err }; })
+  // A rejected fetch means the server wasn't reachable at all (vs an HTTP error, which still is a response)
+  mFetch(url, options)
     .then(async (response) => {
-      mNetMarkUp();
       if (!response.ok) {
         throw {
           status: response.status,
@@ -60,8 +74,7 @@ function mAjax(cfg) {
     .then(cfg.success)
     .catch((err) => {
       if (err?.netDown) {
-        console.warn(`mAjax: can't reach server for ${url}`, err.cause);
-        mNetMarkDown();
+        console.warn(`mAjax: can't reach server for ${url}`, err);
         // Callers still get an error (eg to reset their UI), but showGlobalError ignores it: mNet owns that banner
         cfg.error?.({
           netDown: true,

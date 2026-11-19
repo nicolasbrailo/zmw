@@ -149,7 +149,7 @@ class TTSAnnounce extends React.Component {
       form.append("audio_data", blob, "mic_cap.ogg");
       form.append("vol", this.state.ttsVolume);
 
-      fetch(`${this.props.api_base_path}/announce_user_recording`, {
+      mFetch(`${this.props.api_base_path}/announce_user_recording`, {
         method: 'POST',
         body: form
       }).then(resp => {

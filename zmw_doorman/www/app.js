@@ -48,7 +48,7 @@ class DoorMan extends React.Component {
 
   requestSnap() {
     this.setState({ snapLoading: true, snapKey: this.state.snapKey + 1 });
-    fetch(`${this.props.api_base_path}/request_snap`, { method: 'PUT' });
+    mFetch(`${this.props.api_base_path}/request_snap`, { method: 'PUT' });
     setTimeout(() => {
       this.setState({ snapLoading: false, snapKey: this.state.snapKey + 1 });
       this.fetchStats();
@@ -100,7 +100,7 @@ class DoorMan extends React.Component {
   }
 
   skipChimes() {
-    fetch(`${this.props.api_base_path}/skip_chimes`, { method: 'PUT' })
+    mFetch(`${this.props.api_base_path}/skip_chimes`, { method: 'PUT' })
       .then(res => res.json())
       .then(res => {
         if (res.error || !res.skipping_chimes_timeout_secs) {
