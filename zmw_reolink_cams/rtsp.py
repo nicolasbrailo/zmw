@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 
+from apscheduler.jobstores.base import JobLookupError
 from ffmpeg_helper import rtsp_to_local_file, reencode_to_telegram_vid, gen_thumbnail_from_video
 from zzmw_lib.logs import build_logger
 
@@ -124,7 +125,11 @@ class Rtsp:
                     "Cam %s has ongoing recording. Extending timeout by %s seconds",
                     self._cam_host, recording_duration)
                 new_date = datetime.now() + timedelta(seconds=recording_duration)
-                self._recording_job.reschedule(trigger="date", run_date=new_date)
+                try:
+                    self._recording_job.reschedule(trigger="date", run_date=new_date)
+                except JobLookupError:
+                    # Job already fired, _on_recording_complete is about to tear down this recording
+                    log.info("Cam %s: recording is ending, can't extend it", self._cam_host)
                 return
 
             self._recording_job_updating = True
@@ -197,19 +202,21 @@ class Rtsp:
             # Recording disabled
             return
 
-        if not self._recording_job:
-            # User may call pet_timer before starting a recording job. We can ignore this
-            # because the recording hasn't started yet.
-            # log.warning("Cam %s: motion reported, recording is not active yet. Ignore timer pet",
-            #             self._cam_host)
-            return
-
         with self._update_lock:
+            if not self._recording_job or self._recording_job_updating:
+                # User may call pet_timer before starting a recording job, or while one is being torn
+                # down. We can ignore this because there is no recording to extend.
+                return
+
             log.info(
                 "Cam %s has ongoing recording. Extending timeout by %s seconds",
                 self._cam_host, self._recording_duration)
             new_date = datetime.now() + timedelta(seconds=self._recording_duration)
-            self._recording_job.reschedule(trigger="date", run_date=new_date)
+            try:
+                self._recording_job.reschedule(trigger="date", run_date=new_date)
+            except JobLookupError:
+                # Job already fired, _on_recording_complete is about to tear down this recording
+                log.info("Cam %s: recording is ending, can't extend it", self._cam_host)
 
 
     def reencode_for_telegram(self, fpath):
