@@ -1,6 +1,7 @@
 {
   "notify_on_schedule_success": true,
   "notify_on_schedule_failure": true,
+  "history_len": 20,
   "roombas": [
     {
       "alias": "Roomba",

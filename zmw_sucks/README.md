@@ -28,6 +28,20 @@ Missions not started by the schedule always notify problems and failures, but no
 - Service alerts also include: bin full, errors, stuck, a rejected password, robots not found on the network, and
   robots not connected for 30 minutes. A robot that is not found is only logged the first time.
 
+## History
+
+The last runs of each robot (`history_len` in config, default 20) are kept, and survive service restarts (in the
+runtime state cache). Shown in the UI, and available on `/get_history` and the `get_history` MQTT command. Each run
+has its start and end time, whether it was scheduled, who started it, duration and area cleaned, problems seen
+during the mission, and its result:
+
+- `running`, then `ok`, `failed`, `cancelled` (from the robot's mission counters, see Monitoring), or `unknown` if
+  the robot didn't count it, or the service didn't see it end (eg it was restarting)
+- `missed`: a scheduled run that didn't start (or the robot wasn't connected, so it can't be told)
+
+Duration and area are as last seen while running (missions are checked every 5 minutes), since the robot resets
+them when the mission ends.
+
 ## Schedule
 
 A robot can follow its own schedule (set in the iRobot app), or one in the service config (`schedule`, see
@@ -42,8 +56,8 @@ schedule of its own but was never seen connected, the service schedule is follow
 
 ## Configuration
 
-`config.json` (see `config.template.json`) has the notification settings (see Monitoring), and a `roombas`
-list, one entry per robot:
+`config.json` (see `config.template.json`) has the notification settings (see Monitoring), `history_len` (see
+History), and a `roombas` list, one entry per robot:
 
 - `alias`: unique name for the robot, used in MQTT topics (`zmw_sucks/<alias>/state`) and endpoints
 - `blid`: robot ID
@@ -77,6 +91,7 @@ To update it to whatever is on the upstream default branch: `make roombapy_dep_u
 ## WWW Endpoints
 
 - `/` - React UI with each robot's status, stats and Start/Pause/Dock/Find buttons (served from `www/` directory)
+- `GET /get_history` - Map of robot alias to its last runs, newest first (see History)
 - `GET /get_state` - Map of robot alias to current state: status, current mission, lifetime stats, Wi-Fi signal and
   position (if the robot supports position requests; only polled while away from the dock)
 - `PUT /set_setting/<alias>/<setting>/<value>` - Change a setting: `passes` (auto/one/two), `bin_pause`

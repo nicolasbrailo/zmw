@@ -1,6 +1,7 @@
 """ Checks that robots run when scheduled, and that their missions don't run into trouble. Problems (and, optionally,
 successful scheduled runs) are reported with a notify callback (eg Telegram). Missed runs are kept as alerts until
-they clear. Also starts the runs of robots with a schedule in the service config, instead of their own. """
+they clear. Also starts the runs of robots with a schedule in the service config, instead of their own, and keeps a
+history of runs (see RunHistory). """
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -65,8 +66,9 @@ def _counter_increased(before, now, name):
 class MissionMonitor:
     """ Uses the service scheduler; get_robots returns the list of Roomba objects to monitor. Problems in missions
     not started by the schedule are always notified; for scheduled runs, it depends on notify_on_schedule_* """
-    def __init__(self, sched, get_robots, notify, notify_on_schedule_success, notify_on_schedule_failure):
+    def __init__(self, sched, get_robots, notify, history, notify_on_schedule_success, notify_on_schedule_failure):
         self._get_robots = get_robots
+        self._history = history
         self._notify = notify
         self._notify_on_schedule_success = notify_on_schedule_success
         self._notify_on_schedule_failure = notify_on_schedule_failure
@@ -80,9 +82,11 @@ class MissionMonitor:
         self._ignoring_service_schedule = set()
         # Scheduled runs that didn't start, as alias -> message. Cleared when the robot starts a mission
         self._missed_runs = {}
-        # Robots seen starting a scheduled run, in case the robot doesn't report the schedule as the initiator
-        self._started_scheduled_run = set()
-        # Robots running a mission, as alias -> {counters at mission start, problems already reported, ...}
+        # Robots seen starting a scheduled run, in case the robot doesn't report the schedule as the initiator, as
+        # alias -> scheduled time
+        self._started_scheduled_run = {}
+        # Robots running a mission, as alias -> {counters at mission start, problems already reported, its run in
+        # the history, ...}
         self._active_missions = {}
         sched.add_job(self._check_schedules, 'interval', seconds=SCHEDULE_CHECK_SECS)
         sched.add_job(self._check_missions, 'interval', seconds=MISSION_CHECK_SECS)
@@ -180,11 +184,13 @@ class MissionMonitor:
             mission = self._active_missions.get(robot.alias)
             if mission is not None:
                 mission["scheduled"] = True
+                self._history.mark_scheduled(mission["run"], run_time)
             else:
-                self._started_scheduled_run.add(robot.alias)
+                self._started_scheduled_run[robot.alias] = run_time
             return
         log.warning(msg)
         self._missed_runs[robot.alias] = msg
+        self._history.scheduled_run_missed(robot.alias, run_time, msg)
         if self._notify_on_schedule_failure:
             self._notify(msg)
 
@@ -202,6 +208,7 @@ class MissionMonitor:
         if not state["connected"]:
             if mission is not None and not mission["reported_disconnect"]:
                 mission["reported_disconnect"] = True
+                self._history.add_problem(mission["run"], "disconnected")
                 self._notify_mission_problem(mission, f"{robot.alias} disconnected during a mission")
             return
 
@@ -211,20 +218,24 @@ class MissionMonitor:
             return
 
         if mission is None:
-            scheduled = (state["mission"]["initiator"] == "schedule"
-                         or robot.alias in self._started_scheduled_run)
-            self._started_scheduled_run.discard(robot.alias)
+            scheduled_time = self._started_scheduled_run.pop(robot.alias, None)
+            scheduled = state["mission"]["initiator"] == "schedule" or scheduled_time is not None
             log.info("%s is running a %smission", robot.alias, "scheduled " if scheduled else "")
             self._missed_runs.pop(robot.alias, None)
-            mission = {"counters": _mission_counters(state), "scheduled": scheduled,
+            run = self._history.mission_started(robot.alias, state["mission"], scheduled)
+            if scheduled_time is not None:
+                self._history.mark_scheduled(run, scheduled_time)
+            mission = {"counters": _mission_counters(state), "scheduled": scheduled, "run": run,
                        "problems": set(), "reported_disconnect": False, "checks_waiting_for_result": 0}
             self._active_missions[robot.alias] = mission
         mission["reported_disconnect"] = False
         mission["checks_waiting_for_result"] = 0
+        self._history.mission_progress(mission["run"], state["mission"])
 
         problems = _mission_problems(state)
         for key, descr in problems.items():
             if key not in mission["problems"]:
+                self._history.add_problem(mission["run"], descr)
                 self._notify_mission_problem(mission, f"{robot.alias} {descr} ({_describe(state)})")
         # Forget problems that cleared, so they're reported again if they come back
         mission["problems"] = set(problems)
@@ -254,6 +265,7 @@ class MissionMonitor:
         }
         msg = msgs[result]
         log.info(msg)
+        self._history.mission_ended(mission["run"], result, None if result == "ok" else _describe(state))
 
         if mission["scheduled"]:
             if result == "ok" and self._notify_on_schedule_success:

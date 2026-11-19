@@ -11,6 +11,7 @@ from zzmw_lib.service_runner import service_runner
 
 from roomba import Discovery, Roomba, SETTINGS, get_discovery_mechanism
 from mission_monitor import MissionMonitor
+from run_history import RunHistory, RESULTS
 
 log = build_logger("ZmwSucks")
 
@@ -52,13 +53,16 @@ class ZmwSucks(ZmwMqttService):
             self._roombas[dev_cfg["alias"]] = Roomba(self._loop, discovery, dev_cfg, self._on_roomba_state_change,
                                                      self._find_ip_in_unifi)
 
+        self._history = RunHistory(cfg.get("history_len", 20))
         self._monitor = MissionMonitor(sched, lambda: list(self._roombas.values()), self._send_telegram,
+                                       self._history,
                                        notify_on_schedule_success=cfg.get("notify_on_schedule_success", False),
                                        notify_on_schedule_failure=cfg.get("notify_on_schedule_failure", True))
 
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         www.register_www_dir(www_path)
         www.serve_url('/get_state', self._get_state)
+        www.serve_url('/get_history', self._history.get)
         for cmd in _COMMANDS:
             www.serve_url(f'/{cmd}/<alias>', lambda alias, cmd=cmd: self._send_command(cmd, alias),
                           methods=['PUT'])
@@ -155,6 +159,10 @@ class ZmwSucks(ZmwMqttService):
                     "description": "Current state of all robots. Response on get_state_reply",
                     "params": {}
                 },
+                "get_history": {
+                    "description": "Last runs of each robot, newest first. Response on get_history_reply",
+                    "params": {}
+                },
                 **{cmd: {
                     "description": f"{desc}. Response on {cmd}_reply",
                     "params": {"alias": "Robot alias, as in config"}
@@ -244,6 +252,23 @@ class ZmwSucks(ZmwMqttService):
                     "description": "Map of robot alias to state",
                     "payload": "See `<alias>/state`",
                 },
+                "get_history_reply": {
+                    "description": "Map of robot alias to its last runs (missions, and scheduled runs that didn't "
+                                   "start), newest first",
+                    "payload": {"<alias>": [{
+                        "start": "Start, epoch secs (for missed runs, when the miss was detected)",
+                        "end": "End, epoch secs, or null while running",
+                        "result": "; ".join(f"{r}: {d}" for r, d in RESULTS.items()),
+                        "scheduled": "Started by a schedule (the robot's own or the service's)",
+                        "scheduled_time": "Scheduled start (HH:MM), if known",
+                        "initiator": "Who started it, as reported by the robot (eg 'localApp', 'schedule')",
+                        "mission_id": "Robot's mission ID",
+                        "minutes": "Mission duration, as last seen while running",
+                        "sqft": "Area cleaned, as last seen while running",
+                        "problems": "Problems seen during the mission (eg 'is stuck', 'disconnected')",
+                        "details": "Robot state when it ended (if not ok), or why the run was missed",
+                    }]},
+                },
                 **{f"{cmd}_reply": {
                     "description": f"{cmd} sent to robot (or failed to)",
                     "payload": {"alias": "Robot alias", "status": "ok/not_connected/unknown_device"}
@@ -268,6 +293,8 @@ class ZmwSucks(ZmwMqttService):
         match subtopic:
             case "get_state":
                 self.publish_own_svc_message("get_state_reply", self._get_state())
+            case "get_history":
+                self.publish_own_svc_message("get_history_reply", self._history.get())
             case cmd if cmd in _COMMANDS:
                 self.publish_own_svc_message(f"{cmd}_reply", self._send_command(cmd, payload.get('alias', '')))
             case "set_setting":

@@ -64,7 +64,7 @@ class FakeRobot:
 
 def _monitor(robot):
     notify = Mock()
-    mon = MissionMonitor(Mock(), lambda: [robot], notify,
+    mon = MissionMonitor(Mock(), lambda: [robot], notify, Mock(),
                          notify_on_schedule_success=False, notify_on_schedule_failure=True)
     return mon, notify
 

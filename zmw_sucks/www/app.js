@@ -10,6 +10,7 @@ class ZmwSucks extends React.Component {
     super(props);
     this.state = {
       robots: null,
+      history: {},
     };
     this.fetchState = this.fetchState.bind(this);
     this.refreshInterval = null;
@@ -33,6 +34,9 @@ class ZmwSucks extends React.Component {
   fetchState() {
     mJsonGet(`${this.props.api_base_path}/get_state`, (res) => {
       this.setState({ robots: res });
+    });
+    mJsonGet(`${this.props.api_base_path}/get_history`, (res) => {
+      this.setState({ history: res });
     });
   }
 
@@ -198,11 +202,61 @@ class ZmwSucks extends React.Component {
     );
   }
 
+  formatRunResult(run) {
+    const known = {
+      running: 'running',
+      ok: 'completed',
+      failed: 'failed',
+      cancelled: 'cancelled',
+      unknown: 'ended, not completed',
+      missed: 'didn\'t start',
+    };
+    const txt = known[run.result] || run.result;
+    return (run.result === 'ok' || run.result === 'running') ? txt : (<span className="warn">{txt}</span>);
+  }
+
+  renderHistory(alias) {
+    const runs = this.state.history[alias] || [];
+    if (runs.length === 0) {
+      return (<p><small>No runs yet</small></p>);
+    }
+    const fmtTime = (secs) => secs ? new Date(secs * 1000).toLocaleString() : '?';
+    return (
+      <details>
+        <summary>History</summary>
+        <table style={{width: '100%', maxWidth: '500px'}}>
+          <thead><tr><th>Started</th><th>By</th><th>Result</th><th>Duration</th><th>Cleaned</th></tr></thead>
+          <tbody>
+            {runs.map((run, i) => (<React.Fragment key={i}>
+              <tr>
+                <td>{fmtTime(run.start)}</td>
+                <td>{run.scheduled
+                       ? `schedule${run.scheduled_time ? ` ${run.scheduled_time}` : ''}`
+                       : this.formatInitiator(run.initiator)}</td>
+                <td>{this.formatRunResult(run)}</td>
+                <td>{run.minutes ?? '-'}{run.minutes !== null && run.minutes !== undefined ? ' min' : ''}</td>
+                <td>{run.sqft !== null && run.sqft !== undefined ? this.formatArea(run.sqft) : '-'}</td>
+              </tr>
+              {(run.problems.length > 0 || run.details) && (
+                <tr><td colSpan="5"><small>
+                  {run.problems.length > 0 && `Problems: ${run.problems.join(', ')}. `}
+                  {run.details}
+                  {run.end && ` Ended ${fmtTime(run.end)}.`}
+                </small></td></tr>
+              )}
+            </React.Fragment>))}
+          </tbody>
+        </table>
+      </details>
+    );
+  }
+
   renderRobot(r) {
     if (!r.connected) {
       return (
         <div key={r.alias} className="card warn">
           <p><b>{r.alias}</b>: not connected</p>
+          {this.renderHistory(r.alias)}
         </div>
       );
     }
@@ -225,6 +279,7 @@ class ZmwSucks extends React.Component {
         </table>
         {this.renderSchedule(r)}
         {this.renderSettings(r)}
+        {this.renderHistory(r.alias)}
         {this.renderLifetime(r.lifetime, r.battery)}
         <button onClick={() => this.sendCommand('start', r.alias)}>Start</button>
         <button onClick={() => this.sendCommand('pause', r.alias)}>Pause</button>

@@ -50,3 +50,6 @@ test_get_raw_state:
 
 test_get_mqtt_description:
 	mosquitto_pub -t 'zmw_sucks/get_mqtt_description' -m '{}'
+
+test_get_history:
+	mosquitto_pub -t 'zmw_sucks/get_history' -m '{}'
