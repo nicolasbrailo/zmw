@@ -1,20 +1,3 @@
-function millisecToNextSlotChg() {
-  const now = new Date();
-  const qr = Math.floor(now.getMinutes() / 15);
-  const nxt_slot_chg_min = (15 * (qr + 1)) % 60;
-  const slot_chg = new Date();
-  slot_chg.setMinutes(nxt_slot_chg_min);
-  slot_chg.setSeconds(0);
-  const ms_to_chg = (slot_chg - now);
-
-  if (nxt_slot_chg_min == 0) {
-    // If we're rolling over to start of the hour, add one hour
-    return ms_to_chg + 60 * 60 * 1000;
-  }
-
-  return ms_to_chg;
-}
-
 function renderScheduleTable(sched, slotGenerator) {
   const qr_groupped_sched = {};
   for (let hr=0; hr<24; ++hr) {
@@ -246,9 +229,8 @@ class MqttHeating extends React.Component {
     this._toggleConfig = this._toggleConfig.bind(this);
     this._renderSlot = this._renderSlot.bind(this);
     this._renderTemplateSlot = this._renderTemplateSlot.bind(this);
-
-    const app_visibility = new VisibilityCallback();
-    app_visibility.app_became_visible = this.refresh;
+    this._poll = this._poll.bind(this);
+    this._poller = null;
 
     this.state = {
       configuring: false,
@@ -257,17 +239,24 @@ class MqttHeating extends React.Component {
       allow_on: null,
       mqtt_thing_reports_on: null,
       monitoring_sensors: null,
-      refreshId: null,
-      app_visibility,
     };
   }
 
-  refresh() {
-    if (this.state.refreshId) {
-      // Calling clearTimeout with an invalid id doesn't throw an error
-      clearTimeout(this.state.refreshId);
-    }
+  componentDidMount() {
+    this._poller = mPoll(this._poll, 30000);
+  }
 
+  componentWillUnmount() {
+    this._poller?.stop();
+  }
+
+  _poll() {
+    // Refreshing while configuring would replace the template being edited
+    // Rest of the time, poll the backend for current state, as the state may come from this UI or from another backend service
+    if (!this.state.configuring) this.refresh();
+  }
+
+  refresh() {
     if (this.state.configuring) {
       console.log("Configuring: will refresh schedule");
       mJsonGet(`${this.props.api_base_path}/template_schedule`, tmpl_state => {
@@ -281,8 +270,7 @@ class MqttHeating extends React.Component {
       this.setState({active_schedule: state.active_schedule,
                      allow_on: state.allow_on,
                      mqtt_thing_reports_on: state.mqtt_thing_reports_on,
-                     monitoring_sensors: state.monitoring_sensors,
-                     refreshId: setInterval(this.refresh, millisecToNextSlotChg())});
+                     monitoring_sensors: state.monitoring_sensors});
     });
   }
 
