@@ -11,22 +11,16 @@ class ShellyPlugMonitor extends React.Component {
       devices: null,
     };
     this.fetchStats = this.fetchStats.bind(this);
-    this.refreshInterval = null;
+    this.poller = null;
   }
 
   async componentDidMount() {
     this.fetchStats();
-    this.refreshInterval = setInterval(this.fetchStats, 10000);
+    this.poller = mPoll(this.fetchStats, 10000);
   }
 
   componentWillUnmount() {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-    }
-  }
-
-  on_app_became_visible() {
-    this.fetchStats();
+    this.poller?.stop();
   }
 
   fetchStats() {

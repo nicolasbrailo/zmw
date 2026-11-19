@@ -13,22 +13,16 @@ class ZmwSucks extends React.Component {
       history: {},
     };
     this.fetchState = this.fetchState.bind(this);
-    this.refreshInterval = null;
+    this.poller = null;
   }
 
   componentDidMount() {
     this.fetchState();
-    this.refreshInterval = setInterval(this.fetchState, 5000);
+    this.poller = mPoll(this.fetchState, 5000);
   }
 
   componentWillUnmount() {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-    }
-  }
-
-  on_app_became_visible() {
-    this.fetchState();
+    this.poller?.stop();
   }
 
   fetchState() {

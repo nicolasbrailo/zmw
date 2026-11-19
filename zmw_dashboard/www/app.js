@@ -37,11 +37,11 @@ class AlertsList extends React.Component {
 
   componentDidMount() {
     this.fetchAlerts();
-    this.interval = setInterval(() => this.fetchAlerts(), 30000);
+    this.poller = mPoll(() => this.fetchAlerts(), 30000);
   }
 
   componentWillUnmount() {
-    if (this.interval) clearInterval(this.interval);
+    this.poller?.stop();
   }
 
   fetchAlerts() {

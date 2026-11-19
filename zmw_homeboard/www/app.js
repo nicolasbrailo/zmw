@@ -36,12 +36,12 @@ class Homeboard extends React.Component {
     // The homeboard's QR code links here with ?hb_id=<id>: scroll to that
     // board once, after the first load, and leave scrolling to the user after
     this._scrollToHbId = new URLSearchParams(window.location.search).get('hb_id');
-    this._timer = null;
+    this._poller = null;
   }
 
   componentDidMount() {
-    this.on_app_became_visible();
-    this._timer = setInterval(this.refresh, 5000);
+    this.refresh();
+    this._poller = mPoll(this.refresh, 5000);
   }
 
   componentDidUpdate() {
@@ -56,11 +56,7 @@ class Homeboard extends React.Component {
   }
 
   componentWillUnmount() {
-    if (this._timer) clearInterval(this._timer);
-  }
-
-  on_app_became_visible() {
-    this.refresh();
+    this._poller?.stop();
   }
 
   refresh() {
