@@ -48,10 +48,16 @@ class HeatingControls extends React.Component {
   }
 
   componentDidMount() {
-    // If no data provided via props, fetch it
+    // If no data provided via props, fetch it (and keep it fresh, same as MqttHeating). Otherwise the parent owns
+    // the data and its refreshing.
     if (!this.props.allow_on && this.props.api_base_path) {
       this._refresh();
+      this._poller = mPoll(this._refresh, 30000);
     }
+  }
+
+  componentWillUnmount() {
+    this._poller?.stop();
   }
 
   componentDidUpdate(prevProps) {
