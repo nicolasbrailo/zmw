@@ -1490,6 +1490,7 @@ class MqttLights extends React.Component {
 
   componentWillUnmount() {
     this._wsClosing = true;
+    clearTimeout(this._wsRetryTimer);
     if (this._ws) {
       this._ws.close();
       this._ws = null;
@@ -1504,17 +1505,36 @@ class MqttLights extends React.Component {
   }
 
   _connectWebSocket() {
+    clearTimeout(this._wsRetryTimer);
     if (this._ws) {
       this._ws.close();
     }
     if (this._wsUrl) {
       this._openWebSocket(this._wsUrl);
     } else {
-      mJsonGet(`${this.props.api_base_path}/get_ws_url`, (resp) => {
-        this._wsUrl = resp.url;
-        this._openWebSocket(resp.url);
+      // Not mJsonGet: on errors we retry, so a popup per attempt would be noise (a net down still shows, via mNet)
+      mAjax({
+        url: `${this.props.api_base_path}/get_ws_url`,
+        type: 'GET',
+        dataType: 'JSON',
+        success: (resp) => {
+          this._wsUrl = resp.url;
+          this._openWebSocket(resp.url);
+        },
+        error: (err) => {
+          console.warn("Lights: can't get ws url, will retry", err);
+          this._scheduleWsReconnect();
+        },
       });
     }
+  }
+
+  _scheduleWsReconnect() {
+    // While hidden, don't retry: on_app_became_visible reconnects
+    clearTimeout(this._wsRetryTimer);
+    this._wsRetryTimer = setTimeout(() => {
+      if (!this._wsClosing && !document.hidden) this._connectWebSocket();
+    }, 2000);
   }
 
   _openWebSocket(url) {
@@ -1526,9 +1546,11 @@ class MqttLights extends React.Component {
       this._applyThingUpdate(update);
     };
     ws.onclose = () => {
-      if (!this._wsClosing) {
-        setTimeout(() => this._connectWebSocket(), 2000);
-      }
+      // A replaced ws (closed by _connectWebSocket) must not reconnect, or it'd close its replacement
+      if (this._wsClosing || this._ws !== ws) return;
+      // A close doesn't say if the server went away or the net did: check, so a net down shows (and clears)
+      if (!document.hidden) mNetProbe().catch(() => {});
+      this._scheduleWsReconnect();
     };
   }
 

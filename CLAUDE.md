@@ -24,5 +24,6 @@ See `README.md` for the list, the architecture and the MQTT topic map. Part of b
 - UI: embed an app inside another (eg in the dashboard) with `z2mEmbedApp(App, App.buildProps(...))`, never a bare
   `React.createElement`, or its `on_app_became_visible` never runs. Poll with `mPoll` (pauses while hidden), and
   listen to visibility with `mOnVisibilityChange`; HTTP goes through `mAjax`/`mJsonGet`/... or `mFetch`, never raw
-  `fetch`, so the net-down state stays right. An app polling with `mPoll` already refreshes on becoming visible:
-  don't repeat that fetch in `on_app_became_visible`.
+  `fetch`, so the net-down state stays right (for non-HTTP failures, eg a websocket closing, call `mNetProbe()`).
+  An app polling with `mPoll` already refreshes on becoming visible: don't repeat that fetch in
+  `on_app_became_visible`.

@@ -145,7 +145,7 @@ function mNetMarkDown() {
   mNet.down = true;
   mNet._bannerShown = false;
   // The probe is an mPoll, so it pauses while hidden and runs as soon as the page is visible again
-  mNet._probe = mPoll(_mNetProbe, 3000);
+  mNet._probe = mPoll(_mNetProbeMaybeShowBanner, 3000);
   // If this happened in the background (eg a request aborted by the browser when freezing the tab), wait for a
   // probe to fail before complaining: the network is likely to be fine by the time the user looks again.
   if (!document.hidden) {
@@ -172,15 +172,22 @@ function _mNetShowBanner() {
   mNet._bannerVisible = true;
 }
 
-function _mNetProbe() {
-  // Any HTTP response, even an error one, means the server is reachable. Time out before the next probe is due,
-  // so probes to an unresponsive host don't pile up waiting for a TCP timeout.
-  fetch(window.location.href, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(2500) })
-    .then(mNetMarkUp, () => { if (mNet.down) _mNetShowBanner(); });
+// Check if the server is reachable, and update mNet's state either way. Useful when something other than an HTTP
+// request fails and can't tell why (eg a websocket closing). Any HTTP response, even an error one, means the
+// server is reachable. Times out before the next probe is due, so probes to an unresponsive host don't pile up
+// waiting for a TCP timeout.
+function mNetProbe() {
+  return mFetch(window.location.href, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(2500) });
+}
+
+// While the net is down: mNetProbe, and show the banner if it's still down. Needed when the net went down in the
+// background, since mNetMarkDown doesn't show the banner while hidden.
+function _mNetProbeMaybeShowBanner() {
+  mNetProbe().catch(() => { if (mNet.down) _mNetShowBanner(); });
 }
 
 window.addEventListener('online', () => {
-  if (mNet.down) _mNetProbe();
+  if (mNet.down) _mNetProbeMaybeShowBanner();
 });
 
 function mTextGet(url, success_cb, error_cb) {
