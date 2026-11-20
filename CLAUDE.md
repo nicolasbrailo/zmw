@@ -21,3 +21,8 @@ See `README.md` for the list, the architecture and the MQTT topic map. Part of b
 - Don't run tests or `make rebuild_ui` on the dev machine; edit `www/app.js` only, never the built bundles.
 - Don't read `config.json` / token caches: they hold live credentials. Use `config.json.example`.
 - New deps go in the service's Pipfile / `rebuild_deps` target; don't probe local packages.
+- UI: embed an app inside another (eg in the dashboard) with `z2mEmbedApp(App, App.buildProps(...))`, never a bare
+  `React.createElement`, or its `on_app_became_visible` never runs. Poll with `mPoll` (pauses while hidden), and
+  listen to visibility with `mOnVisibilityChange`; HTTP goes through `mAjax`/`mJsonGet`/... or `mFetch`, never raw
+  `fetch`, so the net-down state stays right. An app polling with `mPoll` already refreshes on becoming visible:
+  don't repeat that fetch in `on_app_became_visible`.

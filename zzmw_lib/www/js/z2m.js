@@ -88,35 +88,47 @@ function mAjax(cfg) {
     });
 }
 
+// The single page visibility listener: everything that cares about the page being hidden or visible (mPoll,
+// apps' on_app_became_visible) registers here. cb(isVisible) runs on every change; returns a handle with stop().
+const mVisibilityCbs = new Set();
+
+function mOnVisibilityChange(cb) {
+  const handle = { cb, stop: () => mVisibilityCbs.delete(handle) };
+  mVisibilityCbs.add(handle);
+  return handle;
+}
+
+document.addEventListener('visibilitychange', () => {
+  const isVisible = !document.hidden;
+  // Iterate a copy: callbacks may (un)register others, eg by mounting or unmounting components
+  for (const handle of [...mVisibilityCbs]) {
+    handle.cb(isVisible);
+  }
+});
+
 // Periodic polling that pauses while the page is hidden. Background tabs get throttled, then frozen, and
 // their in-flight requests aborted; polling there is wasted work at best, and spurious errors at worst. On
 // becoming visible, every poller runs once immediately and then resumes its interval.
-const mPollers = new Set();
-
 function mPoll(fn, intervalMs) {
-  const poller = { fn, intervalMs, timer: null };
-  poller.stop = () => {
+  const poller = { timer: null };
+  const visibility = mOnVisibilityChange((isVisible) => {
     clearInterval(poller.timer);
     poller.timer = null;
-    mPollers.delete(poller);
+    if (isVisible) {
+      fn();
+      poller.timer = setInterval(fn, intervalMs);
+    }
+  });
+  poller.stop = () => {
+    visibility.stop();
+    clearInterval(poller.timer);
+    poller.timer = null;
   };
-  mPollers.add(poller);
   if (!document.hidden) {
     poller.timer = setInterval(fn, intervalMs);
   }
   return poller;
 }
-
-document.addEventListener('visibilitychange', () => {
-  for (const poller of mPollers) {
-    clearInterval(poller.timer);
-    poller.timer = null;
-    if (!document.hidden) {
-      poller.fn();
-      poller.timer = setInterval(poller.fn, poller.intervalMs);
-    }
-  }
-});
 
 // Global "can't reach server" state. Any mAjax that fails at the network level marks the net as down, which
 // shows a "Net down" banner and starts probing the server; any response (from a probe or any other request)
@@ -203,23 +215,47 @@ function mJsonPut(url, val, success_cb, error_cb) {
   });
 }
 
+// Hosts a zmw app (a class component with a static buildProps), and calls its on_app_became_visible (if it has
+// one) when the page becomes visible, for as long as it's mounted. Don't use directly: see z2mEmbedApp.
+class ZmwAppHost extends React.Component {
+  constructor(props) {
+    super(props);
+    this.appRef = React.createRef();
+  }
+
+  componentDidMount() {
+    this._visibility = mOnVisibilityChange((isVisible) => {
+      const app = this.appRef.current;
+      if (isVisible && app?.on_app_became_visible) {
+        console.log(`${this.props.app.name} became visible, will refresh state`);
+        app.on_app_became_visible();
+      }
+    });
+  }
+
+  componentWillUnmount() {
+    this._visibility.stop();
+  }
+
+  render() {
+    return React.createElement(this.props.app, { ...this.props.appProps, ref: this.appRef });
+  }
+}
+
+// Render a zmw app inside another one (eg the dashboard). Use this instead of a bare React.createElement(app, ...),
+// or the embedded app's on_app_became_visible will never run.
+function z2mEmbedApp(appClass, appProps) {
+  return React.createElement(ZmwAppHost, { key: appProps.key, app: appClass, appProps });
+}
+
 function z2mStartReactApp(appRootSelector, appClass, apiBasePath='') {
-  const appRef = React.createRef();
   ReactDOM.createRoot(document.querySelector(appRootSelector)).render(
-    React.createElement(appClass, { ...appClass.buildProps(apiBasePath), ref: appRef })
+    z2mEmbedApp(appClass, appClass.buildProps(apiBasePath))
   );
 
   // appLoaded
   m$('global_loading').classList.add('app-finished-loading');
   m$('global_loading').classList.remove('app-loading');
-
-  if (appClass.prototype.on_app_became_visible) {
-    const app_visibility = new VisibilityCallback();
-    app_visibility.app_became_visible = () => {
-      console.log("App became visible, will refresh state")
-      appRef.current.on_app_became_visible();
-    }
-  }
 }
 
 const showGlobalError = (msg) => {

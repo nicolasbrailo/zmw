@@ -3211,7 +3211,7 @@ class LightsSection extends React.Component {
   render() {
     return (
       <section id="lights-section">
-        {React.createElement(
+        {z2mEmbedApp(
           MqttLights,
           MqttLights.buildProps('/ZmwLights', this.state.scenes, this.props.groupBadges, this.props.groupExtras))}
       </section>
@@ -3403,7 +3403,7 @@ function CatSection(props) {
   return (
     <section id="catsnacks-section">
       <a className="section-badge" href={ProxiedServices.get('ZmwCatSnackDispenser')}><img src="/ZmwCatSnackDispenser/favicon.ico"/></a>
-      {React.createElement(
+      {z2mEmbedApp(
         CatFeeder,
         CatFeeder.buildProps('/ZmwCatSnackDispenser'))}
     </section>
@@ -3414,7 +3414,7 @@ function TTSAnnounceSection(props) {
   return (
     <section id="ttsannounce-section">
       <a className="section-badge" href={ProxiedServices.get('ZmwSpeakerAnnounce')}><img src="/ZmwSpeakerAnnounce/favicon.ico"/></a>
-      {React.createElement(
+      {z2mEmbedApp(
         TTSAnnounce,
         TTSAnnounce.buildProps('/ZmwSpeakerAnnounce'))}
     </section>
@@ -3425,7 +3425,7 @@ function DoormanSection(props) {
   return (
     <section id="doorman-section">
       <a className="section-badge" href={ProxiedServices.get('ZmwDoorman')}><img src="/ZmwDoorman/favicon.ico"/></a>
-      {React.createElement(
+      {z2mEmbedApp(
         DoorMan,
         DoorMan.buildProps('/ZmwDoorman'))}
     </section>
@@ -3436,7 +3436,7 @@ function SucksSection(props) {
   return (
     <section id="sucks-section">
       <a className="section-badge" href={ProxiedServices.get('ZmwSucks')}><img src="/ZmwSucks/favicon.ico"/></a>
-      {React.createElement(
+      {z2mEmbedApp(
         ZmwSucks,
         ZmwSucks.buildProps('/ZmwSucks'))}
     </section>
@@ -3447,7 +3447,7 @@ function MqttHeatingSection(props) {
   return (
     <section id="heating-section">
       <a className="section-badge" href={ProxiedServices.get('ZmwHeating')}><img src="/ZmwHeating/favicon.ico"/></a>
-      {React.createElement(
+      {z2mEmbedApp(
         HeatingControls,
         HeatingControls.buildProps('/ZmwHeating'))}
     </section>
@@ -3458,7 +3458,7 @@ function SonosCtrlSection(props) {
   return (
     <section id="sonos-ctrl-section">
       <a className="section-badge" href={ProxiedServices.get('ZmwSonosCtrl')}><img src="/ZmwSonosCtrl/favicon.ico"/></a>
-      {React.createElement(
+      {z2mEmbedApp(
         SonosCtrl,
         SonosCtrl.buildProps('/ZmwSonosCtrl', ProxiedServices.get('ZmwSonosCtrl')))}
     </section>
