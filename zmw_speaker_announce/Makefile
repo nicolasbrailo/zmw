@@ -12,7 +12,11 @@ test_announce_www:
 	mosquitto_pub -t 'zmw_speaker_announce/play_asset' -m '{"public_www": "http://10.0.0.10:4211/beep.mp3", "vol": "default"}'
 
 test_announce_tts:
-	mosquitto_pub -t 'zmw_speaker_announce/tts' -m '{"msg": "test", "lang": "en", "vol":40, "speakers": ["Batioficina"]}'
+	mosquitto_pub -t 'zmw_speaker_announce/tts' -m '{"msg": "bot test", "lang": "en", "speakers": ["Batioficina", "portaloficina"]}'
+
+test_bot_announce:
+	# Same as ZmwTelegram relaying '/bot_shout {"msg": "bot test", "speakers": ["Batioficina"]}': args are split on ' '
+	mosquitto_pub -t 'zmw_telegram/on_command/bot_shout' -m '{"cmd": "/bot_shout", "cmd_args": ["{\"msg\":", "\"bot", "test\",", "\"speakers\":", "[\"portaloficina\", \"Batioficina\"]}"]}'
 
 test_save_asset:
 	mosquitto_pub -t 'zmw_speaker_announce/save_asset' -m '{"local_path": "/tmp/test.mp3"}'

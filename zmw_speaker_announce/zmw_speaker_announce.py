@@ -394,7 +394,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         """Announce txt. voice=None uses the default TTS voice, speakers=None announces on all speakers.
         is_bot: request from a bot, may be long and must use ZMW TTS (never fall back to Google TTS)."""
         try:
-            vol = None
+            vol = self._announce_vol
             log.info("Shout '%s' with voice %s on speakers %s", txt, voice or 'default', speakers or 'all')
             if is_bot:
                 local_path, tts_result = self._get_tts_asset(txt, lang_or_voice=voice, fuzzy=fuzzy,
