@@ -480,6 +480,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                         "lang?": "Language code",
                         "vol?": "Volume 0-100",
                         "fuzzy?": "Paraphrase text using voice personality before synthesis (default: true)",
+                        "speakers?": "List of speaker names, Sonos or homeboard (see ls). Default: all speakers",
                     }
                 },
                 "announcement_history": {
@@ -619,8 +620,15 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         msg = {'local_path': local_path, 'uri': remote_path}
         self.publish_own_svc_message("tts_reply", msg)
         vol = self._get_payload_vol(payload)
-        self._record_announcement(payload['msg'], lang, vol, remote_path, tts_result=tts_result, source='mqtt')
-        self._announce(remote_path, vol, msg=payload['msg'], synced=True)
+        speakers = payload.get('speakers')
+        if isinstance(speakers, str):
+            speakers = [speakers]
+        if not isinstance(speakers, list):
+            speakers = None
+        speakers = [str(s).strip() for s in speakers if str(s).strip()] if speakers else None
+        self._record_announcement(payload['msg'], lang, vol, remote_path, tts_result=tts_result,
+                                  speakers=speakers, source='mqtt')
+        self._announce(remote_path, vol, speakers=speakers, msg=payload['msg'], synced=True)
 
     def _save_asset_to_www(self, local_path):
         try:

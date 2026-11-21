@@ -12,7 +12,7 @@ test_announce_www:
 	mosquitto_pub -t 'zmw_speaker_announce/play_asset' -m '{"public_www": "http://10.0.0.10:4211/beep.mp3", "vol": "default"}'
 
 test_announce_tts:
-	mosquitto_pub -t 'zmw_speaker_announce/tts' -m '{"msg": "test", "lang": "es"}'
+	mosquitto_pub -t 'zmw_speaker_announce/tts' -m '{"msg": "test", "lang": "en", "vol":40, "speakers": ["Batioficina"]}'
 
 test_save_asset:
 	mosquitto_pub -t 'zmw_speaker_announce/save_asset' -m '{"local_path": "/tmp/test.mp3"}'
