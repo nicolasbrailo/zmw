@@ -24,6 +24,15 @@ def _parse_voice_id(voice_id):
     return lang, locale, name, quality
 
 
+def _ensure_terminal_punctuation(text):
+    """Piper can babble after short inputs (eg a single word) with no closing punctuation, as if it
+    didn't know where the sentence ends. Add a period if the text doesn't end a sentence."""
+    text = text.strip()
+    if text and text[-1] not in '.!?…;:':
+        text += '.'
+    return text
+
+
 class Tts:
     def __init__(self, cfg):
         self._default_language = cfg.get('default_language', 'en')
@@ -149,6 +158,7 @@ class Tts:
     def synthesize(self, text, language=None, speaker=None):
         """Synthesize text to an mp3 file. Returns (mp3_path, voice_id)."""
         voice_id, voice = self.resolve_voice(language, speaker)
+        text = _ensure_terminal_punctuation(text)
         syn_config = self._speaker_syn_configs.get(voice_id, self._default_syn_config)
         log.info("Synthesizing (voice=%s, length_scale=%.2f): '%s'",
                  voice_id, syn_config.length_scale, text[:80])

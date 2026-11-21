@@ -123,6 +123,21 @@ class TestTts(unittest.TestCase):
             self.assertTrue(mp3_path.endswith(".mp3"))
             self.assertEqual(voice_id, 'en_US-lessac-medium')
 
+    @patch('tts.subprocess.run')
+    @patch('tts.os.remove')
+    @patch('tts.wave.open')
+    @patch('tts.PiperVoice')
+    def test_synthesize_adds_terminal_punctuation(self, mock_piper, mock_wave, mock_rm, mock_sub):
+        from tts import Tts
+        with tempfile.TemporaryDirectory() as td:
+            _fake_model_dir(td, ['en_US-lessac-medium'])
+            tts = Tts({'model_dir': td})
+            voice = mock_piper.load.return_value
+            tts.synthesize("test ")
+            self.assertEqual(voice.synthesize_wav.call_args[0][0], "test.")
+            tts.synthesize("Hello world!")
+            self.assertEqual(voice.synthesize_wav.call_args[0][0], "Hello world!")
+
     @patch('tts.PiperVoice')
     def test_defaults_invalid_voice_ignored(self, mock_piper):
         from tts import Tts
