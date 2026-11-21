@@ -1498,10 +1498,9 @@ class MqttLights extends React.Component {
   }
 
   on_app_became_visible() {
+    if (this._ws?.readyState === WebSocket.OPEN) return;
     this.fetchThings();
-    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
-      this._connectWebSocket();
-    }
+    this._connectWebSocket();
   }
 
   _connectWebSocket() {

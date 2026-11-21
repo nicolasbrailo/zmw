@@ -1,3 +1,309 @@
+// Visitor detection UI: why each camera session flagged (or didn't), the discovered visitors, the unknown faces
+// waiting to be promoted, and admin actions on them.
+
+const VD_EVENT_LABELS = {
+  on_person_detected: 'Person',
+  on_face_detected: 'Unknown face',
+  on_face_identified: 'Identified',
+  on_new_frequent_visitor: 'New visitor',
+};
+
+const VD_EVENT_COLORS = {
+  on_person_detected: '#1c7ed6',
+  on_face_detected: '#868e96',
+  on_face_identified: '#2f9e44',
+  on_new_frequent_visitor: '#f59f00',
+};
+
+function vdTime(ts) {
+  return ts ? new Date(ts * 1000).toLocaleString() : '-';
+}
+
+function vdEventChip(ev, idx) {
+  const label = VD_EVENT_LABELS[ev.type] || ev.type;
+  return (
+    <span key={idx} style={{background: VD_EVENT_COLORS[ev.type] || '#555', color: '#fff', borderRadius: '4px',
+                            padding: '1px 6px', marginRight: '4px', fontSize: '0.85em', whiteSpace: 'nowrap'}}>
+      {label}{ev.name ? `: ${ev.name}` : ''}{ev.t != null ? ` @${Math.round(ev.t)}s` : ''}
+    </span>
+  );
+}
+
+// Timeline of one session: person checks (ran / skipped), faces (gated / rejected) and fired events
+function VdTimeline(props) {
+  const log = props.log;
+  const dur = Math.max(log.analysed_s || 1, 1);
+  const W = 600, H = 54;
+  const x = (t) => 4 + (W - 8) * t / dur;
+  const marks = [];
+  log.person_checks.forEach((c, i) => {
+    const hit = c.ran ? c.persons.length > 0 : c.persons_reused > 0;
+    marks.push(<rect key={`p${i}`} x={x(c.t) - 2} y={4} width={4} height={10}
+                     fill={hit ? '#1c7ed6' : (c.ran ? '#666' : 'none')} stroke="#1c7ed6" strokeWidth={c.ran ? 0 : 1}>
+                 <title>{`t=${c.t}s person check ${c.ran ? 'ran' : 'skipped (no motion)'}: ` +
+                         (c.ran ? c.persons.map(p => p.conf).join(', ') || 'nobody' : `${c.persons_reused} reused`)}</title>
+               </rect>);
+  });
+  log.faces.forEach((f, i) => {
+    marks.push(<circle key={`f${i}`} cx={x(f.t)} cy={24} r={2.5} fill={f.gate === 'ok' ? '#e8590c' : '#888'}>
+                 <title>{`t=${f.t}s track ${f.track} conf ${f.conf} iod ${f.iod}px yaw ${f.yaw}: ${f.gate}`}</title>
+               </circle>);
+  });
+  log.events.forEach((e, i) => {
+    marks.push(<line key={`e${i}`} x1={x(e.t)} x2={x(e.t)} y1={32} y2={50}
+                     stroke={VD_EVENT_COLORS[e.type] || '#f59f00'} strokeWidth={3}>
+                 <title>{`t=${e.t}s ${VD_EVENT_LABELS[e.type] || e.type}${e.name ? ': ' + e.name : ''}`}</title>
+               </line>);
+  });
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth: `${W}px`, display: 'block'}}>
+      <rect x={0} y={0} width={W} height={H} fill="none" stroke="#444" />
+      {marks}
+      <text x={W - 4} y={H - 4} fill="#888" fontSize="9" textAnchor="end">{`${dur}s`}</text>
+    </svg>
+  );
+}
+
+class VdSessionDetail extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { log: null, error: null };
+  }
+
+  componentDidMount() {
+    mJsonGet(`${this.props.api}/session/${this.props.sessionId}`,
+             (log) => this.setState({ log }),
+             () => this.setState({ error: 'No decision log (still running, or pruned)' }));
+  }
+
+  render() {
+    const { log, error } = this.state;
+    if (error) return <p>{error}</p>;
+    if (!log) return <p>Loading...</p>;
+    const img = (rel, h) => rel ? <img src={`${this.props.api}/data/${rel}`} style={{height: h || '80px', marginRight: '2px'}}
+                                       onClick={() => this.props.onZoom(`${this.props.api}/data/${rel}`)} /> : null;
+    const gateCounts = {};
+    log.faces.forEach(f => { const k = f.gate.split(' (')[0]; gateCounts[k] = (gateCounts[k] || 0) + 1; });
+    const st = log.stats || {};
+    return (
+      <div className="card">
+        <VdTimeline log={log} />
+        <small>Blue bars: person checks (filled = person found, hollow = skipped, no motion). Dots: faces (orange =
+          passed the quality gate). Lines: events fired. Hover for details.</small>
+        <p>
+          Stopped: <b>{log.stop_reason}</b> after {log.analysed_s}s ({log.wall_s}s compute, mode {log.mode},
+          trigger {log.trigger}). Frames {st.frames || 0}: person checks {st.person_runs || 0} ran /
+          {' '}{st.person_skipped_still || 0} skipped; face detector {st.scrfd_runs || 0} ran,
+          {' '}{st.skipped_still || 0} skipped (no motion), {st.skipped_night || 0} skipped (night);
+          {' '}{log.dropped_frames || 0} frames dropped (busy).
+        </p>
+        <p>
+          Faces seen: {log.faces.length}. Quality gate: {Object.entries(gateCounts).map(([k, v]) => `${k} ${v}`).join(', ') || 'no faces'}.
+        </p>
+        {log.person_crop && <div>First person: {img(log.person_crop, '120px')}</div>}
+        {log.tracks.length > 0 && (
+          <table>
+            <thead><tr><th>Track</th><th>Faces</th><th>Rejected</th><th>Decision</th><th>Best faces</th></tr></thead>
+            <tbody>
+              {log.tracks.map(tr => (
+                <tr key={tr.id}>
+                  <td>{tr.id}<br/><small>{tr.first_t}-{tr.last_t}s</small></td>
+                  <td>{tr.gated} gated / {tr.seen} seen</td>
+                  <td><small>{Object.entries(tr.rejects).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}</small></td>
+                  <td>{tr.decision ? `${tr.decision.kind}${tr.decision.who ? ' ' + tr.decision.who : ''} (${tr.decision.sim})`
+                                   : (tr.gated ? 'undecided (needs more gated faces)' : 'no usable face')}
+                      {tr.stored && <small><br/>stored</small>}</td>
+                  <td>{tr.best.map((b, i) => <span key={i}>{img(b.ctx)}</span>)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {(log.discovery || []).length > 0 && (
+          <p>After this session, discovery promoted: {log.discovery.map(d => `${d.name} (${d.visits} visits, ${d.days} days)`).join(', ')}</p>
+        )}
+      </div>
+    );
+  }
+}
+
+class VdSessions extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { filter: 'all', open: null };
+  }
+
+  matches(s) {
+    const evs = s.summary ? s.summary.events : [];
+    switch (this.state.filter) {
+      case 'flagged': return evs.length > 0;
+      case 'quiet': return s.summary && evs.length === 0;
+      case 'faces': return evs.some(e => e.type !== 'on_person_detected');
+      case 'day': return s.summary && s.summary.mode !== 'night';
+      case 'night': return s.summary && s.summary.mode === 'night';
+      default: return true;
+    }
+  }
+
+  render() {
+    const sessions = (this.props.sessions || []).filter(s => this.matches(s));
+    return (
+      <div>
+        Show: <select value={this.state.filter} onChange={e => this.setState({ filter: e.target.value })}>
+          <option value="all">all</option>
+          <option value="flagged">flagged</option>
+          <option value="faces">with faces</option>
+          <option value="quiet">nothing fired</option>
+          <option value="day">day</option>
+          <option value="night">night</option>
+        </select>
+        <small> {sessions.length} sessions. Click one to see why it flagged (or didn't).</small>
+        <table>
+          <thead><tr><th>When</th><th>Person</th><th>Events</th><th>Why it stopped</th></tr></thead>
+          <tbody>
+            {sessions.map(s => [
+              <tr key={s.id} style={{cursor: 'pointer'}}
+                  onClick={() => this.setState({ open: this.state.open === s.id ? null : s.id })}>
+                <td>{vdTime(s.start_ts)}<br/><small>{s.cam_alias} · {s.summary ? `${s.summary.mode} · ${s.summary.trigger}` : 'running'}</small></td>
+                <td>{s.summary?.person_crop && s.has_log &&
+                     <img src={`${this.props.api}/data/${s.summary.person_crop}`} style={{height: '60px'}} />}</td>
+                <td>{s.summary ? (s.summary.events.length ? s.summary.events.map(vdEventChip) : <small>nothing</small>) : '...'}</td>
+                <td><small>{s.summary ? `${s.summary.stop_reason}, ${Math.round(s.summary.analysed_s)}s analysed` : ''}</small></td>
+              </tr>,
+              this.state.open === s.id && (
+                <tr key={`${s.id}_detail`}><td colSpan={4}>
+                  {s.has_log ? <VdSessionDetail api={this.props.api} sessionId={s.id} onZoom={this.props.onZoom} />
+                             : <small>No decision log (still running, or pruned)</small>}
+                </td></tr>
+              ),
+            ])}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+}
+
+class VdVisitors extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { open: null };
+  }
+
+  admin(op, payload, confirmMsg) {
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    mJsonPut(`${this.props.api}/admin/${op}`, payload, () => this.props.onChanged());
+  }
+
+  split(v) {
+    const thr = window.prompt(`Split ${v.name}: re-cluster its faces at a stricter similarity (merging threshold ` +
+                              `is ${this.props.config.same_person_thr}). Threshold:`, '0.55');
+    if (thr) this.admin('split_identity', { id: v.id, thr: parseFloat(thr) });
+  }
+
+  merge(v, others) {
+    const into = window.prompt(`Merge ${v.name} into which visitor id? (${others.map(o => `${o.id}: ${o.name}`).join(', ')})`);
+    if (into) this.admin('merge_identities', { keep_id: parseInt(into), other_id: v.id });
+  }
+
+  render() {
+    const visitors = this.props.visitors || [];
+    if (visitors.length === 0) {
+      return <p>No visitors discovered yet. A face seen in {this.props.config.discovery_min_visits} visits on
+        {' '}{this.props.config.discovery_min_days} different days becomes a visitor (see the Unknown faces tab).</p>;
+    }
+    return (
+      <div>
+        <p><small>Name a visitor with <code>"visitor_names": {'{'}"visitor_3": "Name"{'}'}</code> in the service
+          config.</small></p>
+        {visitors.map(v => (
+          <div key={v.id} className="card">
+            <b>{v.name}</b> <small>({v.key}{v.named ? '' : ', unnamed'})</small><br/>
+            <small>{v.visits} visits on {v.days} days, {v.tracks.length} sightings, gallery {v.gallery_size}.
+              First seen {vdTime(v.first_seen)}, last seen {vdTime(v.last_seen)}.</small>
+            <div>
+              {v.tracks.slice(0, this.state.open === v.id ? v.tracks.length : 8).map(tr => (
+                <span key={tr.row} style={{display: 'inline-block', textAlign: 'center', marginRight: '4px'}}>
+                  {tr.best[0] && <img src={`${this.props.api}/data/${tr.best[0].ctx || tr.best[0].crop}`}
+                                      style={{height: '80px'}} title={`${tr.session_id} track ${tr.track_id} sim ${tr.sim || '-'}`}
+                                      onClick={() => this.props.onZoom(`${this.props.api}/data/${tr.best[0].ctx || tr.best[0].crop}`)} />}
+                  {this.state.open === v.id && <><br/><button onClick={() => this.admin('remove_track', { track_row: tr.row },
+                      'Remove this face from the visitor? (it is dropped, not returned to the unknown pool)')}>Not them</button></>}
+                </span>
+              ))}
+            </div>
+            <button onClick={() => this.setState({ open: this.state.open === v.id ? null : v.id })}>
+              {this.state.open === v.id ? 'Less' : 'All faces / fix'}</button>
+            <button onClick={() => this.split(v)}>Split</button>
+            <button onClick={() => this.merge(v, visitors.filter(o => o.id !== v.id))}>Merge into...</button>
+            <button onClick={() => this.admin('delete_identity', { id: v.id, to_pool: true },
+                `Delete ${v.name}? Its faces go back to the unknown pool and may be rediscovered as a new visitor.`)}>
+              Delete (keep faces)</button>
+            <button onClick={() => this.admin('delete_identity', { id: v.id, to_pool: false },
+                `Delete ${v.name} and all its faces? This can't be undone.`)}>Delete (forget)</button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+}
+
+class VdUnknown extends React.Component {
+  render() {
+    const clusters = this.props.clusters || [];
+    if (clusters.length === 0) return <p>No unknown faces waiting.</p>;
+    return (
+      <div>
+        <p><small>Unknown faces grouped by similarity, the same way discovery does. A group seen in enough visits
+          on enough days becomes a visitor. Faces expire after {this.props.config.unknown_ttl_days} days.</small></p>
+        {clusters.map((c, i) => (
+          <div key={i} className="card">
+            <small>{c.tracks.length} sightings · visits {c.visits}/{c.needs_visits} · days {c.days}/{c.needs_days}</small>
+            <div>
+              {c.tracks.map(tr => tr.best[0] && (
+                <img key={tr.row} src={`${this.props.api}/data/${tr.best[0].ctx || tr.best[0].crop}`}
+                     style={{height: '80px', marginRight: '2px'}} title={`${tr.session_id} track ${tr.track_id}`}
+                     onClick={() => this.props.onZoom(`${this.props.api}/data/${tr.best[0].ctx || tr.best[0].crop}`)} />
+              ))}
+            </div>
+            <button onClick={() => {
+              if (!window.confirm('Forget these faces? They will not count towards discovering a visitor.')) return;
+              mJsonPut(`${this.props.api}/admin/reset_tracks`, { track_rows: c.track_rows }, () => this.props.onChanged());
+            }}>Reset this group</button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+}
+
+function VdStatus(props) {
+  const s = props.status;
+  if (!s) return <p>Loading...</p>;
+  return (
+    <div>
+      {s.alerts.length > 0 && <div className="card warn">{s.alerts.map((a, i) => <div key={i}>{a}</div>)}</div>}
+      {s.models_missing.length > 0 && <p>Missing models: {s.models_missing.join(', ')} (run make download_models)</p>}
+      <h3>Active sessions</h3>
+      {s.active_sessions.length === 0 ? <p>None</p> : (
+        <table>
+          <thead><tr><th>Session</th><th>Stream time</th><th>Compute time</th><th>Frames</th><th>Dropped</th><th>Events</th></tr></thead>
+          <tbody>
+            {s.active_sessions.map(a => (
+              <tr key={a.session_id}>
+                <td>{a.session_id}<br/><small>{a.trigger}</small></td><td>{a.t}s</td><td>{a.wall_s}s</td>
+                <td>{a.frames}</td><td>{a.dropped}</td><td>{a.events.join(', ') || '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <h3>Config in use</h3>
+      <pre style={{whiteSpace: 'pre-wrap'}}>{JSON.stringify(s.config, null, 1)}</pre>
+    </div>
+  );
+}
+
 class VisitorDetect extends React.Component {
   static buildProps(api_base_path = '', https_server = '') {
     return { key: 'visitor_detect', api_base_path, https_server };
@@ -5,96 +311,59 @@ class VisitorDetect extends React.Component {
 
   constructor(props) {
     super(props);
-    this.state = { detections: [], selectedCrop: null };
-    this.fetchDetections = this.fetchDetections.bind(this);
+    this.state = { tab: 'sessions', sessions: null, visitors: null, clusters: null, status: null, zoom: null };
+    this.refresh = this.refresh.bind(this);
   }
 
-  componentDidMount() { this.on_app_became_visible(); }
-
-  on_app_became_visible() { this.fetchDetections(); }
-
-  fetchDetections() {
-    mJsonGet(`${this.props.api_base_path}/detections`, (data) => this.setState({ detections: data }));
+  componentDidMount() {
+    this.refresh();
+    this.poller = mPoll(this.refresh, 10000);
   }
 
-  cropUrl(d) {
-    return d.crop_path ? `${this.props.api_base_path}/crops/${d.crop_path.split('/').pop()}` : null;
+  componentWillUnmount() {
+    this.poller?.stop();
   }
 
-  inputImageUrl(d) {
-    return d.input_image_path ? `${this.props.api_base_path}/crops/${d.input_image_path.split('/').pop()}` : null;
+  refresh() {
+    const api = this.props.api_base_path;
+    // Status carries the config the other tabs use for their explanations
+    mJsonGet(`${api}/status`, (status) => this.setState({ status }));
+    switch (this.state.tab) {
+      case 'sessions': mJsonGet(`${api}/sessions?limit=200`, (sessions) => this.setState({ sessions })); break;
+      case 'visitors': mJsonGet(`${api}/visitors`, (visitors) => this.setState({ visitors })); break;
+      case 'unknown': mJsonGet(`${api}/unknown`, (clusters) => this.setState({ clusters })); break;
+      default: break;
+    }
+  }
+
+  setTab(tab) {
+    this.setState({ tab }, this.refresh);
   }
 
   render() {
-    const { detections, selectedCrop } = this.state;
-    const eventLabels = {
-      visitor_recognized: 'Known',
-      new_visitor_recognized: 'New visitor',
-      new_face_detected: 'New face',
-      no_faces_detected: 'No faces',
-    };
-
+    const api = this.props.api_base_path;
+    const config = this.state.status ? this.state.status.config : {};
+    const zoom = (url) => this.setState({ zoom: url });
+    const tabs = [['sessions', 'Sessions'], ['visitors', 'Visitors'], ['unknown', 'Unknown faces'], ['status', 'Status']];
     return (
       <div>
-        <button onClick={this.fetchDetections}>Refresh</button>
-        <small> {detections.length} detection{detections.length !== 1 ? 's' : ''}</small>
-
-        {selectedCrop && (
-          <dialog open onClick={() => this.setState({ selectedCrop: null })}>
-            <img src={selectedCrop} alt="crop" style={{maxWidth: '90vw', maxHeight: '90vh'}} />
+        {this.state.zoom && (
+          <dialog open onClick={() => this.setState({ zoom: null })}>
+            <img src={this.state.zoom} style={{maxWidth: '90vw', maxHeight: '90vh'}} />
           </dialog>
         )}
-
-        {detections.length === 0 ? (
-          <p>No detections yet</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Crop</th>
-                <th>Input</th>
-                <th>Name</th>
-                <th>Event</th>
-                <th>Confidence</th>
-                <th>Detector</th>
-                <th>Sightings</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detections.slice().reverse().map((d, idx) => (
-                <tr key={idx} style={d.event === 'no_faces_detected' ? {opacity: 0.5} : {}}>
-                  <td>
-                    {this.cropUrl(d) ? (
-                      <img
-                        src={this.cropUrl(d)}
-                        alt={d.name || 'unknown'}
-                        style={{width: '80px', cursor: 'pointer'}}
-                        onClick={() => this.setState({ selectedCrop: this.cropUrl(d) })}
-                      />
-                    ) : '-'}
-                  </td>
-                  <td>
-                    {this.inputImageUrl(d) ? (
-                      <img
-                        src={this.inputImageUrl(d)}
-                        alt="input"
-                        style={{width: '80px', cursor: 'pointer'}}
-                        onClick={() => this.setState({ selectedCrop: this.inputImageUrl(d) })}
-                      />
-                    ) : '-'}
-                  </td>
-                  <td><strong>{d.name || (d.event === 'no_faces_detected' ? '-' : 'Unknown')}</strong></td>
-                  <td>{eventLabels[d.event] || d.event}</td>
-                  <td>{d.face_confidence ? (d.face_confidence * 100).toFixed(0) + '%' : '-'}</td>
-                  <td>{d.face_detector || '-'}</td>
-                  <td>{d.sightings != null ? d.sightings : '-'}</td>
-                  <td>{new Date(d.timestamp * 1000).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <div>
+          {tabs.map(([k, label]) => (
+            <button key={k} disabled={this.state.tab === k} onClick={() => this.setTab(k)}>{label}</button>
+          ))}
+          {this.state.status && this.state.status.alerts.length > 0 && <span className="warn"> ⚠ see Status</span>}
+        </div>
+        {this.state.tab === 'sessions' && <VdSessions api={api} sessions={this.state.sessions} onZoom={zoom} />}
+        {this.state.tab === 'visitors' && <VdVisitors api={api} visitors={this.state.visitors} config={config}
+                                                       onZoom={zoom} onChanged={this.refresh} />}
+        {this.state.tab === 'unknown' && <VdUnknown api={api} clusters={this.state.clusters} config={config}
+                                                     onZoom={zoom} onChanged={this.refresh} />}
+        {this.state.tab === 'status' && <VdStatus status={this.state.status} />}
       </div>
     );
   }

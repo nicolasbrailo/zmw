@@ -108,24 +108,34 @@ document.addEventListener('visibilitychange', () => {
 
 // Periodic polling that pauses while the page is hidden. Background tabs get throttled, then frozen, and
 // their in-flight requests aborted; polling there is wasted work at best, and spurious errors at worst. On
-// becoming visible, every poller runs once immediately and then resumes its interval.
+// becoming visible, a poller picks up where it left off: it runs immediately only if a full interval went by
+// since its last run, so quickly switching tabs back and forth doesn't trigger a burst of requests.
+// Callers are expected to fetch once themselves on mount; the first poll runs one interval after mPoll().
 function mPoll(fn, intervalMs) {
   const poller = { timer: null };
+  let lastRunAt = Date.now();
+  const schedule = (delayMs) => {
+    poller.timer = setTimeout(() => {
+      lastRunAt = Date.now();
+      fn();
+      schedule(intervalMs);
+    }, delayMs);
+  };
+
   const visibility = mOnVisibilityChange((isVisible) => {
-    clearInterval(poller.timer);
+    clearTimeout(poller.timer);
     poller.timer = null;
     if (isVisible) {
-      fn();
-      poller.timer = setInterval(fn, intervalMs);
+      schedule(Math.max(0, intervalMs - (Date.now() - lastRunAt)));
     }
   });
   poller.stop = () => {
     visibility.stop();
-    clearInterval(poller.timer);
+    clearTimeout(poller.timer);
     poller.timer = null;
   };
   if (!document.hidden) {
-    poller.timer = setInterval(fn, intervalMs);
+    schedule(intervalMs);
   }
   return poller;
 }
@@ -144,7 +154,7 @@ function mNetMarkDown() {
   if (mNet.down) return;
   mNet.down = true;
   mNet._bannerShown = false;
-  // The probe is an mPoll, so it pauses while hidden and runs as soon as the page is visible again
+  // The probe is an mPoll, so it pauses while hidden and resumes (within its 3s interval) once visible again
   mNet._probe = mPoll(_mNetProbeMaybeShowBanner, 3000);
   // If this happened in the background (eg a request aborted by the browser when freezing the tab), wait for a
   // probe to fail before complaining: the network is likely to be fine by the time the user looks again.
