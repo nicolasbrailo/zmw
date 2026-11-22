@@ -41,11 +41,12 @@ function VdTimeline(props) {
     marks.push(<rect key={`p${i}`} x={x(c.t) - 2} y={4} width={4} height={10}
                      fill={hit ? '#1c7ed6' : (c.ran ? '#666' : 'none')} stroke="#1c7ed6" strokeWidth={c.ran ? 0 : 1}>
                  <title>{`t=${c.t}s person check ${c.ran ? 'ran' : 'skipped (no motion)'}: ` +
-                         (c.ran ? c.persons.map(p => p.conf).join(', ') || 'nobody' : `${c.persons_reused} reused`)}</title>
+                         (c.ran ? c.persons.map(p => p.conf).join(', ') || 'nobody' : `${c.persons_reused} reused`) +
+                         ((c.too_small || []).length ? `; ignored ${c.too_small.length} too small (far away)` : '')}</title>
                </rect>);
   });
   log.faces.forEach((f, i) => {
-    marks.push(<circle key={`f${i}`} cx={x(f.t)} cy={24} r={2.5} fill={f.gate === 'ok' ? '#e8590c' : '#888'}>
+    marks.push(<circle key={`f${i}`} cx={x(f.t)} cy={24} r={2.5} fill={f.gate === 'ok' ? '#e8590c' : (f.gate.startsWith('ok') ? '#f5a97f' : '#888')}>
                  <title>{`t=${f.t}s track ${f.track} conf ${f.conf} iod ${f.iod}px yaw ${f.yaw}: ${f.gate}`}</title>
                </circle>);
   });
@@ -61,6 +62,53 @@ function VdTimeline(props) {
       {marks}
       <text x={W - 4} y={H - 4} fill="#888" fontSize="9" textAnchor="end">{`${dur}s`}</text>
     </svg>
+  );
+}
+
+// People in a session, each with the tracks (continuous sightings of a face) that were linked to them. A person
+// starts at a track that was reported (unknown or identified); later tracks that matched it are "same person".
+function VdPeople(props) {
+  const { tracks, img } = props;
+  const byId = {};
+  tracks.forEach(tr => { byId[tr.id] = tr; });
+  const people = [];
+  const rootOf = {};
+  let letter = 0;
+  tracks.forEach(tr => {
+    const kind = tr.decision ? tr.decision.kind : null;
+    if (kind === 'unknown' || kind === 'identified') {
+      const label = kind === 'identified' ? `${tr.decision.who} (identified, ${tr.decision.sim})`
+                                          : `Person ${String.fromCharCode(65 + letter++)} (unknown)`;
+      rootOf[tr.id] = { label, tracks: [tr] };
+      people.push(rootOf[tr.id]);
+    }
+  });
+  const undecided = [], faceless = [];
+  tracks.forEach(tr => {
+    if (tr.same_as != null && rootOf[tr.same_as]) rootOf[tr.same_as].tracks.push(tr);
+    else if (!tr.decision) (tr.gated ? undecided : faceless).push(tr);
+  });
+  const rows = people.concat(
+    undecided.length ? [{ label: 'Undecided (fewer than 2 good faces)', tracks: undecided }] : [],
+    faceless.length ? [{ label: 'No usable face', tracks: faceless }] : []);
+  if (!rows.length) return null;
+  const cell = tr => (
+    <span key={tr.id} style={{display: 'inline-block', textAlign: 'center', marginRight: '6px', verticalAlign: 'top'}}>
+      {/* Logs from before track photos existed only have the best faces of tracks with good faces */}
+      {img(tr.photo || (tr.best && tr.best.length ? tr.best[0].ctx : null), '70px') ||
+       <div title="no photo: no usable face (or a log from before track photos)"
+            style={{height: '70px', width: '70px', background: '#333'}} />}
+      <br/><small>track {tr.id} · {tr.first_t}-{tr.last_t}s<br/>
+        {tr.gated}/{tr.seen} good{tr.same_as != null ? ` · sim ${tr.decision.sim}` : ''}</small>
+    </span>
+  );
+  return (
+    <table>
+      <thead><tr><th>Person</th><th>Tracks (photo: first good face, else first face seen)</th></tr></thead>
+      <tbody>
+        {rows.map((p, i) => <tr key={i}><td>{p.label}</td><td>{p.tracks.map(cell)}</td></tr>)}
+      </tbody>
+    </table>
   );
 }
 
@@ -87,15 +135,23 @@ class VdSessionDetail extends React.Component {
     const st = log.stats || {};
     return (
       <div className="card">
+        {log.tracks.length > 0 && <VdPeople tracks={log.tracks} img={img} />}
         <VdTimeline log={log} />
         <small>Blue bars: person checks (filled = person found, hollow = skipped, no motion). Dots: faces (orange =
           passed the quality gate). Lines: events fired. Hover for details.</small>
         <p>
-          Stopped: <b>{log.stop_reason}</b> after {log.analysed_s}s ({log.wall_s}s compute, mode {log.mode},
+          Stopped: <b>{log.stop_reason}</b> after {log.analysed_s}s of video ({Object.values(log.timing || {}).reduce((a, b) => a + b, 0).toFixed(1)}s
+          of compute, mode {log.mode},
           trigger {log.trigger}). Frames {st.frames || 0}: person checks {st.person_runs || 0} ran /
-          {' '}{st.person_skipped_still || 0} skipped; face detector {st.scrfd_runs || 0} ran,
+          {' '}{st.person_skipped_still || 0} skipped, {st.persons_too_small || 0} people ignored as too small
+          (far away); face detector {st.scrfd_runs || 0} ran,
           {' '}{st.skipped_still || 0} skipped (no motion), {st.skipped_night || 0} skipped (night);
           {' '}{log.dropped_frames || 0} frames dropped (busy).
+          {log.inference && <> Models on the {log.inference.toUpperCase()}.</>}
+          {log.stream && <> Decoded on the {(log.stream.decoder || 'cpu').toUpperCase()}
+            {log.stream.decode_cpu_s !== undefined && ` (${log.stream.decode_cpu_s}s of CPU)`}. First frame
+            {' '}{log.stream.event_to_first_frame_s}s after the camera event
+            (ffmpeg {log.stream.ffmpeg_to_first_frame_s}s), analysis up to {log.stream.max_lag_s}s behind.</>}
         </p>
         <p>
           Faces seen: {log.faces.length}. Quality gate: {Object.entries(gateCounts).map(([k, v]) => `${k} ${v}`).join(', ') || 'no faces'}.
@@ -277,6 +333,38 @@ class VdUnknown extends React.Component {
   }
 }
 
+// Plays a clip on the server as if it were a camera's live stream: a real session, with events and learning
+class VdInject extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { cam: props.cams[0] || '', path: '', result: null };
+  }
+
+  inject() {
+    this.setState({ result: 'Starting...' });
+    mJsonPut(`${this.props.api}/inject_clip`, { cam_alias: this.state.cam, path: this.state.path },
+             (r) => this.setState({ result: `Started session ${r.session_id}; it shows in Active sessions` }),
+             () => this.setState({ result: null }));
+  }
+
+  render() {
+    return (
+      <div>
+        <h3>Inject a clip</h3>
+        <p><small>Plays a recorded clip on the server through the pipeline, in real time, as if it were the camera.
+          It fires events and feeds the identity store like a real visit.</small></p>
+        <select value={this.state.cam} onChange={(e) => this.setState({ cam: e.target.value })}>
+          {this.props.cams.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input type="text" size="60" placeholder="/absolute/path/to/clip.mp4" value={this.state.path}
+               onChange={(e) => this.setState({ path: e.target.value })} />
+        <button disabled={!this.state.path} onClick={() => this.inject()}>Inject</button>
+        {this.state.result && <p>{this.state.result}</p>}
+      </div>
+    );
+  }
+}
+
 function VdStatus(props) {
   const s = props.status;
   if (!s) return <p>Loading...</p>;
@@ -284,20 +372,26 @@ function VdStatus(props) {
     <div>
       {s.alerts.length > 0 && <div className="card warn">{s.alerts.map((a, i) => <div key={i}>{a}</div>)}</div>}
       {s.models_missing.length > 0 && <p>Missing models: {s.models_missing.join(', ')} (run make download_models)</p>}
+      <p>Models: <b>{s.inference || 'not loaded'}</b></p>
+      {s.decoding && (
+        <p>Video decoding: <b>{s.decoding.decoder === 'gpu' ? `GPU (VA-API, ${s.decoding.device})` : 'CPU'}</b>
+          {s.decoding.decoder === 'cpu' && s.decoding.reason && <small> ({s.decoding.reason})</small>}</p>
+      )}
       <h3>Active sessions</h3>
       {s.active_sessions.length === 0 ? <p>None</p> : (
         <table>
-          <thead><tr><th>Session</th><th>Stream time</th><th>Compute time</th><th>Frames</th><th>Dropped</th><th>Events</th></tr></thead>
+          <thead><tr><th>Session</th><th>Stream time</th><th>Compute</th><th>Frames</th><th>Dropped</th><th>Events</th></tr></thead>
           <tbody>
             {s.active_sessions.map(a => (
               <tr key={a.session_id}>
-                <td>{a.session_id}<br/><small>{a.trigger}</small></td><td>{a.t}s</td><td>{a.wall_s}s</td>
+                <td>{a.session_id}<br/><small>{a.trigger}</small></td><td>{a.t}s</td><td>{a.compute_s}s</td>
                 <td>{a.frames}</td><td>{a.dropped}</td><td>{a.events.join(', ') || '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+      <VdInject api={props.api} cams={s.config.cam_aliases || []} />
       <h3>Config in use</h3>
       <pre style={{whiteSpace: 'pre-wrap'}}>{JSON.stringify(s.config, null, 1)}</pre>
     </div>
@@ -363,7 +457,7 @@ class VisitorDetect extends React.Component {
                                                        onZoom={zoom} onChanged={this.refresh} />}
         {this.state.tab === 'unknown' && <VdUnknown api={api} clusters={this.state.clusters} config={config}
                                                      onZoom={zoom} onChanged={this.refresh} />}
-        {this.state.tab === 'status' && <VdStatus status={this.state.status} />}
+        {this.state.tab === 'status' && <VdStatus api={api} status={this.state.status} />}
       </div>
     );
   }

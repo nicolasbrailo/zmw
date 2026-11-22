@@ -1,8 +1,11 @@
 {
-  "doorbell_cam_alias": "doorbell",
-  "detection_cooldown_secs": 300,
-  "sighting_dedup_gap_secs": 1800,
+  "cam_aliases": ["doorbell"],
   "models_dir": "./models",
-  "detection_crops_dir": "./detection_crops",
-  "max_crops": 200
+  "data_dir": "./visitor_data",
+  "visitor_names": {},
+  "inference": "gpu",
+  "hw_decode": "vaapi",
+  "person_detection": "first",
+  "person_min_height_px": 300,
+  "face_gate": {"max_yaw": 0.3, "max_yaw_large": 0.4, "large_yaw_iod_px": 35}
 }

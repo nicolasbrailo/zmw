@@ -7,6 +7,8 @@ name = "pypi"
 zzmw-lib = {path = "../zzmw_lib", editable = true}
 opencv-python-headless = "*"
 onnxruntime = "*"
+openvino = "*"
+numpy = "*"
 
 [dev-packages]
 pylint = "*"
