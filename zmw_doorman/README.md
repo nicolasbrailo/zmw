@@ -15,14 +15,20 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 | `door_open_scene_thing_to_manage` | List of Zigbee light names to control in the door-open scene |
 | `door_open_scene_timeout_secs` | Seconds before the door-open scene auto-expires |
 | `latlon` | `[lat, lon]` for sunrise/sunset calculation (door-open scene only activates when dark) |
+| `allowed_paths` | Dirs camera snapshots may come from; others are ignored |
+| `relay_raw_cam_events` | Also send the camera's motion snapshot to WhatsApp ("Motion detected", at most one every 2 minutes) for any motion, person or not: to be notified of all motion, or as a fallback when ZmwVisitorDetect isn't running |
+| `visitor_face_wait_secs` | After ZmwVisitorDetect reports a person, wait this long for a face before sending the person picture (see below) |
+| `visitor_notify_repeat_secs` | Don't notify the same person again within this time |
+| `visitor_notify_injected` | Also notify sessions from test clips injected into ZmwVisitorDetect |
 
 ## Service Dependencies
 
 - **ZmwSpeakerAnnounce** -- plays doorbell chime sound
-- **ZmwWhatsapp** -- sends motion/doorbell photos via WhatsApp
+- **ZmwWhatsapp** -- sends visitor/doorbell photos via WhatsApp
 - **ZmwTelegram** -- sends motion/doorbell photos via Telegram, handles `/door_snap` command
 - **ZmwReolinkCams** -- provides camera snapshots, doorbell button press, and motion events
 - **ZmwContactmon** -- provides door contact sensor open/close events and chime control
+- **ZmwVisitorDetect** -- people and faces at the door, for the WhatsApp notifications
 
 ## WWW Endpoints
 
@@ -40,6 +46,25 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 ## Door-Open Scene
 
 When the door contact sensor reports the door opening and it is dark outside (based on sun position at the configured lat/lon), the service turns on a set of configured Zigbee lights. The scene auto-expires after a configurable timeout. If another service or user manually controls a managed light while the scene is active, that light is released from management. Motion events at the door extend the scene timer.
+
+## Visitor notifications
+
+People at the door are sent to WhatsApp from ZmwVisitorDetect's events, one message per visit, preferably with a
+face (`visitor_notifier.py`). Camera motion alone is only sent with `relay_raw_cam_events`: most of it isn't a person.
+
+- After `on_person_detected`, wait `visitor_face_wait_secs` for a face. The service waits at most this time until
+  the visitor detection service can identify a face; if no face arrives on time, a generic "person detected" message
+  is sent instead. Includes a picture. Defaults to 5s; experiments show that for a Reolink cam, 5s timeout catches a
+  face 70% of the time, whereas 10s only improved that to 80%.
+- At night ZmwVisitorDetect only reports people, so the person picture goes out at once.
+- One follow-up per visit: a face arriving after the first message (late, a second person, or an unknown face
+  identified later).
+- The same person isn't notified again within `visitor_notify_repeat_secs`.
+- Pictures are large crops ZmwVisitorDetect writes to the services' shared scratch dir (its
+  `notification_img_dir`), which must be in ZmwWhatsapp's `allowed_paths`. If ZmwVisitorDetect is down, nothing
+  is sent (its missing dependency is alerted).
+
+The doorbell ring is separate: it still sends the camera snapshot ("RING!") to WhatsApp and Telegram.
 
 ## Telegram Integration
 

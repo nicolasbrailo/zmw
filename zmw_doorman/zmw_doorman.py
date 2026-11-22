@@ -5,6 +5,7 @@ import pathlib
 import threading
 from datetime import datetime, timedelta
 
+from apscheduler.jobstores.base import JobLookupError
 from flask import send_file, jsonify
 
 from zzmw_lib.service_runner import service_runner
@@ -14,6 +15,7 @@ from zzmw_lib.path_allowlist import PathAllowlist
 
 from door_open_scene import DoorOpenScene
 from door_stats import DoorStats
+from visitor_notifier import VisitorNotifier
 
 log = build_logger("ZmwDoorman")
 
@@ -23,7 +25,7 @@ class ZmwDoorman(ZmwMqttService):
     def __init__(self, cfg, www, sched):
         super().__init__(cfg, "zmw_doorman", scheduler=sched,
                          svc_deps=['ZmwSpeakerAnnounce', 'ZmwWhatsapp', 'ZmwTelegram',
-                                   'ZmwReolinkCams', 'ZmwContactmon', 'ZmwUnifiClientmon'])
+                                   'ZmwReolinkCams', 'ZmwContactmon', 'ZmwUnifiClientmon', 'ZmwVisitorDetect'])
         self._cfg = cfg
         self._sched = sched
         # Ensure required config keys exist
@@ -31,6 +33,7 @@ class ZmwDoorman(ZmwMqttService):
         _ = self._cfg["doorbell_announce_sound"]
         _ = self._cfg["doorbell_contact_sensor"]
         _ = self._cfg["doorbell_cam_alias"]
+        _ = self._cfg["relay_raw_cam_events"]
 
         self._waiting_on_telegram_snap = None
         self._snap_request_timeout_secs = 5
@@ -54,6 +57,12 @@ class ZmwDoorman(ZmwMqttService):
         self._contactmon_state_baton = threading.Event()
         self._contactmon_state = None
         self._last_motion_detected_time = 0
+
+        # Forward ZmwVisitorDetect's events to WA, instead of the raw camera events. They should be less noisy and
+        # with some luck contain face identification.
+        self._visitor_notifier = VisitorNotifier(
+            cfg, lambda path, text: self.message_svc("ZmwWhatsapp", "send_photo", {'path': path, 'msg': text}),
+            self._schedule)
 
         # Snap paths come over MQTT, and we serve files from their dir: only accept those in allowed_paths
         self._snaps_allowlist = PathAllowlist(cfg, "snapshots")
@@ -79,11 +88,12 @@ class ZmwDoorman(ZmwMqttService):
     def get_mqtt_description(self):
         return {
             "description": "Door+doorbell manager. Orchestrates door events from a Reolink camera and contact sensor. "\
-                           "Plays announcement, sends photos via WhatsApp/Telegram, manages door-open lights scene",
+                           "Plays announcement, sends photos via WhatsApp/Telegram (visitors at the door, with their "\
+                           "face when ZmwVisitorDetect has one), manages door-open lights scene",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: doorbell/motion/snap events, contact reports, Telegram commands.
-            "reads_mqtt_topic": ["zmw_reolink_cams", "zmw_contactmon", "zmw_telegram"],
+            # Reads: doorbell/motion/snap events, contact reports, Telegram commands, people/faces at the door.
+            "reads_mqtt_topic": ["zmw_reolink_cams", "zmw_contactmon", "zmw_telegram", "zmw_visitor_detect"],
             # Writes: requests snaps/state, then pushes notifications out.
             "writes_mqtt_topic": ["zmw_reolink_cams", "zmw_contactmon",
                                   "zmw_speaker_announce", "zmw_whatsapp", "zmw_telegram"],
@@ -251,8 +261,11 @@ class ZmwDoorman(ZmwMqttService):
                     self._on_user_home(msg)
                 elif subtopic == "user_away":
                     self._on_user_away(msg)
+            case 'ZmwVisitorDetect':
+                if isinstance(msg, dict) and msg.get("cam_alias") == self._cfg["doorbell_cam_alias"]:
+                    self._visitor_notifier.on_visitor_event(subtopic, msg)
             case _:
-                log.error("Received unexpected message from service %s/%s: %s", service_name, subtopic, msg)
+                log.error("Received unexpected message from service %s/%s: %s", svc_name, subtopic, msg)
 
     def on_contact_report(self, msg_topic, msg):
         if self._cfg["doorbell_contact_sensor"] in msg_topic:
@@ -399,6 +412,10 @@ class ZmwDoorman(ZmwMqttService):
         if snap_path:
             self._door_stats.record_snap(snap_path)
 
+        if not self._cfg["relay_raw_cam_events"]:
+            # People at the door are sent by the visitor notifier
+            return
+
         # Rate limit (update last motion time unconditionally, so that we extend the rate limit if messages
         # keep spamming)
         dt = time.time() - self._last_motion_detected_time
@@ -425,6 +442,18 @@ class ZmwDoorman(ZmwMqttService):
         log.warning("Motion event timedout, no vacancy reported")
         self._door_stats.record_motion_end()
         self.publish_own_svc_message("on_motion_cleared", {})
+
+    def _schedule(self, delay_secs, callback):
+        """Runs callback in delay_secs; returns a function that cancels it."""
+        job = self._sched.add_job(callback, trigger='date', run_date=datetime.now() + timedelta(seconds=delay_secs))
+
+        def cancel():
+            try:
+                job.remove()
+            except JobLookupError:
+                # Already ran
+                pass
+        return cancel
 
     def _update_snap_directory(self, snap_path):
         """Update the snap directory from a full snap path. Follows the latest snap, in case the cam's
