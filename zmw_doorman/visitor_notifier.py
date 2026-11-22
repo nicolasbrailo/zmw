@@ -24,7 +24,8 @@ _FACE_EVENTS = ('on_face_identified', 'on_face_detected')
 
 
 class _Session:
-    def __init__(self, now):
+    def __init__(self, session_id, now):
+        self.id = session_id
         self.started = now
         self.person = None        # its on_person_detected
         self.cancel_wait = None
@@ -33,18 +34,20 @@ class _Session:
 
 
 class VisitorNotifier:
-    def __init__(self, cfg, send_photo, schedule, now=time.time):
+    def __init__(self, cfg, send_photo, schedule, on_sent=lambda session_id, text: None, now=time.time):
         """
         Args:
             cfg: Service config; the visitor_* keys are required (no defaults: KeyError at startup if missing)
             send_photo: fn(path, msg) that sends a photo to WhatsApp
             schedule: fn(delay_secs, callback) -> cancel fn
+            on_sent: fn(session_id, text), after each message sent (eg for the door history)
             now: Clock
         """
         self._wait_secs = cfg['visitor_face_wait_secs']
         self._repeat_secs = cfg['visitor_notify_repeat_secs']
         self._notify_injected = cfg['visitor_notify_injected']
         self._send_photo = send_photo
+        self._on_sent = on_sent
         self._schedule = schedule
         self._now = now
         self._lock = threading.Lock()
@@ -65,7 +68,7 @@ class VisitorNotifier:
             self._sessions = {sid: s for sid, s in self._sessions.items()
                               if now - s.started < _FORGET_SESSION_SECS}
             sid = msg['session_id']
-            session = self._sessions.setdefault(sid, _Session(now))
+            session = self._sessions.setdefault(sid, _Session(sid, now))
             if subtopic == _PERSON:
                 self._on_person(sid, session, msg)
             else:
@@ -119,3 +122,4 @@ class VisitorNotifier:
         self._last_sent[who] = now
         log.info("Visitor at the door, sending '%s' over WA", text)
         self._send_photo(img, text)
+        self._on_sent(session.id, text)

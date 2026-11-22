@@ -52,7 +52,7 @@ class TestVisitorNotifier:
         self.sent = []
         self.notifier = VisitorNotifier(CFG,
                                         lambda path, text: self.sent.append((path, text)),
-                                        self.clock.schedule, self.clock.now)
+                                        self.clock.schedule, now=self.clock.now)
 
     def ev(self, subtopic, msg):
         self.notifier.on_visitor_event(subtopic, msg)
@@ -122,7 +122,7 @@ class TestVisitorNotifier:
     def test_injected_sessions_notified_when_configured(self):
         notifier = VisitorNotifier({**CFG, 'visitor_notify_injected': True},
                                    lambda path, text: self.sent.append((path, text)),
-                                   self.clock.schedule, self.clock.now)
+                                   self.clock.schedule, now=self.clock.now)
         notifier.on_visitor_event('on_person_detected', person(trigger='injected', night=True))
         assert len(self.sent) == 1
 
@@ -137,11 +137,22 @@ class TestVisitorNotifier:
         self.clock.advance(6)
         assert self.sent == [('/tmp/shared/face.jpg', 'Belen is at the door')]
 
+    def test_sent_messages_are_reported_with_their_session(self):
+        reported = []
+        notifier = VisitorNotifier(CFG, lambda path, text: None, self.clock.schedule,
+                                   lambda sid, text: reported.append((sid, text)), now=self.clock.now)
+        notifier.on_visitor_event('on_person_detected', person('s1'))
+        notifier.on_visitor_event('on_face_identified', identified('s1'))
+        # A repeat isn't sent, so it isn't reported
+        notifier.on_visitor_event('on_person_detected', person('s2'))
+        notifier.on_visitor_event('on_face_identified', identified('s2'))
+        assert reported == [('s1', 'Belen is at the door')]
+
     def test_missing_config_key_fails(self):
         for key in CFG:
             cfg = {k: v for k, v in CFG.items() if k != key}
             with pytest.raises(KeyError):
-                VisitorNotifier(cfg, lambda path, text: None, self.clock.schedule, self.clock.now)
+                VisitorNotifier(cfg, lambda path, text: None, self.clock.schedule, now=self.clock.now)
 
     def test_other_events_ignored(self):
         self.ev('on_new_frequent_visitor', {'session_id': 's1'})

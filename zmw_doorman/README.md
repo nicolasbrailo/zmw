@@ -42,6 +42,7 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 | `/get_snap/<filename>` | GET | Serve a camera snapshot image by filename |
 | `/get_cams_svc_url` | GET | JSON: URL of the ZmwReolinkCams web UI |
 | `/get_contactmon_svc_url` | GET | JSON: URL of the ZmwContactmon web UI |
+| `/get_visitor_detect_svc_url` | GET | JSON: URL of the ZmwVisitorDetect web UI |
 
 ## Door-Open Scene
 
@@ -64,6 +65,9 @@ face (`visitor_notifier.py`). Camera motion alone is only sent with `relay_raw_c
   `notification_img_dir`), which must be in ZmwWhatsapp's `allowed_paths`. If ZmwVisitorDetect is down, nothing
   is sent (its missing dependency is alerted).
 
+Each message sent is recorded in the door history ("visitor" rows); its link opens that session in ZmwVisitorDetect's
+UI (`index.html#session=<id>`), with the visitor's crops and why they were (or weren't) identified.
+
 The doorbell ring is separate: it still sends the camera snapshot ("RING!") to WhatsApp and Telegram.
 
 ## Telegram Integration
@@ -78,7 +82,7 @@ Registers a `/door_snap` command with ZmwTelegram. When invoked, requests a snap
 
 #### `get_stats`
 
-List of events: doorbell presses, motion, door open. Response on get_stats_reply
+List of events: doorbell presses, motion, door open, visitors notified. Response on get_stats_reply
 
 _No parameters._
 
@@ -134,6 +138,7 @@ Door stats
 |-------|-------------|
 | `doorbell_press_count_today` | int |
 | `motion_detection_count_today` | int |
+| `visitor_count_today` | int |
 | `last_snap` | filename or null |
 | `last_snap_time` | epoch or null |
 | `history` | list of event records |

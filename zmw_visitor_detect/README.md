@@ -51,6 +51,7 @@ WhatsApp).
 
 - `/`: UI. Sessions (timeline and decision log: why each session flagged or didn't), Visitors (faces; split,
   merge, remove a face, delete), Unknown faces (groups waiting for promotion; reset a group), Status.
+  `index.html#session=<id>` opens that session's decision log on top of the list (ZmwDoorman's history links here).
 - `/status`, `/sessions`, `/session/<id>`, `/visitors`, `/unknown`: JSON. `PUT /admin/<op>`: admin actions.
 - `/data/<path>`: face crops and session crops.
 
@@ -59,7 +60,7 @@ WhatsApp).
 `make inject_clip` plays a recorded clip as the doorbell's live stream, in real time (the `inject_clip` command;
 also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store. The clip
 must be inside one of the config's `allowed_paths` (eg the recordings dir); nothing is allowed if it's unset.
-Events from it have `trigger: "injected"`; consumers may ignore them (ZmwDoorman does, by default).
+Events from it have `trigger: "injected"`; consumers may ignore them (ZmwDoorman does, unless its `visitor_notify_injected` is set).
 
 ## MQTT
 

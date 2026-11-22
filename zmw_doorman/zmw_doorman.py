@@ -62,7 +62,7 @@ class ZmwDoorman(ZmwMqttService):
         # with some luck contain face identification.
         self._visitor_notifier = VisitorNotifier(
             cfg, lambda path, text: self.message_svc("ZmwWhatsapp", "send_photo", {'path': path, 'msg': text}),
-            self._schedule)
+            self._schedule, self._door_stats.record_visitor)
 
         # Snap paths come over MQTT, and we serve files from their dir: only accept those in allowed_paths
         self._snaps_allowlist = PathAllowlist(cfg, "snapshots")
@@ -78,6 +78,7 @@ class ZmwDoorman(ZmwMqttService):
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         www.serve_url('/get_cams_svc_url', self._get_cams_svc_url)
         www.serve_url('/get_contactmon_svc_url', self._get_contactmon_svc_url)
+        www.serve_url('/get_visitor_detect_svc_url', self._get_visitor_detect_svc_url)
         www.serve_url('/contactmon_state', self._get_contactmon_state)
         www.serve_url('/stats', self._door_stats.get_stats)
         www.serve_url('/get_snap/<filename>', self._get_snap)
@@ -99,7 +100,7 @@ class ZmwDoorman(ZmwMqttService):
                                   "zmw_speaker_announce", "zmw_whatsapp", "zmw_telegram"],
             "commands": {
                 "get_stats": {
-                    "description": "List of events: doorbell presses, motion, door open. Response on get_stats_reply",
+                    "description": "List of events: doorbell presses, motion, door open, visitors notified. Response on get_stats_reply",
                     "params": {}
                 },
                 "get_mqtt_description": {
@@ -136,6 +137,7 @@ class ZmwDoorman(ZmwMqttService):
                 "get_stats_reply": {
                     "description": "Door stats",
                     "payload": {"doorbell_press_count_today": "int", "motion_detection_count_today": "int",
+                                "visitor_count_today": "int",
                                 "last_snap": "filename or null", "last_snap_time": "epoch or null",
                                 "history": "list of event records", "motion_in_progress": "bool",
                                 "door_open_in_progress": "bool"}
@@ -170,6 +172,10 @@ class ZmwDoorman(ZmwMqttService):
 
     def _get_contactmon_svc_url(self):
         url = self.get_known_services().get("ZmwContactmon", {}).get("www")
+        return jsonify({"url": url})
+
+    def _get_visitor_detect_svc_url(self):
+        url = self.get_known_services().get("ZmwVisitorDetect", {}).get("www")
         return jsonify({"url": url})
 
     def _get_contactmon_state(self):

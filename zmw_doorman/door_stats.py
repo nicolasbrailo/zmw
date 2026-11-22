@@ -30,6 +30,14 @@ class MotionEventRecord:
 
 
 @dataclass
+class VisitorRecord:
+    """Record of a visitor notification (from ZmwVisitorDetect's events)."""
+    timestamp: float
+    msg: str
+    session_id: Optional[str] = None
+
+
+@dataclass
 class DoorOpenRecord:
     """Record of a door open event."""
     start_time: float
@@ -70,9 +78,11 @@ class DoorStats:
             if cached.get("counters_date") == today:
                 self._doorbell_press_count_today = cached.get("doorbell_press_count_today", 0)
                 self._motion_detection_count_today = cached.get("motion_detection_count_today", 0)
+                self._visitor_count_today = cached.get("visitor_count_today", 0)
             else:
                 self._doorbell_press_count_today = 0
                 self._motion_detection_count_today = 0
+                self._visitor_count_today = 0
 
             self._counters_date = today
             self._last_snap_path = cached.get("last_snap_path")
@@ -95,17 +105,24 @@ class DoorStats:
                  for r in cached.get("door_open_events", [])),
                 maxlen=self.MAX_HISTORY_SIZE
             )
+            self._visitors = deque(
+                (VisitorRecord(timestamp=r["timestamp"], msg=r["msg"], session_id=r.get("session_id"))
+                 for r in cached.get("visitors", [])),
+                maxlen=self.MAX_HISTORY_SIZE
+            )
             log.info("Restored state from cache: %d doorbell presses, %d motion events, %d door events",
                      len(self._doorbell_presses), len(self._motion_events), len(self._door_open_events))
         else:
             self._doorbell_press_count_today = 0
             self._motion_detection_count_today = 0
+            self._visitor_count_today = 0
             self._counters_date = today
             self._last_snap_path = None
             self._last_snap_time = None
             self._doorbell_presses = deque(maxlen=self.MAX_HISTORY_SIZE)
             self._motion_events = deque(maxlen=self.MAX_HISTORY_SIZE)
             self._door_open_events = deque(maxlen=self.MAX_HISTORY_SIZE)
+            self._visitors = deque(maxlen=self.MAX_HISTORY_SIZE)
 
     def _save_state(self):
         """Save current state to cache."""
@@ -113,6 +130,7 @@ class DoorStats:
             "counters_date": self._counters_date,
             "doorbell_press_count_today": self._doorbell_press_count_today,
             "motion_detection_count_today": self._motion_detection_count_today,
+            "visitor_count_today": self._visitor_count_today,
             "last_snap_path": self._last_snap_path,
             "last_snap_time": self._last_snap_time,
             "doorbell_presses": [
@@ -127,6 +145,10 @@ class DoorStats:
                 {"start_time": r.start_time, "duration_secs": r.duration_secs}
                 for r in self._door_open_events
             ],
+            "visitors": [
+                {"timestamp": r.timestamp, "msg": r.msg, "session_id": r.session_id}
+                for r in self._visitors
+            ],
         }
         runtime_state_cache_set(self.STATE_KEY, state)
 
@@ -136,6 +158,7 @@ class DoorStats:
                  self._doorbell_press_count_today, self._motion_detection_count_today)
         self._doorbell_press_count_today = 0
         self._motion_detection_count_today = 0
+        self._visitor_count_today = 0
         self._counters_date = date.today().isoformat()
         self._save_state()
 
@@ -188,6 +211,13 @@ class DoorStats:
         self._door_open_in_progress = None
         self._save_state()
 
+    def record_visitor(self, msg: str, session_id: Optional[str] = None):
+        """Record a visitor notification. session_id is ZmwVisitorDetect's session, which its UI can show."""
+        self._visitor_count_today += 1
+        self._visitors.append(VisitorRecord(timestamp=time.time(), msg=msg, session_id=session_id))
+        log.debug("Recorded visitor #%d today: %s (session %s)", self._visitor_count_today, msg, session_id)
+        self._save_state()
+
     def record_snap(self, snap_path: str):
         """Record a snap path (from any source)."""
         self._last_snap_path = snap_path
@@ -229,11 +259,19 @@ class DoorStats:
                 "time": r.start_time,
                 "duration_secs": r.duration_secs,
             })
+        for r in self._visitors:
+            history.append({
+                "event_type": "visitor",
+                "time": r.timestamp,
+                "msg": r.msg,
+                "session_id": r.session_id,
+            })
         history.sort(key=lambda e: e["time"], reverse=True)
 
         return {
             "doorbell_press_count_today": self._doorbell_press_count_today,
             "motion_detection_count_today": self._motion_detection_count_today,
+            "visitor_count_today": self._visitor_count_today,
             "last_snap": self._path_to_filename(self._last_snap_path),
             "last_snap_time": self._last_snap_time,
             "history": history,
@@ -249,6 +287,10 @@ class DoorStats:
             "door_open_events": [
                 {"start_time": r.start_time, "duration_secs": r.duration_secs}
                 for r in self._door_open_events
+            ],
+            "visitors": [
+                {"timestamp": r.timestamp, "msg": r.msg, "session_id": r.session_id}
+                for r in self._visitors
             ],
             "motion_in_progress": self._motion_in_progress is not None,
             "door_open_in_progress": self._door_open_in_progress is not None,

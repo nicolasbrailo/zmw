@@ -288,6 +288,38 @@ class TestDoorStats:
         assert result['door_open_in_progress'] is True
 
 
+class TestVisitorRecords:
+    """Visitor notifications in the door history"""
+
+    def test_record_visitor_in_history_and_counter(self):
+        stats = DoorStats(Mock())
+        with patch('door_stats.time') as mock_time:
+            mock_time.time.return_value = 1000.0
+            stats.record_visitor("Belen is at the door", "doorbell_20261122_104507")
+        res = stats.get_stats()
+        assert res["visitor_count_today"] == 1
+        assert res["history"] == [{"event_type": "visitor", "time": 1000.0, "msg": "Belen is at the door",
+                                   "session_id": "doorbell_20261122_104507"}]
+
+    def test_visitors_persisted_and_restored(self):
+        with patch('door_stats.runtime_state_cache_set') as cache_set:
+            DoorStats(Mock()).record_visitor("Someone is at the door", "s1")
+            saved = cache_set.call_args[0][1]
+        saved["counters_date"] = __import__('datetime').date.today().isoformat()
+        with patch('door_stats.runtime_state_cache_get', return_value=saved):
+            restored = DoorStats(Mock()).get_stats()
+        assert restored["visitor_count_today"] == 1
+        assert restored["visitors"][0]["msg"] == "Someone is at the door"
+        assert restored["visitors"][0]["session_id"] == "s1"
+
+    def test_nightly_reset_clears_visitor_count(self):
+        stats = DoorStats(Mock())
+        stats.record_visitor("Someone is at the door", "s1")
+        stats._nightly_reset()
+        assert stats.get_stats()["visitor_count_today"] == 0
+        assert len(stats.get_stats()["visitors"]) == 1
+
+
 class TestDataClasses:
     """Test dataclass definitions"""
 
