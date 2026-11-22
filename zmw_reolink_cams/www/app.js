@@ -339,6 +339,19 @@ function NVRViewer(props) {
                         {formatFilename(rec.filename)} ({rec.size})
                       </figcaption>
                     </a>
+                    {rec.faces && rec.faces.length > 0 && (
+                      <div style={{display: 'flex', flexWrap: 'wrap', gap: '.4rem'}}>
+                        {rec.faces.map((face, fidx) => (
+                          <a key={fidx} href={face.url} target="_blank" title={face.label}
+                             style={{textAlign: 'center', fontSize: '75%', textDecoration: 'none'}}>
+                            {/* Overrides .gallery img (full width, 16:9): faces are small portraits */}
+                            <img src={face.url} alt={face.label}
+                                 style={{width: 'auto', height: '4rem', aspectRatio: 'auto', display: 'block'}}/>
+                            {face.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </figure>
                 ))}
               </div>

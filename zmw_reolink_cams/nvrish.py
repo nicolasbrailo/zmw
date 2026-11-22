@@ -49,6 +49,13 @@ def _get_cam_recordings(base_path, cam, days=None):
     return path, recs
 
 
+def _recording_faces(fpath, dir_files):
+    """Faces saved next to a recording (eg by a visitor detection service), as <recording>.face.<label>.jpg.
+    Anything named like that is shown as a face of that recording. Returns [(label, filename)]."""
+    prefix = os.path.basename(fpath) + '.face.'
+    return sorted((f[len(prefix):-len('.jpg')], f) for f in dir_files if f.startswith(prefix) and f.endswith('.jpg'))
+
+
 def _get_cam_snapshots(base_path, cam):
     """Get all snapshots for a camera, sorted newest first."""
     if base_path is None:
@@ -100,6 +107,7 @@ class Nvr:
             return jsonify({'error': f'Unknown camera {cam}'}), 404
 
         recordings = []
+        dir_files = {}  # dir -> its files, listed once
         for (fname, fpath, fsize, _) in recs:
             # Thumbnails are generated when a recording completes; never spawn ffmpeg from here, as
             # listing many recordings would spawn one ffmpeg per recording in parallel
@@ -110,11 +118,18 @@ class Nvr:
                 img_fname = os.path.basename(img_path)
                 thumbnail_url = f'/nvr/{cam}/get_recording/{img_fname}'
 
+            rec_dir = os.path.dirname(fpath)
+            if rec_dir not in dir_files:
+                dir_files[rec_dir] = os.listdir(rec_dir)
+            faces = [{'label': label.replace('_', ' '), 'url': f'/nvr/{cam}/get_recording/{face_fname}'}
+                     for label, face_fname in _recording_faces(fpath, dir_files[rec_dir])]
+
             recordings.append({
                 'filename': fname,
                 'size': fsize,
                 'video_url': f'/nvr/{cam}/get_recording/{fname}',
-                'thumbnail_url': thumbnail_url
+                'thumbnail_url': thumbnail_url,
+                'faces': faces,
             })
 
         return jsonify({'recordings': recordings})

@@ -32,7 +32,7 @@ All camera paths identify a camera by its `cam_alias`, never by its IP.
 ### NVR Web Interface
 - `/nvr` - NVR web UI for browsing recordings and snapshots
 - `/nvr/api/cameras` - JSON list of cameras (by alias) with recordings on disk
-- `/nvr/api/<cam>/recordings?days=N` - JSON list of recordings for a camera (optionally filtered by age)
+- `/nvr/api/<cam>/recordings?days=N` - JSON list of recordings for a camera (optionally filtered by age), each with its thumbnail and faces. Any file next to a recording named `<recording>.face.<label>.jpg` is listed as one of its faces (ZmwVisitorDetect saves them; this service doesn't depend on it), and deleted with the recording by the retention cleanup
 - `/nvr/api/<cam>/snapshots` - JSON list of snapshots for a camera
 - `/nvr/<cam>/get_recording/<file>` - Serve a recording file
 - `/nvr/<cam>/get_snapshot/<file>` - Serve a snapshot file
