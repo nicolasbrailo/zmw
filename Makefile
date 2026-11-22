@@ -20,6 +20,18 @@ install_all_services:
 		make -C $$dir install_svc ; \
 	done
 
+# Rewrite every installed service's unit file and helper scripts from the current install_svc.sh template (no tests,
+# venv sync or restart), then reload systemd. Restart services to apply, eg ~/run/baticasa/restart_all.sh
+.PHONY: update_units
+update_units:
+	@for dir in $(DIRS_WITH_MKFILE) ../baticasa; do \
+		name=$$(basename $$(readlink -f $$dir)); \
+		if [ -f "/home/$$USER/run/baticasa/$$name/$$name.service" ]; then \
+			UNIT_ONLY=1 ./scripts/install_svc.sh $$dir || exit 1; \
+		fi; \
+	done
+	sudo systemctl daemon-reload
+
 # Rebuild every service's Pipfile/venv, in parallel (one job per CPU). --keep-going lets
 # the rest finish if one fails; make lists the failures at the end. -O keeps each
 # service's output together. Uses cd instead of make -C: common.mk relies on $(PWD).

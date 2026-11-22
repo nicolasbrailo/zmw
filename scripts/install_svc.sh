@@ -16,6 +16,10 @@ TGT_SVC_RUN="$SVC_RUN_BASE/$TGT_SVC_NAME"
 # Scratch dir shared by all services, for files passed between services by path (eg TTS output, telegram voice
 # msgs); services' configs point at it. Not for long term storage.
 SVC_TMP="$SVC_RUN_BASE/tmp"
+# UNIT_ONLY=1: only rewrite the unit file and helper scripts of an installed service (eg to deploy a template change).
+# No tests, venv sync, stop or start. Follow with `sudo systemctl daemon-reload` and a restart (`make update_units`
+# in the ZMW root does all services, then the reload).
+UNIT_ONLY="${UNIT_ONLY:-0}"
 
 if [ -z "${2+x}" ]; then
   EXEC_START="$TGT_SVC_RUN/.venv/bin/python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
@@ -23,7 +27,11 @@ else
   EXEC_START="$2 $TGT_SVC_RUN/.venv/bin/python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
 fi
 
-echo "Installing service $TGT_SVC_NAME from $TGT_SVC_SRC"
+if [ "$UNIT_ONLY" = 1 ]; then
+  echo "Updating unit file of $TGT_SVC_NAME from $TGT_SVC_SRC"
+else
+  echo "Installing service $TGT_SVC_NAME from $TGT_SVC_SRC"
+fi
 
 function ensure_file() {
   FN="$1"
@@ -37,37 +45,45 @@ ensure_file "$TGT_SVC_NAME.py"
 ensure_file Pipfile.lock
 ensure_file Pipfile
 
-make -C "$TGT_SVC_SRC" test
-
-# Check if this service already exists
-if [ -f "$TGT_SVC_RUN/stop.sh" ]; then
-  echo "Service $TGT_SVC_NAME already exists, stopping old service first..."
-  "$TGT_SVC_RUN/stop.sh"
-fi
-
-# Create target run dir and its virtual env
-mkdir -p "$TGT_SVC_RUN"
-mkdir -m 700 -p "$SVC_TMP"
-
-if [ -f "$TGT_SVC_RUN/config.json" ]; then
-  echo "$TGT_SVC_SRC already has a config.json file, will not create new one"
-elif [ ! -f "$TGT_SVC_SRC/config.json" ] && [ -f "$TGT_SVC_SRC/config.template.json" ]; then
-  echo "$TGT_SVC_SRC doesn't have a config.json file, create one from the template before installing the service"
-  exit 1
-elif [ ! -f "$TGT_SVC_SRC/config.json" ] && [ ! -f "$TGT_SVC_SRC/config.template.json" ]; then
-  echo "$TGT_SVC_SRC doesn't have configs, assuming it doesn't need one"
+if [ "$UNIT_ONLY" = 1 ]; then
+  if [ ! -d "$TGT_SVC_RUN/.venv" ]; then
+    echo "$TGT_SVC_NAME isn't installed (no $TGT_SVC_RUN/.venv), install it without UNIT_ONLY first"
+    exit 1
+  fi
+  mkdir -m 700 -p "$SVC_TMP"
 else
-  mv "$TGT_SVC_SRC/config.json" "$TGT_SVC_RUN/config.json"
+  make -C "$TGT_SVC_SRC" test
+
+  # Check if this service already exists
+  if [ -f "$TGT_SVC_RUN/stop.sh" ]; then
+    echo "Service $TGT_SVC_NAME already exists, stopping old service first..."
+    "$TGT_SVC_RUN/stop.sh"
+  fi
+
+  # Create target run dir and its virtual env
+  mkdir -p "$TGT_SVC_RUN"
+  mkdir -m 700 -p "$SVC_TMP"
+
+  if [ -f "$TGT_SVC_RUN/config.json" ]; then
+    echo "$TGT_SVC_SRC already has a config.json file, will not create new one"
+  elif [ ! -f "$TGT_SVC_SRC/config.json" ] && [ -f "$TGT_SVC_SRC/config.template.json" ]; then
+    echo "$TGT_SVC_SRC doesn't have a config.json file, create one from the template before installing the service"
+    exit 1
+  elif [ ! -f "$TGT_SVC_SRC/config.json" ] && [ ! -f "$TGT_SVC_SRC/config.template.json" ]; then
+    echo "$TGT_SVC_SRC doesn't have configs, assuming it doesn't need one"
+  else
+    mv "$TGT_SVC_SRC/config.json" "$TGT_SVC_RUN/config.json"
+  fi
+
+  pushd "$TGT_SVC_RUN"
+  cp "$TGT_SVC_SRC/Pipfile" .
+  cp "$TGT_SVC_SRC/Pipfile.lock" .
+  # pipenv writes editable paths relative to the Pipfile; make them point back to the source tree
+  sed -i "s|\"\.\./|\"$TGT_SVC_SRC/../|" Pipfile Pipfile.lock
+
+  PIPENV_VENV_IN_PROJECT=1 pipenv sync
+  popd
 fi
-
-pushd "$TGT_SVC_RUN"
-cp "$TGT_SVC_SRC/Pipfile" .
-cp "$TGT_SVC_SRC/Pipfile.lock" .
-# pipenv writes editable paths relative to the Pipfile; make them point back to the source tree
-sed -i "s|\"\.\./|\"$TGT_SVC_SRC/../|" Pipfile Pipfile.lock
-
-PIPENV_VENV_IN_PROJECT=1 pipenv sync
-popd
 
 read -r -d '' SVC_TMPL <<EOF || true
 [Unit]
@@ -79,6 +95,10 @@ Wants=mqtt_baticasa.service
 ExecStartPre=/usr/bin/mkdir -m 740 -p "$TGT_SVC_RUN"
 ExecStartPre=/usr/bin/mkdir -m 700 -p "$SVC_TMP"
 Environment=
+# Libraries cache things in ~ (onnxruntime, huggingface, Intel's GPU kernel cache): keep that in the run dir, which
+# is all the service can write once sandboxed
+Environment=HOME=$TGT_SVC_RUN
+Environment=XDG_CACHE_HOME=$TGT_SVC_RUN/.cache
 ExecStart=$EXEC_START
 WorkingDirectory=/home/$USER/run/baticasa/$TGT_SVC_NAME
 Restart=always
@@ -118,6 +138,10 @@ chmod +x "$SVC_RUN_BASE/"*.sh
 sed -i "2i ZMW_PROJECT_ROOT='$ZMW_PROJECT_ROOT'" "$SVC_RUN_BASE/logs.sh"
 # Same for restart_all.sh, so it can find and run the zzmw_lib tests
 sed -i "2i ZMW_PROJECT_ROOT='$ZMW_PROJECT_ROOT'" "$SVC_RUN_BASE/restart_all.sh"
+
+if [ "$UNIT_ONLY" = 1 ]; then
+  exit 0
+fi
 
 if [ ! -f "/etc/systemd/system/$TGT_SVC_NAME.service" ]; then
   sudo systemctl link "$TGT_SVC_RUN/$TGT_SVC_NAME.service" || true
