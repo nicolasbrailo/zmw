@@ -3,6 +3,7 @@
   "models_dir": "./models",
   "data_dir": "./visitor_data",
   "allowed_paths": ["/home/batman/nvrish"],
+  "notification_img_dir": "/home/batman/run/baticasa/tmp/zmw_visitor_detect",
   "visitor_names": {},
   "inference": "gpu",
   "hw_decode": "vaapi",

@@ -24,6 +24,7 @@ from frame_source import FrameSource, HwDecoder
 from identity_store import IdentityStore
 from models import Models, missing_models
 from session import Session
+from visit_images import NotificationImages, RecordingFaces
 from visitor_config import with_defaults
 
 log = build_logger("ZmwVisitorDetect")
@@ -36,13 +37,23 @@ class ZmwVisitorDetect(ZmwMqttService):
     def __init__(self, cfg, www, sched):
         super().__init__(cfg, "zmw_visitor_detect", scheduler=sched, svc_deps=['ZmwReolinkCams'])
         self._cfg = with_defaults(cfg)
-        # inject_clip reads whatever path it's given (MQTT and HTTP): only from allowed_paths
-        self._clips_allowlist = PathAllowlist(self._cfg, "inject_clip")
+        # inject_clip reads whatever path it's given (MQTT and HTTP), and faces are saved next to the recordings
+        # ZmwReolinkCams announces: only inside allowed_paths
+        self._recordings_allowlist = PathAllowlist(self._cfg, "recordings")
         self._sched = sched
         self._data_dir = os.path.abspath(self._cfg['data_dir'])
         os.makedirs(os.path.join(self._data_dir, 'sessions'), exist_ok=True)
         self._store = IdentityStore(self._data_dir, self._cfg)
         self._hw = HwDecoder(self._cfg['hw_decode'], self._cfg['hw_decode_device'])
+        self._notification_imgs, self._notification_imgs_error = None, None
+        if self._cfg['notification_img_dir']:
+            try:
+                self._notification_imgs = NotificationImages(self._cfg['notification_img_dir'])
+            except OSError as ex:
+                self._notification_imgs_error = f"Events will have no notification images: {ex}"
+                log.error(self._notification_imgs_error)
+        self._recording_faces = RecordingFaces(self._recordings_allowlist) \
+            if self._cfg['faces_next_to_recordings'] else None
 
         self._models = None
         self._models_error = None
@@ -83,7 +94,8 @@ class ZmwVisitorDetect(ZmwMqttService):
                            "visitors. One event per person per camera session.",
             "meta": self.get_service_meta(),
             # MQTT data flow; feeds the map in the top-level README (scripts/build_mqtt_map.py).
-            # Reads: motion/ring events (with RTSP URLs) that open a capture session.
+            # Reads: motion/ring events (with RTSP URLs) that open a capture session, and finished recordings (faces
+            # are saved next to them).
             "reads_mqtt_topic": ["zmw_reolink_cams"],
             # Writes: asks ZmwReolinkCams for its camera list, to check the configured cams exist.
             "writes_mqtt_topic": ["zmw_reolink_cams"],
@@ -100,32 +112,40 @@ class ZmwVisitorDetect(ZmwMqttService):
                     "description": "First person seen in a session (from the person detector, or from a face if "
                                    "that came first). Once per session: faceless people can't be told apart",
                     "payload": {"event": "on_person_detected", "cam_alias": "Camera", "session_id": "Session id",
+                                "trigger": "motion, ring or injected (a test clip, see inject_clip)",
                                 "timestamp": "float epoch", "t": "Seconds into the session",
                                 "day_night": "day or night", "via": "person_detector or face",
                                 "conf": "Person confidence (null if via face)",
-                                "person_count": "People in that frame", "crop_path": "Person crop (local path)"}
+                                "person_count": "People in that frame", "crop_path": "Person crop (local path)",
+                                "notify_img_path": "Large person crop (or face, if via face) in notification_img_dir, "
+                                                   "for notifications; null if not configured"}
                 },
                 "on_face_detected": {
                     "description": "A face good enough to identify, of someone not known (yet). Once per person "
                                    "per session",
                     "payload": {"event": "on_face_detected", "cam_alias": "Camera", "session_id": "Session id",
+                                "trigger": "motion, ring or injected",
                                 "timestamp": "float epoch", "t": "Seconds into the session", "day_night": "day",
                                 "track_id": "Face track in the session", "gated_faces": "Faces used",
                                 "closest": "Closest known visitor id or null", "closest_sim": "Its similarity",
-                                "face_crop_path": "Aligned 112px face", "context_crop_path": "Crop around the face"}
+                                "face_crop_path": "Aligned 112px face", "context_crop_path": "Crop around the face",
+                                "notify_img_path": "Large crop around the face in notification_img_dir, or null"}
                 },
                 "on_face_identified": {
                     "description": "A known visitor's face. Once per visitor per session",
                     "payload": {"event": "on_face_identified", "cam_alias": "Camera", "session_id": "Session id",
+                                "trigger": "motion, ring or injected",
                                 "timestamp": "float epoch", "t": "Seconds into the session", "day_night": "day",
                                 "visitor_id": "Stable id, eg visitor_3", "name": "Display name (config visitor_names)",
                                 "sim": "Similarity", "upgraded": "True if first reported as on_face_detected",
                                 "track_id": "Face track in the session", "gated_faces": "Faces used",
-                                "face_crop_path": "Aligned 112px face", "context_crop_path": "Crop around the face"}
+                                "face_crop_path": "Aligned 112px face", "context_crop_path": "Crop around the face",
+                                "notify_img_path": "Large crop around the face in notification_img_dir, or null"}
                 },
                 "on_new_frequent_visitor": {
                     "description": "Discovery promoted a recurring unknown face to a visitor (after a session ends)",
                     "payload": {"event": "on_new_frequent_visitor", "cam_alias": "Camera", "session_id": "Session id",
+                                "trigger": "motion, ring or injected",
                                 "timestamp": "float epoch", "visitor_id": "Stable id, eg visitor_3",
                                 "name": "Display name", "visits": "Visits seen in", "days": "Days seen on",
                                 "face_crop_paths": "A few crops of this visitor"}
@@ -160,6 +180,8 @@ class ZmwVisitorDetect(ZmwMqttService):
             alerts.append(self._models_error)
         if self._last_session_error:
             alerts.append(self._last_session_error)
+        if self._notification_imgs_error:
+            alerts.append(self._notification_imgs_error)
         return alerts
 
     def stop(self):
@@ -207,6 +229,9 @@ class ZmwVisitorDetect(ZmwMqttService):
                 self._start_or_extend(msg, 'motion')
             case "on_doorbell_ring":
                 self._start_or_extend(msg, 'ring')
+            case "on_new_recording":
+                if self._recording_faces is not None:
+                    self._recording_faces.add_recording(msg['cam_alias'], msg.get('path'))
             case "on_motion_cleared" | "on_motion_timeout":
                 # Only logged: the camera clears motion while someone stands still at the door, the session's
                 # own stop rules are better
@@ -236,8 +261,8 @@ class ZmwVisitorDetect(ZmwMqttService):
         The session is a real one: it fires MQTT events and feeds the identity store, like a visit would."""
         if cam not in self._cfg['cam_aliases']:
             return None, f"cam_alias '{cam}' is not one of {self._cfg['cam_aliases']}"
-        if not self._clips_allowlist.check(path):
-            return None, f"'{path}' is not inside allowed_paths {self._clips_allowlist.allowed_dirs}"
+        if not self._recordings_allowlist.check(path):
+            return None, f"'{path}' is not inside allowed_paths {self._recordings_allowlist.allowed_dirs}"
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
             return None, f"'{path}' is not an absolute path to an existing file"
         session_id, err = self._start_session(
@@ -258,7 +283,7 @@ class ZmwVisitorDetect(ZmwMqttService):
             session_id = f"{re.sub(r'[^\w-]', '_', cam)}_{datetime.fromtimestamp(start):%Y%m%d_%H%M%S}"
             try:
                 session = Session(session_id, cam, start, trigger, self._cfg, self._models, self._models_lock,
-                                  self._store, self._data_dir, self.publish_own_svc_message)
+                                  self._store, self._data_dir, self.publish_own_svc_message, self._notification_imgs)
             except Exception as ex:  # pylint: disable=broad-except
                 log.error("Can't create session %s", session_id, exc_info=True)
                 return None, f"can't create session: {ex!r}"
@@ -276,6 +301,9 @@ class ZmwVisitorDetect(ZmwMqttService):
             summary = session.finish(time.time())
             log.info("Session %s ended (%s) after %.0fs: %s", session.id, reason, summary['analysed_s'],
                      [e['type'] for e in summary['events']] or 'no events')
+            # An injected clip isn't the visit any recording shows
+            if self._recording_faces is not None and session.trigger != 'injected':
+                self._recording_faces.add_session(session.cam_alias, session.id, session.person_faces())
         except Exception:  # pylint: disable=broad-except
             log.error("Session %s failed", session.id, exc_info=True)
             self._last_session_error = f"Session {session.id} failed, see logs"

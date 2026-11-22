@@ -10,6 +10,10 @@ Port of run_event in ~/src/visitordetect/visitor_sim.py (the offline reference).
      once a track has decide_min_faces gated faces: same person as an earlier track (nothing), known
      identity (on_face_identified, once per identity per session) or unknown (on_face_detected)
 The session stops when idle, still (day, no motion and nobody at the last person check) or too long.
+
+Events carry a large notification image (visit_images.NotificationImages) when notification_img_dir is set. Each
+track also keeps its best face as a large crop, for that image and for person_faces() (saved next to the camera's
+recording once the session ends).
 """
 import json
 import logging
@@ -24,6 +28,7 @@ import numpy as np
 import motion
 from face_gate import gate, yaw_iod
 from models import align_face, clip_box, l2_normalize
+from visit_images import encode_jpg
 
 log = logging.getLogger("VisitorSession")
 
@@ -63,6 +68,7 @@ class Track:
         self.decision = None      # ('identified', identity_id, sim) | ('unknown', closest id, sim) | ('same_as', track, sim)
         self.last_embed_t = None
         self.first_ctx = None       # crop of its first face (gated or not), so every track has a photo in the UI
+        self.large = None           # (quality, t, jpg bytes): its best gated face, large crop, for notifications/NVR
 
     def embedding(self):
         return l2_normalize(np.mean([g['emb'] for g in self.gated], axis=0)).astype(np.float32)
@@ -90,7 +96,8 @@ def _centre_w(b):
 
 
 class Session:
-    def __init__(self, session_id, cam_alias, start_ts, trigger, cfg, models, models_lock, store, data_dir, emit):
+    def __init__(self, session_id, cam_alias, start_ts, trigger, cfg, models, models_lock, store, data_dir, emit,
+                 notification_imgs=None):
         self.id = session_id
         self.cam_alias = cam_alias
         self.start_ts = start_ts
@@ -104,6 +111,7 @@ class Session:
         self._dir = os.path.join(data_dir, self._rel_dir)
         os.makedirs(self._dir, exist_ok=True)
         self._emit_cb = emit
+        self._notification_imgs = notification_imgs
         self._extend_req = threading.Event()
         self._stop_req = threading.Event()
         self._source = None
@@ -152,12 +160,18 @@ class Session:
         return 'night' if night else 'day'
 
     def _emit(self, kind, t, night, **payload):
-        ev = {'event': kind, 'cam_alias': self.cam_alias, 'session_id': self.id, 'timestamp': self.start_ts + t,
-              't': round(t, 2), 'day_night': self._mode(night), **payload}
+        ev = {'event': kind, 'cam_alias': self.cam_alias, 'session_id': self.id, 'trigger': self.trigger,
+              'timestamp': self.start_ts + t, 't': round(t, 2), 'day_night': self._mode(night), **payload}
         self.log['events'].append({'type': kind, **ev})
         log.info("%s %s t=%.1f %s", self.id, kind, t,
                  {k: v for k, v in payload.items() if not k.endswith('path') and k != 'face_crop_paths'})
         self._emit_cb(kind, ev)
+
+    def _notification_img(self, name, jpg):
+        """Writes a notification image, returns its path (None if disabled or it couldn't be written)."""
+        if self._notification_imgs is None or jpg is None:
+            return None
+        return self._notification_imgs.write(f"{self.id}_{name}.jpg", jpg)
 
     def _timed(self, stage, fn, *args):
         c0 = time.perf_counter()
@@ -295,10 +309,12 @@ class Session:
         best = max(persons, key=lambda p: p['conf'])
         b = best['box']
         rel = self._rel('person.jpg')
-        _save(frame[b[1]:b[3], b[0]:b[2]], self._abs(rel), 360)
+        person = frame[b[1]:b[3], b[0]:b[2]]
+        _save(person, self._abs(rel), 360)
         self.log['person_crop'] = rel
+        notify = self._notification_img('person', encode_jpg(person)) if self._notification_imgs else None
         self._emit('on_person_detected', t, night, via='person_detector', conf=best['conf'],
-                   person_count=len(persons), crop_path=self._abs(rel))
+                   person_count=len(persons), crop_path=self._abs(rel), notify_img_path=notify)
 
     # ------------------------------------------------------------------ faces
 
@@ -375,9 +391,14 @@ class Session:
             self._log_face(entry)
             name = f"t{tr.id}_{int(t * 1000):07d}"
             crop, ctx = self._rel(name + '.jpg'), self._rel(name + '_ctx.jpg')
+            ctx_img = _context(frame, box)
             _save(aligned, self._abs(crop))
-            _save(_context(frame, box), self._abs(ctx), 240)
-            tr.gated.append({'t': t, 'emb': emb, 'quality': conf + iod / 100 - yaw, 'crop': crop, 'ctx': ctx})
+            _save(ctx_img, self._abs(ctx), 240)
+            quality = conf + iod / 100 - yaw
+            tr.gated.append({'t': t, 'emb': emb, 'quality': quality, 'crop': crop, 'ctx': ctx})
+            if tr.large is None or quality > tr.large[0]:
+                # Same ranking as Track.best(): the face its event reports
+                tr.large = (quality, t, encode_jpg(ctx_img))
             if len(tr.gated) == 1:
                 # Someone already seen in this session (tracker lost them)? Decisions themselves wait for
                 # decide_min_faces: single faces are too noisy to tell a new person apart.
@@ -389,7 +410,7 @@ class Session:
                 self._person_emitted = True
                 self.log['person_crop'] = ctx
                 self._emit('on_person_detected', t, night, via='face', conf=None, person_count=1,
-                           crop_path=self._abs(ctx))
+                           crop_path=self._abs(ctx), notify_img_path=self._notification_img('person', tr.large[2]))
             self._decide(tr, t, night)
         return next_id
 
@@ -434,14 +455,38 @@ class Session:
             if iid in self._identified:
                 return
             self._identified.add(iid)
+            faces['notify_img_path'] = self._notification_img(f"t{tr.id}", tr.large[2])
             self._emit('on_face_identified', t, night, visitor_id=self._store.visitor_key(iid),
                        name=self._store.display_name(iid), sim=round(s, 3), upgraded=upgraded, **faces)
         elif tr.decision is None:
             tr.decision = ('unknown', iid, s)
+            faces['notify_img_path'] = self._notification_img(f"t{tr.id}", tr.large[2])
             self._emit('on_face_detected', t, night, closest=self._store.visitor_key(iid) if iid else None,
                        closest_sim=round(s, 3) if iid else None, **faces)
 
     # ------------------------------------------------------------------ end of session
+
+    def person_faces(self):
+        """Each reported person's best face, as a large crop: [{'person', 'named', 'label', 'ts', 'jpg'}]. A person
+        is a reported track with the tracks found to be the same person; tracks of the same visitor are one person."""
+        by_id = {tr.id: tr for tr in self.tracks}
+        best = {}
+        for tr in self.tracks:
+            if tr.large is None or not tr.decision:
+                continue
+            owner = by_id.get(tr.decision[1]) if tr.decision[0] == 'same_as' else tr
+            if owner is None or not owner.decision or owner.decision[0] == 'same_as':
+                continue
+            kind, iid, _ = owner.decision
+            if kind == 'identified':
+                person, named, label = f"visitor_{iid}", True, self._store.display_name(iid)
+            else:
+                person, named, label = f"track_{owner.id}", False, 'unknown'
+            quality, t, jpg = tr.large
+            if person not in best or quality > best[person]['quality']:
+                best[person] = {'person': person, 'named': named, 'label': label, 'quality': quality,
+                                'ts': self.start_ts + t, 'jpg': jpg}
+        return sorted(({k: v for k, v in f.items() if k != 'quality'} for f in best.values()), key=lambda f: f['ts'])
 
     def _stream_stats(self):
         """How quickly the stream started (camera event -> first frame) and how far the analysis lagged."""

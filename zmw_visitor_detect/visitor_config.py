@@ -60,6 +60,14 @@ DEFAULTS = {
     "discovery_min_days": 2,
     "visit_gap_s": 300,
     "unknown_ttl_days": 30,
+    # Notification images: each event gets a large crop (the person, or the face with some context) written here,
+    # its path in notify_img_path, for notifiers (ZmwDoorman -> ZmwWhatsapp) to send. Must be a dir they can read,
+    # eg the services' shared scratch dir; null: no notification images. Only the newest 100 are kept.
+    "notification_img_dir": None,
+    # Save each person's best face (large crop) next to the camera's recording of the visit, as
+    # <recording>.face.<name>.jpg, for the NVR to show. Only for recordings inside allowed_paths; they're deleted
+    # with the recording by the recorder's retention cleanup.
+    "faces_next_to_recordings": True,
     # Decision logs (with their crops) kept for the UI; stored identities are not affected
     "keep_sessions": 500,
     # {"visitor_3": "Belen"}: display names for discovered visitors

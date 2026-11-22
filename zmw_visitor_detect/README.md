@@ -3,7 +3,7 @@
 Detects people at the doorbell and identifies them, discovering frequent visitors on its own (no enrolment).
 A motion or ring event from ZmwReolinkCams opens a session on the camera's RTSP main stream; the session
 publishes at most one event per person, and stops when the scene is idle or still. All inference is local, on
-CPU (onnxruntime).
+the CPU (onnxruntime) or the Intel GPU (OpenVINO).
 
 Models, thresholds and the evidence behind them were chosen in a separate sandbox (`~/src/visitordetect`, see
 its `ARCH.md` and `CLAUDE.md`).
@@ -39,9 +39,13 @@ After a session, unknown faces are clustered; a face seen in 3 visits on 2 diffe
 | `inference` | `"cpu"` (default, onnxruntime) or `"gpu"` (OpenVINO on the Intel GPU, ~2.5x faster, same results). No fallback: if the chosen backend can't run, the service refuses to start. GPU setup: `make setup_gpu`, `make check_gpu` |
 | `hw_decode` | `"vaapi"` (default: GPU video decoding, CPU fallback) or `"off"`. The Status page shows which is in use and why. Set the GPU up with `make setup_gpu`, restart, verify with `make check_gpu` |
 | `person_min_height_px` | Ignore person boxes shorter than this, default 300 (on the 1920px tall main stream) |
+| `allowed_paths` | Dirs with recordings: `inject_clip` only plays clips from them, and faces are only saved next to recordings in them |
+| `notification_img_dir` | Where each event's large notification image goes (`notify_img_path` in the event; up to 720px tall). Notifiers read it by path, so use the services' shared scratch dir (`~/run/baticasa/tmp/...`). Only the newest 100 are kept. Unset: no notification images |
+| `faces_next_to_recordings` | Default true: once a session ends, each person's best face (large crop) is saved next to the camera's recording of the visit, as `<recording>.mp4.face.<name>.jpg` (`unknown`, `unknown_2`... for people not identified). The NVR shows them; the recorder's retention cleanup deletes them with the recording. Not for injected clips |
 
 Every threshold can be overridden too (`visitor_config.py` has the list and the defaults); changing one never
-requires discarding stored data. Notifications (Telegram, announcements) are left to consumers of the events.
+requires discarding stored data. Notifications are left to consumers of the events (ZmwDoorman sends them to
+WhatsApp).
 
 ## WWW
 
@@ -55,6 +59,7 @@ requires discarding stored data. Notifications (Telegram, announcements) are lef
 `make inject_clip` plays a recorded clip as the doorbell's live stream, in real time (the `inject_clip` command;
 also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store. The clip
 must be inside one of the config's `allowed_paths` (eg the recordings dir); nothing is allowed if it's unset.
+Events from it have `trigger: "injected"`; consumers may ignore them (ZmwDoorman does, by default).
 
 ## MQTT
 
@@ -82,6 +87,7 @@ First person seen in a session (from the person detector, or from a face if that
 | `event` | on_person_detected |
 | `cam_alias` | Camera |
 | `session_id` | Session id |
+| `trigger` | motion, ring or injected (a test clip, see inject_clip) |
 | `timestamp` | float epoch |
 | `t` | Seconds into the session |
 | `day_night` | day or night |
@@ -89,6 +95,7 @@ First person seen in a session (from the person detector, or from a face if that
 | `conf` | Person confidence (null if via face) |
 | `person_count` | People in that frame |
 | `crop_path` | Person crop (local path) |
+| `notify_img_path` | Large person crop (or face, if via face) in notification_img_dir, for notifications; null if not configured |
 
 #### `on_face_detected`
 
@@ -99,6 +106,7 @@ A face good enough to identify, of someone not known (yet). Once per person per 
 | `event` | on_face_detected |
 | `cam_alias` | Camera |
 | `session_id` | Session id |
+| `trigger` | motion, ring or injected |
 | `timestamp` | float epoch |
 | `t` | Seconds into the session |
 | `day_night` | day |
@@ -108,6 +116,7 @@ A face good enough to identify, of someone not known (yet). Once per person per 
 | `closest_sim` | Its similarity |
 | `face_crop_path` | Aligned 112px face |
 | `context_crop_path` | Crop around the face |
+| `notify_img_path` | Large crop around the face in notification_img_dir, or null |
 
 #### `on_face_identified`
 
@@ -118,6 +127,7 @@ A known visitor's face. Once per visitor per session
 | `event` | on_face_identified |
 | `cam_alias` | Camera |
 | `session_id` | Session id |
+| `trigger` | motion, ring or injected |
 | `timestamp` | float epoch |
 | `t` | Seconds into the session |
 | `day_night` | day |
@@ -129,6 +139,7 @@ A known visitor's face. Once per visitor per session
 | `gated_faces` | Faces used |
 | `face_crop_path` | Aligned 112px face |
 | `context_crop_path` | Crop around the face |
+| `notify_img_path` | Large crop around the face in notification_img_dir, or null |
 
 #### `on_new_frequent_visitor`
 
@@ -139,6 +150,7 @@ Discovery promoted a recurring unknown face to a visitor (after a session ends)
 | `event` | on_new_frequent_visitor |
 | `cam_alias` | Camera |
 | `session_id` | Session id |
+| `trigger` | motion, ring or injected |
 | `timestamp` | float epoch |
 | `visitor_id` | Stable id, eg visitor_3 |
 | `name` | Display name |
