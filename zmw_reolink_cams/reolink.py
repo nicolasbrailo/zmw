@@ -339,6 +339,10 @@ class ReolinkDoorbell(ABC):
             # Announce the ring before fetching the snapshot, which can take a second: whoever only needs to know
             # someone is at the door (a chime, a viewer) shouldn't wait for it
             self.on_doorbell_ring(self._cam_host, msg)
+            # A ring doesn't imply a motion event (eg the visitor is outside the motion zone, or still), so record
+            # here too; if motion already started a recording, this extends it
+            if self._video_on_movement:
+                self.start_recording()
             self.on_doorbell_ring_has_snapshot(self._cam_host, self.get_snapshot(), msg)
 
         # Ignore debounce rules for rtsp pet rules

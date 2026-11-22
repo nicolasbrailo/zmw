@@ -12,6 +12,7 @@ Multi-camera Reolink service with motion detection, doorbell events, recording, 
 | `cameras[].cam_alias` | Unique, stable camera name (eg `doorbell`). MQTT events carry it, and other services use it to pick a camera, so they don't depend on the camera's IP |
 | `cameras[].cam_host` | Hostname/IP of the camera |
 | `cameras[].is_doorbell` | (optional) Set `true` if camera is a doorbell model |
+| `cameras[].video_on_movement` | (optional) Record video when the camera reports motion or the doorbell rings (needs `rec_path`) |
 | `rec_path` | Directory for storing recordings, in a subdirectory per `cam_alias` |
 | `snap_path_on_movement` | (optional) Directory for motion-triggered snapshots, in a subdirectory per `cam_alias` |
 
