@@ -105,6 +105,27 @@ Restart=always
 RestartSec=10s
 User=$USER
 
+# Hardening that needs no per-service exceptions (see HARDENING_TODO.md for what's still missing and why)
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+# Files passed between services go through \$SVC_TMP, so /tmp can be private (the host's has a tmux socket)
+PrivateTmp=yes
+# /usr, /boot, /etc read-only. Not strict yet: that needs per-service write paths
+ProtectSystem=full
+# \$USER is in the docker group (docker.sock = root), and the user session bus can start unsandboxed processes
+InaccessiblePaths=-/run/docker.sock -/run/containerd -/run/user
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectProc=invisible
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+
 [Install]
 WantedBy=multi-user.target
 EOF
