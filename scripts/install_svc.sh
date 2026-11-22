@@ -13,6 +13,9 @@ TGT_SVC_SRC=$( readlink -f "$1" )
 TGT_SVC_NAME=$( basename "$TGT_SVC_SRC" )
 SVC_RUN_BASE="/home/$USER/run/baticasa"
 TGT_SVC_RUN="$SVC_RUN_BASE/$TGT_SVC_NAME"
+# Scratch dir shared by all services, for files passed between services by path (eg TTS output, telegram voice
+# msgs); services' configs point at it. Not for long term storage.
+SVC_TMP="$SVC_RUN_BASE/tmp"
 
 if [ -z "${2+x}" ]; then
   EXEC_START="$TGT_SVC_RUN/.venv/bin/python3 $TGT_SVC_SRC/$TGT_SVC_NAME.py"
@@ -44,6 +47,7 @@ fi
 
 # Create target run dir and its virtual env
 mkdir -p "$TGT_SVC_RUN"
+mkdir -m 700 -p "$SVC_TMP"
 
 if [ -f "$TGT_SVC_RUN/config.json" ]; then
   echo "$TGT_SVC_SRC already has a config.json file, will not create new one"
@@ -73,6 +77,7 @@ Wants=mqtt_baticasa.service
 
 [Service]
 ExecStartPre=/usr/bin/mkdir -m 740 -p "$TGT_SVC_RUN"
+ExecStartPre=/usr/bin/mkdir -m 700 -p "$SVC_TMP"
 Environment=
 ExecStart=$EXEC_START
 WorkingDirectory=/home/$USER/run/baticasa/$TGT_SVC_NAME

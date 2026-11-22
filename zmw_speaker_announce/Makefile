@@ -19,11 +19,11 @@ test_bot_announce:
 	mosquitto_pub -t 'zmw_telegram/on_command/bot_shout' -m '{"cmd": "/bot_shout", "cmd_args": ["{\"msg\":", "\"bot", "test\",", "\"speakers\":", "[\"portaloficina\", \"Batioficina\"]}"]}'
 
 test_save_asset:
-	mosquitto_pub -t 'zmw_speaker_announce/save_asset' -m '{"local_path": "/tmp/test.mp3"}'
+	mosquitto_pub -t 'zmw_speaker_announce/save_asset' -m '{"local_path": "/home/batman/run/baticasa/tmp/test.mp3"}'
 test_announce_asset:
 	mosquitto_pub -t 'zmw_speaker_announce/play_asset' -m '{"name": "test.mp3", "vol": "default"}'
 test_announce_local_asset:
-	mosquitto_pub -t 'zmw_speaker_announce/play_asset' -m '{"local_path": "/tmp/test.mp3"}'
+	mosquitto_pub -t 'zmw_speaker_announce/play_asset' -m '{"local_path": "/home/batman/run/baticasa/tmp/test.mp3"}'
 
 test_sub_all:
 	mosquitto_sub -v -h 127.0.0.1 -t 'zmw_speaker_announce/#'

@@ -125,7 +125,9 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._rr = MqttRequestReply(self.message_svc)
 
         # Save cache path for tts and register it as a www dir, to serve assets
-        self._tts_assets_cache_path = cfg['tts_assets_cache_path']
+        # Absolute, so a path relative to the run dir also works for the www dir (Flask resolves relative paths against
+        # the app's root, not cwd)
+        self._tts_assets_cache_path = os.path.abspath(cfg['tts_assets_cache_path'])
         os.makedirs(self._tts_assets_cache_path, exist_ok=True)
 
         # Create HTTPS server that proxies to the HTTP server
@@ -135,7 +137,7 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
         self._https = HttpsServer(www, cfg)
         self._https.mirror_http_routes(['/zmw.css', '/zmw.js'])
 
-        self._https.register_www_dir(cfg['tts_assets_cache_path'], '/tts/')
+        self._https.register_www_dir(self._tts_assets_cache_path, '/tts/')
         self._public_tts_base = f"{www.public_url_base}/tts"
         log.info("Sonos will fetch TTS assets from HTTP server: %s", self._public_tts_base)
 

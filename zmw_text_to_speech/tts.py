@@ -13,6 +13,23 @@ from zzmw_lib.logs import build_logger
 
 log = build_logger("Tts")
 
+# Outputs are only read right after synthesis (copied by consumers, or downloaded once), so keep just a few
+_MAX_OUTPUT_FILES = 50
+
+
+def _cleanup_old_outputs(output_dir):
+    """ Remove oldest mp3s in output_dir, keeping at most _MAX_OUTPUT_FILES """
+    files = glob.glob(os.path.join(output_dir, 'tts_*.mp3'))
+    if len(files) <= _MAX_OUTPUT_FILES:
+        return
+    files.sort(key=os.path.getmtime)
+    for f in files[:len(files) - _MAX_OUTPUT_FILES]:
+        try:
+            os.remove(f)
+            log.debug("Cleaned up old TTS output %s", f)
+        except OSError:
+            log.warning("Failed to remove old TTS output %s", f, exc_info=True)
+
 
 def _parse_voice_id(voice_id):
     """Parse voice_id like 'en_US-lessac-medium' into (lang, locale, name, quality)."""
@@ -36,7 +53,7 @@ def _ensure_terminal_punctuation(text):
 class Tts:
     def __init__(self, cfg):
         self._default_language = cfg.get('default_language', 'en')
-        self._output_dir = cfg.get('output_dir', tempfile.gettempdir())
+        self._output_dir = cfg.get('output_dir', os.path.join(tempfile.gettempdir(), 'zmw_tts'))
         os.makedirs(self._output_dir, exist_ok=True)
 
         self._default_syn_config = SynthesisConfig(
@@ -175,6 +192,7 @@ class Tts:
             ['ffmpeg', '-y', '-i', wav_path, '-q:a', '2', mp3_path],
             check=True, capture_output=True)
         os.remove(wav_path)
+        _cleanup_old_outputs(self._output_dir)
 
         elapsed = time.monotonic() - t0
         log.info("TTS completed in %.2fs: %s", elapsed, mp3_path)

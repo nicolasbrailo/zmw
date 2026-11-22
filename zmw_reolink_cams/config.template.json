@@ -28,11 +28,11 @@
   "cam_movement_active_watchdog": 60,
 
   "COMMENT_snap_path_on_movement": "If set, will save a single snapshot of the camera whenever movement is detected",
-  "snap_path_on_movement": "/home/batman/src/BatiCasa/web_assets/cam_snaps",
+  "snap_path_on_movement": "/home/batman/nvrish/cam_snaps",
 
   "COMMENT": "Record a clip when movement is reported",
   "rec_on_movement": true,
-  "rec_path": "/home/batman/extstorage/cams",
+  "rec_path": "/home/batman/nvrish",
   "rec_default_duration_secs": 20,
   "rec_retention_days": 15,
 

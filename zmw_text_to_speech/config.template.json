@@ -3,6 +3,8 @@
     "COMMENT_model_dir": "Directory containing .onnx voice models. All .onnx files are auto-discovered and loaded.",
     "COMMENT": "Good linklist for voices @ https://community.home-assistant.io/t/collections-of-pre-trained-piper-voices/915666",
     "model_dir": "./tts_model",
+    "COMMENT_output_dir": "Where synthesized mp3s go. Consumers (eg speaker_announce) read them by path, so keep it in the scratch dir all services share. Only the newest few are kept.",
+    "output_dir": "/home/batman/run/baticasa/tmp/zmw_tts",
     "COMMENT_default_language": "Default language when no language is specified in a request.",
     "default_language": "en",
     "COMMENT_defaults": "Override which voice to use for a language or locale. Keys can be lang (es) or locale (en_US). Values must be valid voice IDs found in model_dir.",
