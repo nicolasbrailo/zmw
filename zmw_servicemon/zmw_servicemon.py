@@ -95,14 +95,12 @@ class ZmwServicemon(ZmwMqttServiceMonitor):
 
     def systemd_status(self):
         """Execute services_status.sh script and return HTML-formatted systemd status."""
-        status_script = os.path.join(os.getcwd(), '../services_status.sh')
-        if not os.path.isfile(status_script):
-            script_dir = pathlib.Path(__file__).parent.resolve()
-            status_script = script_dir.parent / 'services_status.sh'
-            if not status_script.is_file():
-                return abort(500, description=f"Can't find status script at {status_script}")
-        cmd = str(status_script)
-        syslogcmd = subprocess.run(cmd.split(), stdout=subprocess.PIPE, text=True, check=True)
+        # Use the source tree's copy, not the one install_svc.sh puts in the run base dir: a sandboxed service only sees
+        # its own run dir
+        status_script = pathlib.Path(__file__).parent.resolve().parent / 'scripts' / 'services_status.sh'
+        if not status_script.is_file():
+            return abort(500, description=f"Can't find status script at {status_script}")
+        syslogcmd = subprocess.run(['bash', str(status_script)], stdout=subprocess.PIPE, text=True, check=True)
         conv = Ansi2HTMLConverter(inline=True, scheme='ansi2html')
         return conv.convert(syslogcmd.stdout, full=False)
 

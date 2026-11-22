@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-THIS_SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+# Same as install_svc.sh
+SVC_RUN_BASE="${SVC_RUN_BASE:-/home/$USER/run/baticasa}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -27,13 +28,14 @@ function check_svc_status() {
   done | column -t
 }
 
+# Find services by their WorkingDirectory (install_svc.sh sets it to the service's run dir) instead of scanning the
+# run dirs, so this works from a sandbox that can't see them (eg servicemon)
 services=()
-for dir in "$THIS_SCRIPT_DIR"/*/; do
-    name="$(basename $dir)"
-    if [ -f "${dir}${name}.service" ]; then
-        services+=("$name")
-    fi
-done
+while read -r name; do
+    services+=("$name")
+done < <(systemctl list-unit-files --type=service --no-legend --plain | cut -d' ' -f1 | grep -v '@' |
+         xargs systemctl show -p Id -p WorkingDirectory | paste -d' ' - - - |
+         sed -n "s|^Id=\(.*\)\.service WorkingDirectory=$SVC_RUN_BASE/.*|\1|p" | sort)
 
 check_svc_status "${services[@]}"
 
