@@ -8,6 +8,7 @@ from collections import deque
 from flask import request, send_file
 
 from zzmw_lib.logs import build_logger
+from zzmw_lib.path_allowlist import PathAllowlist
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
@@ -43,7 +44,9 @@ class ZmwTextToSpeech(ZmwMqttService):
         www.serve_url('/voices', lambda: json.dumps(self._tts.get_voices()))
         www.serve_url('/tts_history', lambda: json.dumps(list(self._history)))
         www.serve_url('/synthesize', self._on_http_synthesize, methods=['PUT'])
-        www.serve_url('/tts_download', self._on_http_download)
+        # Only serve this service's outputs (by name, not path): symlinks resolving out of output_dir are rejected
+        self._outputs = PathAllowlist({'allowed_paths': [self._tts.output_dir]}, 'tts_download')
+        www.serve_url('/tts_download/<filename>', self._on_http_download)
 
     def get_mqtt_description(self):
         return {
@@ -128,9 +131,9 @@ class ZmwTextToSpeech(ZmwMqttService):
             args=(text, None, speaker, fuzzy), daemon=True).start()
         return json.dumps({'status': 'ok'})
 
-    def _on_http_download(self):
-        mp3_path = request.args.get('path', '')
-        if not mp3_path or not os.path.isfile(mp3_path):
+    def _on_http_download(self, filename):
+        mp3_path = self._outputs.check(os.path.join(self._tts.output_dir, filename))
+        if mp3_path is None or not os.path.isfile(mp3_path):
             return json.dumps({'error': 'File not found'}), 404
         return send_file(mp3_path, mimetype='audio/mpeg')
 
@@ -141,7 +144,7 @@ class ZmwTextToSpeech(ZmwMqttService):
             'original_text': result['original_text'],
             'voice_id': result['voice_id'],
             'fuzzy': result['fuzzy'],
-            'mp3_url': f'/tts_download?path={result["mp3_path"]}',
+            'mp3_url': f'/tts_download/{os.path.basename(result["mp3_path"])}',
         }
         with self._history_lock:
             self._history.append(entry)

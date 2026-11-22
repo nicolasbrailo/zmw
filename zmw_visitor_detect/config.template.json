@@ -2,6 +2,7 @@
   "cam_aliases": ["doorbell"],
   "models_dir": "./models",
   "data_dir": "./visitor_data",
+  "allowed_paths": ["/home/batman/nvrish"],
   "visitor_names": {},
   "inference": "gpu",
   "hw_decode": "vaapi",

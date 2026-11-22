@@ -1,4 +1,6 @@
 {
+  "COMMENT_allowed_paths": "Dirs audio files to transcribe (eg ZmwTelegram's voice msgs) may come from; paths elsewhere are rejected",
+  "allowed_paths": ["/home/batman/run/baticasa/tmp"],
   "stt": {
     "COMMENT_model_size": "Whisper model size. Options: tiny, base, small, medium, large-v2, large-v3. Append '.en' for English-only (e.g. tiny.en, base.en). Larger = more accurate but slower and more RAM.",
     "model_size": "tiny",

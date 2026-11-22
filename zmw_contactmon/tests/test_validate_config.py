@@ -195,7 +195,7 @@ class TestValidateCfgActions:
                     'normal_state': True,
                     'open': {
                         'tts_announce': {'lang': 'en', 'msg': 'Test'},
-                        'sound_asset_announce': {'local_path': self.test_sound}
+                        'sound_asset_announce': {'public_www': '/test.mp3'}
                     }
                 }
             }
@@ -219,7 +219,7 @@ class TestValidateCfgActions:
             validate_cfg_actions(self.www_dir, self.www_public_url, cfg)
 
     def test_sound_asset_announce_missing_path(self):
-        """Test sound_asset_announce requires local_path or public_www"""
+        """Test sound_asset_announce requires public_www"""
         cfg = {
             'actions': {
                 'SensorName1': {
@@ -233,19 +233,19 @@ class TestValidateCfgActions:
         with pytest.raises(ValueError, match="doesn't specify what to announce"):
             validate_cfg_actions(self.www_dir, self.www_public_url, cfg)
 
-    def test_sound_asset_local_path_not_exist(self):
-        """Test sound_asset_announce local_path must exist"""
+    def test_sound_asset_local_path_not_supported(self):
+        """Test sound_asset_announce rejects local_path (no longer supported by ZmwSpeakerAnnounce)"""
         cfg = {
             'actions': {
                 'SensorName1': {
                     'normal_state': True,
                     'open': {
-                        'sound_asset_announce': {'local_path': '/nonexistent/file.mp3'}
+                        'sound_asset_announce': {'local_path': self.test_sound}
                     }
                 }
             }
         }
-        with pytest.raises(ValueError, match="non existent file"):
+        with pytest.raises(ValueError, match="doesn't specify what to announce"):
             validate_cfg_actions(self.www_dir, self.www_public_url, cfg)
 
     def test_sound_asset_public_www_not_exist(self):

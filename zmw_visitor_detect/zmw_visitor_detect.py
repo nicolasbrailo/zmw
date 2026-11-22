@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from flask import abort, jsonify, request
 
 from zzmw_lib.logs import build_logger
+from zzmw_lib.path_allowlist import PathAllowlist
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
@@ -35,6 +36,8 @@ class ZmwVisitorDetect(ZmwMqttService):
     def __init__(self, cfg, www, sched):
         super().__init__(cfg, "zmw_visitor_detect", scheduler=sched, svc_deps=['ZmwReolinkCams'])
         self._cfg = with_defaults(cfg)
+        # inject_clip reads whatever path it's given (MQTT and HTTP): only from allowed_paths
+        self._clips_allowlist = PathAllowlist(self._cfg, "inject_clip")
         self._sched = sched
         self._data_dir = os.path.abspath(self._cfg['data_dir'])
         os.makedirs(os.path.join(self._data_dir, 'sessions'), exist_ok=True)
@@ -233,6 +236,8 @@ class ZmwVisitorDetect(ZmwMqttService):
         The session is a real one: it fires MQTT events and feeds the identity store, like a visit would."""
         if cam not in self._cfg['cam_aliases']:
             return None, f"cam_alias '{cam}' is not one of {self._cfg['cam_aliases']}"
+        if not self._clips_allowlist.check(path):
+            return None, f"'{path}' is not inside allowed_paths {self._clips_allowlist.allowed_dirs}"
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
             return None, f"'{path}' is not an absolute path to an existing file"
         session_id, err = self._start_session(

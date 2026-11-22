@@ -1,6 +1,9 @@
 {
   "msg_history_len": 30,
 
+  "COMMENT_allowed_paths": "Dirs send_photo may upload files from (eg cam snapshots); paths elsewhere are rejected",
+  "allowed_paths": ["/home/batman/nvrish/cam_snaps", "/home/batman/run/baticasa/tmp"],
+
   "COMMENT": "WhatsApp integration",
   "tok": "THIS_IS_A_PASSWORD_BE_CAREFUL",
   "notify_targets": ["TARGET_PHONE_NUMBER", "ANOTHER_TARGET_PHONE_NUMBER"],

@@ -24,8 +24,7 @@
           "lang": "en",
           "msg": "A message can be read over local speakers"
         },
-        "sound_asset_announce": {"local_path": "A local sound asset can be played over speakers. Note that either asset or tts announce are possible, but not both."},
-        "sound_asset_announce": {"public_www": "www.example.net/an asset can also be specified as a url"},
+        "sound_asset_announce": {"public_www": "www.example.net/a sound asset can be played over speakers, as a url. Note that either asset or tts announce are possible, but not both."},
         "sound_asset_announce": {"public_www": "/this_server_asset or as a path relative to this webserver"}
       },
       "close": {

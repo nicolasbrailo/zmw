@@ -53,7 +53,8 @@ requires discarding stored data. Notifications (Telegram, announcements) are lef
 ## Testing with a recorded clip
 
 `make inject_clip` plays a recorded clip as the doorbell's live stream, in real time (the `inject_clip` command;
-also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store.
+also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store. The clip
+must be inside one of the config's `allowed_paths` (eg the recordings dir); nothing is allowed if it's unset.
 
 ## MQTT
 

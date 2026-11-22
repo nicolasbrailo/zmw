@@ -7,6 +7,7 @@ import threading
 from flask import request
 
 from zzmw_lib.logs import build_logger
+from zzmw_lib.path_allowlist import PathAllowlist
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
@@ -29,6 +30,8 @@ class ZmwSpeechToText(ZmwMqttService):
         self._history = collections.deque(maxlen=20)
         self._stt = None
         self._stt_cfg = cfg.get('stt', {})
+        # Paths to transcribe come over MQTT: only read them from allowed_paths
+        self._audio_allowlist = PathAllowlist(cfg, "transcribe")
         threading.Thread(target=self._load_stt, daemon=True).start()
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         self._public_url_base = www.register_www_dir(www_path)
@@ -116,6 +119,8 @@ class ZmwSpeechToText(ZmwMqttService):
             args=(path, 'telegram'), daemon=True).start()
 
     def _transcribe_and_publish(self, path, source):
+        if not self._audio_allowlist.check(path):
+            return
         transcription = self._stt.transcribe_file(path)
         if not transcription:
             return

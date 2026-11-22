@@ -10,6 +10,7 @@ from flask import send_file, jsonify
 from zzmw_lib.service_runner import service_runner
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
+from zzmw_lib.path_allowlist import PathAllowlist
 
 from door_open_scene import DoorOpenScene
 from door_stats import DoorStats
@@ -54,8 +55,11 @@ class ZmwDoorman(ZmwMqttService):
         self._contactmon_state = None
         self._last_motion_detected_time = 0
 
+        # Snap paths come over MQTT, and we serve files from their dir: only accept those in allowed_paths
+        self._snaps_allowlist = PathAllowlist(cfg, "snapshots")
+
         # Initialize snap directory from persisted last snap path
-        last_snap_path = self._door_stats.get_last_snap_path()
+        last_snap_path = self._allowed_snap(self._door_stats.get_last_snap_path())
         if last_snap_path:
             self._snap_directory = os.path.dirname(last_snap_path)
             log.info("Restored snap directory from persisted state: %s", self._snap_directory)
@@ -317,13 +321,22 @@ class ZmwDoorman(ZmwMqttService):
             self._waiting_on_telegram_snap = time.time()
             self.message_svc("ZmwReolinkCams", "snap", {"cam_alias": self._cfg["doorbell_cam_alias"]})
 
+    def _allowed_snap(self, snap_path):
+        """snap_path if it's in allowed_paths, None if not (logged by the allowlist) or if there is no snap"""
+        if snap_path is None:
+            return None
+        return snap_path if self._snaps_allowlist.check(snap_path) else None
+
     def on_snap_ready(self, msg):
         """Handle camera snap ready event."""
         if 'snap_path' not in msg:
             log.error("Bad message format for snap_ready, missing path. Message: %s", msg)
             return
-        self._update_snap_directory(msg['snap_path'])
-        self._door_stats.record_snap(msg['snap_path'])
+        snap_path = self._allowed_snap(msg['snap_path'])
+        if snap_path is None:
+            return
+        self._update_snap_directory(snap_path)
+        self._door_stats.record_snap(snap_path)
 
         if self._waiting_on_telegram_snap is None:
             log.debug("Received snap_ready command but it wasn't a Telegram request, will not send overt msg")
@@ -339,7 +352,7 @@ class ZmwDoorman(ZmwMqttService):
             return
 
         log.info("Received camera snap, sending over Telegram")
-        self.message_svc("ZmwTelegram", "send_photo", {'path': msg['snap_path']})
+        self.message_svc("ZmwTelegram", "send_photo", {'path': snap_path})
         self._waiting_on_telegram_snap = None
 
     def on_doorbell_ring(self, msg):
@@ -356,7 +369,7 @@ class ZmwDoorman(ZmwMqttService):
 
     def on_doorbell_ring_has_snapshot(self, msg):
         """Handle doorbell button press event, once the camera has a snapshot of it."""
-        snap_path = msg.get('snap_path')
+        snap_path = self._allowed_snap(msg.get('snap_path'))
         self._update_snap_directory(snap_path)
         self._door_stats.record_doorbell_press(snap_path)
 
@@ -375,7 +388,7 @@ class ZmwDoorman(ZmwMqttService):
     def on_door_motion_detected(self, msg):
         """Handle door motion detection event."""
         # Update history and stats (unconditionally, as this doesn't spam messages, the user needs to ask for it)
-        snap_path = msg.get('path_to_img')
+        snap_path = self._allowed_snap(msg.get('path_to_img'))
         self._door_open_scene.pet_timer()
         self._door_stats.record_motion_start(snap_path)
         self._update_snap_directory(snap_path)
@@ -394,9 +407,12 @@ class ZmwDoorman(ZmwMqttService):
             log.debug("Motion detected but rate limited (last event %.1fs ago)", dt)
             return
 
+        if snap_path is None:
+            log.warning("Door reports motion, but there's no snap to send over WA")
+            return
         log.info("Door reports motion! Sending snap over WA")
         self.message_svc("ZmwWhatsapp", "send_photo",
-                         {'path': msg['path_to_img'], 'msg': "Motion detected"})
+                         {'path': snap_path, 'msg': "Motion detected"})
 
     def on_door_motion_cleared(self):
         """Handle door motion cleared event."""
@@ -429,8 +445,8 @@ class ZmwDoorman(ZmwMqttService):
         if '/' in filename or '\\' in filename or '..' in filename:
             return jsonify({'error': 'Invalid filename'}), 400
 
-        snap_path = os.path.join(self._snap_directory, filename)
-        if not os.path.isfile(snap_path):
+        snap_path = self._snaps_allowlist.check(os.path.join(self._snap_directory, filename))
+        if snap_path is None or not os.path.isfile(snap_path):
             return jsonify({'error': 'Snap not found'}), 404
 
         return send_file(snap_path, mimetype='image/jpeg')

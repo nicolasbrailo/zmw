@@ -9,6 +9,7 @@ from collections import deque
 
 from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 from zzmw_lib.logs import build_logger
+from zzmw_lib.path_allowlist import PathAllowlist
 from zzmw_lib.service_runner import service_runner
 
 import pytelegrambot
@@ -277,6 +278,8 @@ class ZmwTelegram(ZmwMqttService):
         self._topic_map_chat = cfg['topic_map_chat']
         self._msg = TelBot(cfg, sched, on_voice_callback=self._on_voice_received)
         self._msg_times = deque(maxlen=self._RATE_LIMIT_MAX_MSGS)
+        # send_photo uploads whatever path it's given: only from allowed_paths
+        self._photos_allowlist = PathAllowlist(cfg, "send_photo")
 
         # Set up www directory and endpoints
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
@@ -379,6 +382,8 @@ class ZmwTelegram(ZmwMqttService):
             case "send_photo":
                 if not 'path' in payload:
                     log.error("Received request to send image but payload has no path: '%s'", payload)
+                    return
+                if not self._photos_allowlist.check(payload['path']):
                     return
                 if not os.path.isfile(payload['path']):
                     log.error("Received request to send image but path is not a file: '%s'", payload)

@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 zzmw-lib = {path = "../zzmw_lib", editable = true}
 faster-whisper = "*"
+av = "<19"
 
 [dev-packages]
 pylint = "*"

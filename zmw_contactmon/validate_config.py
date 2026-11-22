@@ -68,17 +68,10 @@ def validate_cfg_actions(www_local_path, www_public_url, cfg):
                         f"Sensor {sensor}.{evt} will try to announce a TTS message "
                         "and a local sound asset. This is unlikely to work."
                     )
-                if not ('local_path' in act_descr['sound_asset_announce'] or
-                        'public_www' in act_descr['sound_asset_announce']):
+                if 'public_www' not in act_descr['sound_asset_announce']:
                     raise ValueError(
                         f"Sensor {sensor}.{evt} requests announcement "
-                        "but doesn't specify what to announce"
-                    )
-                if ('local_path' in act_descr['sound_asset_announce'] and
-                        not os.path.isfile(act_descr['sound_asset_announce']['local_path'])):
-                    raise ValueError(
-                        f"Sensor {sensor}.{evt} will request announcement of "
-                        f"non existent file {act_descr['sound_asset_announce']}"
+                        "but doesn't specify what to announce (public_www)"
                     )
                 if ('public_www' in act_descr['sound_asset_announce'] and
                         act_descr['sound_asset_announce']['public_www'][0] == '/'):

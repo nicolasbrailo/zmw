@@ -18,5 +18,8 @@
   "comment": "Path where voice messages from Telegram are downloaded. Consumers (eg speech_to_text) read them by path, so keep it in the scratch dir all services share",
   "voice_download_path": "/home/batman/run/baticasa/tmp/zmw_telegram_voice",
 
+  "comment": "Dirs send_photo may upload files from (eg cam snapshots); paths elsewhere are rejected",
+  "allowed_paths": ["/home/batman/nvrish/cam_snaps", "/home/batman/run/baticasa/tmp"],
+
   "JSON": "IS SILLY"
 }

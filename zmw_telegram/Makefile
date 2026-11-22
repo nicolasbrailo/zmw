@@ -5,7 +5,7 @@ rebuild_deps: pipenv_rebuild_deps_base
 	pipenv install requests
 
 test_send_photo:
-	mosquitto_pub -t 'zmw_telegram/send_photo' -m '{"path": "/home/batman/src/BatiCasa/web_assets/doorbell_snap.jpg", "msg": "HOLA"}'
+	mosquitto_pub -t 'zmw_telegram/send_photo' -m '{"path": "/home/batman/nvrish/cam_snaps/doorbell/doorbell_snap.jpg", "msg": "HOLA"}'
 
 test_send_text:
 	mosquitto_pub -t 'zmw_telegram/send_text' -m '{"msg": "HOLA"}'

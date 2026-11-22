@@ -632,44 +632,17 @@ class ZmwSpeakerAnnounce(ZmwMqttService):
                                   speakers=speakers, source='mqtt')
         self._announce(remote_path, vol, speakers=speakers, msg=payload['msg'], synced=True)
 
-    def _save_asset_to_www(self, local_path):
-        try:
-            local_path = str(local_path)
-            if not os.path.isfile(local_path):
-                log.warning('Bad path to asset: "%s" is not a file', local_path)
-                self.publish_own_svc_message("save_asset_reply",
-                               {'status': 'error', 'cause': 'Bad path to asset "{local_path}"'})
-                return None
-            # If file existed, overwrite
-            local_asset_path = shutil.copy2(local_path, self._tts_assets_cache_path)
-        except OSError as e:
-            log.error("Saving asset failed", exc_info=True)
-            self.publish_own_svc_message("save_asset_reply", {'status': 'error', 'cause': str(e)})
-            return None
-
-        fname = os.path.basename(local_asset_path)
-        asset_uri = f"{self._public_tts_base}/{fname}"
-        log.info("Saved asset '%s' to '%s', available at uri '%s'", local_path, local_asset_path, asset_uri)
-        self.publish_own_svc_message("save_asset_reply", {
-            'status': 'ok',
-            'asset': fname,
-            'uri': asset_uri})
-        return asset_uri
-
     def _play_asset(self, payload):
         srcs = 1 if 'name' in payload else 0
-        srcs += 1 if 'local_path' in payload else 0
         srcs += 1 if 'public_www' in payload else 0
         if srcs != 1:
             log.error(
                 "Request to play an asset must specifiy one and only one source "
-                "out of name, local_path or public_www. Message: '%s'", str(payload))
+                "out of name or public_www. Message: '%s'", str(payload))
             return
 
         asset_uri = None
-        if 'local_path' in payload:
-            asset_uri = self._save_asset_to_www(payload['local_path'])
-        elif 'public_www' in payload:
+        if 'public_www' in payload:
             asset_uri = payload['public_www']
         else:
             asset_name = payload['name']

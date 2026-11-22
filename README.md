@@ -296,7 +296,7 @@ Each sensor in `actions` maps event types to action handlers:
 | `telegram` | Send a message via ZmwTelegram | `msg` |
 | `whatsapp` | Send a message via ZmwWhatsapp | `msg` |
 | `tts_announce` | Broadcast a TTS message via ZmwSpeakerAnnounce | `msg`, `lang` |
-| `sound_asset_announce` | Play a sound file via ZmwSpeakerAnnounce | `local_path` or `public_www` |
+| `sound_asset_announce` | Play a sound file via ZmwSpeakerAnnounce | `public_www` |
 
 ## WWW
 

@@ -6,6 +6,8 @@
   ],
   "doorbell_cam_alias_comment": "cam_alias of the doorbell camera, as configured in ZmwReolinkCams",
   "doorbell_cam_alias": "doorbell",
+  "allowed_paths_comment": "Dirs snapshots may come from (ZmwReolinkCams' snap_path_on_movement). Snaps elsewhere are ignored: not recorded, served or forwarded",
+  "allowed_paths": ["/home/batman/nvrish/cam_snaps"],
   "door_open_scene_timeout_secs": 120,
   "door_open_scene_thing_to_manage": ["EntradaCeiling", "EntradaColor", "CocinaFloorlamp"],
   "doorbell_contact_sensor": "ContactSensor_FrontDoor",

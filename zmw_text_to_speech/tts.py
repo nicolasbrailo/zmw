@@ -172,6 +172,10 @@ class Tts:
         vid = sorted(self._voices)[0]
         return vid, self._voices[vid]
 
+    @property
+    def output_dir(self):
+        return self._output_dir
+
     def synthesize(self, text, language=None, speaker=None):
         """Synthesize text to an mp3 file. Returns (mp3_path, voice_id)."""
         voice_id, voice = self.resolve_voice(language, speaker)
