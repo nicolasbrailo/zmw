@@ -29,16 +29,19 @@ function vdEventChip(ev, idx) {
   );
 }
 
-// Timeline of one session: person checks (ran / skipped), faces (gated / rejected) and fired events
+// Timeline of one session: person checks (ran / skipped), faces (gated / rejected) and the events published on
+// MQTT. Full width; positions are percentages of the session's duration. Hovering (or clicking) an event shows the
+// MQTT message as it was published.
 function VdTimeline(props) {
   const log = props.log;
+  const [sel, setSel] = React.useState(null);
   const dur = Math.max(log.analysed_s || 1, 1);
-  const W = 600, H = 54;
-  const x = (t) => 4 + (W - 8) * t / dur;
+  const H = 72;
+  const x = (t) => `${0.5 + 99 * Math.min(t, dur) / dur}%`;
   const marks = [];
   log.person_checks.forEach((c, i) => {
     const hit = c.ran ? c.persons.length > 0 : c.persons_reused > 0;
-    marks.push(<rect key={`p${i}`} x={x(c.t) - 2} y={4} width={4} height={10}
+    marks.push(<rect key={`p${i}`} x={x(c.t)} y={6} width={5} height={14} transform="translate(-2.5, 0)"
                      fill={hit ? '#1c7ed6' : (c.ran ? '#666' : 'none')} stroke="#1c7ed6" strokeWidth={c.ran ? 0 : 1}>
                  <title>{`t=${c.t}s person check ${c.ran ? 'ran' : 'skipped (no motion)'}: ` +
                          (c.ran ? c.persons.map(p => p.conf).join(', ') || 'nobody' : `${c.persons_reused} reused`) +
@@ -46,22 +49,41 @@ function VdTimeline(props) {
                </rect>);
   });
   log.faces.forEach((f, i) => {
-    marks.push(<circle key={`f${i}`} cx={x(f.t)} cy={24} r={2.5} fill={f.gate === 'ok' ? '#e8590c' : (f.gate.startsWith('ok') ? '#f5a97f' : '#888')}>
-                 <title>{`t=${f.t}s track ${f.track} conf ${f.conf} iod ${f.iod}px yaw ${f.yaw}: ${f.gate}`}</title>
+    marks.push(<circle key={`f${i}`} cx={x(f.t)} cy={32} r={3}
+                       fill={f.gate === 'ok' ? '#e8590c' : (f.gate.startsWith('ok') ? '#f5a97f' : '#888')}>
+                 <title>{`t=${f.t}s track ${f.track} conf ${f.conf} iod ${f.iod}px yaw ${f.yaw}: ${f.gate}` +
+                         (f.split ? ' (split into a new track)' : '')}</title>
                </circle>);
   });
   log.events.forEach((e, i) => {
-    marks.push(<line key={`e${i}`} x1={x(e.t)} x2={x(e.t)} y1={32} y2={50}
-                     stroke={VD_EVENT_COLORS[e.type] || '#f59f00'} strokeWidth={3}>
-                 <title>{`t=${e.t}s ${VD_EVENT_LABELS[e.type] || e.type}${e.name ? ': ' + e.name : ''}`}</title>
-               </line>);
+    const color = VD_EVENT_COLORS[e.type] || '#f59f00';
+    marks.push(
+      <g key={`e${i}`} style={{cursor: 'pointer'}} onMouseEnter={() => setSel(i)} onClick={() => setSel(i)}>
+        {/* Wide transparent line: an easier target to hover than the 3px marker */}
+        <line x1={x(e.t)} x2={x(e.t)} y1={40} y2={H - 4} stroke="transparent" strokeWidth={14} />
+        <line x1={x(e.t)} x2={x(e.t)} y1={42} y2={H - 6} stroke={color} strokeWidth={sel === i ? 5 : 3} />
+      </g>);
   });
+  // The message as published: the log adds 'type' (the same as 'event') for the UI
+  const message = (e) => {
+    const { type, ...msg } = e;
+    return JSON.stringify(msg, null, 2);
+  };
+  const ev = sel != null ? log.events[sel] : null;
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth: `${W}px`, display: 'block'}}>
-      <rect x={0} y={0} width={W} height={H} fill="none" stroke="#444" />
-      {marks}
-      <text x={W - 4} y={H - 4} fill="#888" fontSize="9" textAnchor="end">{`${dur}s`}</text>
-    </svg>
+    <div>
+      <svg width="100%" height={H} style={{display: 'block'}}>
+        <rect x={0} y={0} width="100%" height={H} fill="none" stroke="#444" />
+        {marks}
+        <text x="99.5%" y={H - 4} fill="#888" fontSize="10" textAnchor="end">{`${dur}s`}</text>
+      </svg>
+      {log.events.length > 0 && (ev ? (
+        <div>
+          <b>MQTT {ev.event}</b> at {ev.t}s {ev.track_id != null && <small>(track {ev.track_id})</small>}
+          <pre style={{whiteSpace: 'pre-wrap', fontSize: '0.85em', margin: '2px 0'}}>{message(ev)}</pre>
+        </div>
+      ) : <small>Hover or click an event line to see the MQTT message it published.</small>)}
+    </div>
   );
 }
 
@@ -138,7 +160,7 @@ class VdSessionDetail extends React.Component {
         {log.tracks.length > 0 && <VdPeople tracks={log.tracks} img={img} />}
         <VdTimeline log={log} />
         <small>Blue bars: person checks (filled = person found, hollow = skipped, no motion). Dots: faces (orange =
-          passed the quality gate). Lines: events fired. Hover for details.</small>
+          passed the quality gate). Lines: MQTT events published; hover one to see its message.</small>
         <p>
           Stopped: <b>{log.stop_reason}</b> after {log.analysed_s}s of video ({Object.values(log.timing || {}).reduce((a, b) => a + b, 0).toFixed(1)}s
           of compute, mode {log.mode},
