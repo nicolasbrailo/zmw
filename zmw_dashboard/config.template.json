@@ -1,6 +1,6 @@
 {
-  "COMMENT": "Remember to use authbind here eg: /usr/bin/authbind --deep $startupCmd",
-  "http_port": 80,
+  "COMMENT_http_port": "Fixed, so a reverse proxy (eg Caddy) can serve the dashboard on :80. Outside the 4201-4299 range other services pick ports from.",
+  "http_port": 4199,
 
   "COMMENT": "Which service will provide a list of scenes (user defined, so not part of ZMW)",
   "scenes_service_name": "Baticasa",
