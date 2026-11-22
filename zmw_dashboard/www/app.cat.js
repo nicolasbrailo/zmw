@@ -68,6 +68,25 @@ class DoorMan extends React.Component {
   openCamsService() { this.openLinkedService('/get_cams_svc_url'); }
   openContactmonService() { this.openLinkedService('/get_contactmon_svc_url'); }
 
+  // The visitor detection UI opens the session named in its URL's #session=<id>
+  openVisitorSession(sessionId) {
+    mJsonGet(`${this.props.api_base_path}/get_visitor_detect_svc_url`, (res) => {
+      if (res.url) {
+        window.open(`${res.url.replace(/\/$/, '')}/index.html#session=${encodeURIComponent(sessionId)}`, '_blank');
+      } else {
+        showGlobalError("Visitor detection service has no known URL");
+      }
+    });
+  }
+
+  renderHistoryDetail(e) {
+    if (e.event_type === 'visitor') {
+      if (!e.session_id) return e.msg;
+      return <a href="#" onClick={(ev) => { ev.preventDefault(); this.openVisitorSession(e.session_id); }}>{e.msg}</a>;
+    }
+    return e.snap ? <a href={`${this.props.api_base_path}/get_snap/${e.snap}`} target="_blank">{e.snap}</a> : '-';
+  }
+
   fetchContactmonState() {
     mJsonGet(`${this.props.api_base_path}/contactmon_state`, (res) => {
       this.handleContactmonState(res);
@@ -132,7 +151,7 @@ class DoorMan extends React.Component {
     return (
       <table>
         <thead>
-          <tr><th>Type</th><th>Time</th><th>Duration</th><th>Snap</th></tr>
+          <tr><th>Type</th><th>Time</th><th>Duration</th><th>Snap / visitor</th></tr>
         </thead>
         <tbody>
           {history.map((e, i) => (
@@ -140,7 +159,7 @@ class DoorMan extends React.Component {
               <td>{e.event_type}</td>
               <td>{this.formatTimestamp(e.time)}</td>
               <td>{e.duration_secs !== undefined ? this.formatDuration(e.duration_secs) : '-'}</td>
-              <td>{e.snap ? <a href={`${this.props.api_base_path}/get_snap/${e.snap}`} target="_blank">{e.snap}</a> : '-'}</td>
+              <td>{this.renderHistoryDetail(e)}</td>
             </tr>
           ))}
         </tbody>
@@ -188,7 +207,8 @@ class DoorMan extends React.Component {
           <p>{stats.door_open_in_progress? "Door open" : "Door closed"}
             {stats.motion_in_progress ? ', motion detected' : ''}
           </p>
-          <p>Today: Doorbell rang {stats.doorbell_press_count_today} times, {stats.motion_detection_count_today} motion events.
+          <p>Today: Doorbell rang {stats.doorbell_press_count_today} times, {stats.motion_detection_count_today} motion events,
+             {' '}{stats.visitor_count_today || 0} visitors notified.
              Snap @ {this.formatTimestamp(stats.last_snap_time)}</p>
         </div>
 

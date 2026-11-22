@@ -427,7 +427,10 @@ class VisitorDetect extends React.Component {
 
   constructor(props) {
     super(props);
-    this.state = { tab: 'sessions', sessions: null, visitors: null, clusters: null, status: null, zoom: null };
+    // Other services link to a session with #session=<id> (eg ZmwDoorman's history)
+    const linked = /(?:^#|&)session=([\w-]+)/.exec(window.location.hash);
+    this.state = { tab: 'sessions', sessions: null, visitors: null, clusters: null, status: null, zoom: null,
+                   linkedSession: linked ? linked[1] : null };
     this.refresh = this.refresh.bind(this);
   }
 
@@ -474,6 +477,17 @@ class VisitorDetect extends React.Component {
           ))}
           {this.state.status && this.state.status.alerts.length > 0 && <span className="warn"> ⚠ see Status</span>}
         </div>
+        {this.state.tab === 'sessions' && this.state.linkedSession && (
+          <div>
+            <h3>Session {this.state.linkedSession}
+              <button onClick={() => {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+                this.setState({ linkedSession: null });
+              }}>Close</button>
+            </h3>
+            <VdSessionDetail api={api} sessionId={this.state.linkedSession} onZoom={zoom} />
+          </div>
+        )}
         {this.state.tab === 'sessions' && <VdSessions api={api} sessions={this.state.sessions} onZoom={zoom} />}
         {this.state.tab === 'visitors' && <VdVisitors api={api} visitors={this.state.visitors} config={config}
                                                        onZoom={zoom} onChanged={this.refresh} />}
