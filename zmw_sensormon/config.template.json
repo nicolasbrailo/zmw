@@ -1,5 +1,5 @@
 {
-  "db_path": "/home/batman/run/baticasa/sensors.sqlite",
+  "db_path": "./sensors.sqlite",
   "retention_days": 7,
 
   "http_host": "10.0.0.10",
