@@ -114,6 +114,12 @@ Current state of all robots. Response on get_state_reply
 
 _No parameters._
 
+#### `get_history`
+
+Last runs of each robot, newest first. Response on get_history_reply
+
+_No parameters._
+
 #### `start`
 
 Start cleaning (or resume, if paused). Response on start_reply
@@ -193,6 +199,7 @@ Published when a robot's state changes
 | `battery` | {'charge_cycles': 'Battery charge cycles', 'est_capacity_mah': 'Estimated battery capacity, mAh', 'manufacture_date': 'Battery manufacture date'} |
 | `settings` | {'passes': 'auto/one/two', 'bin_pause': 'Stop cleaning when the bin is full', 'child_lock': 'Robot buttons disabled'} |
 | `schedule` | {'paused': 'Schedule is on hold', 'timezone': 'Robot timezone, schedule times are local to it', 'entries': [{'enabled': 'Entry is active', 'days': ['Mon', '...'], 'day_nums': 'Days, 0 = Sunday', 'hour': 'Start hour', 'min': 'Start minute', 'command': "Usually 'start'"}]} |
+| `service_schedule` | Schedule from the service config, run by the service, or null. Same format as schedule (times local to the service), plus 'ignored': true if the robot has its own schedule, so this one isn't run |
 | `wifi` | {'rssi': 'Signal strength, dBm', 'snr': 'Signal to noise ratio'} |
 | `position_supported` | Robot answers position requests (null until known) |
 | `position` | Last known position, or null: {x_m, y_m, theta_rad}, origin at the dock |
@@ -212,6 +219,14 @@ Everything the robot reports
 Map of robot alias to state
 
 See `<alias>/state`
+
+#### `get_history_reply`
+
+Map of robot alias to its last runs (missions, and scheduled runs that didn't start), newest first
+
+| Param | Description |
+|-------|-------------|
+| `<alias>` | [{'start': 'Start, epoch secs (for missed runs, when the miss was detected)', 'end': 'End, epoch secs, or null while running', 'result': None, 'scheduled': "Started by a schedule (the robot's own or the service's)", 'scheduled_time': 'Scheduled start (HH:MM), if known', 'initiator': "Who started it, as reported by the robot (eg 'localApp', 'schedule')", 'mission_id': "Robot's mission ID", 'minutes': 'Mission duration, as last seen while running', 'sqft': 'Area cleaned, as last seen while running', 'problems': "Problems seen during the mission (eg 'is stuck', 'disconnected')", 'details': 'Robot state when it ended (if not ok), or why the run was missed'}] |
 
 #### `start_reply`
 

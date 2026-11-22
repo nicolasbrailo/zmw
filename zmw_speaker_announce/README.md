@@ -64,7 +64,7 @@ Replies go to ZmwTelegram's broadcast chat, which rate-limits outgoing messages.
 
 #### `ls`
 
-List speakers. Response on ls_reply
+List speakers (Sonos and homeboards that can play audio). Response on ls_reply
 
 _No parameters._
 
@@ -78,6 +78,7 @@ Say a message out loud on speakers (text-to-speech). Use for announcements and n
 | `lang?` | Language code |
 | `vol?` | Volume 0-100 |
 | `fuzzy?` | Paraphrase text using voice personality before synthesis (default: true) |
+| `speakers?` | List of speaker names, Sonos or homeboard (see ls). Default: all speakers |
 
 #### `announcement_history`
 
@@ -95,7 +96,7 @@ _No parameters._
 
 #### `ls_reply`
 
-List of speaker names
+List of speaker names: Sonos speakers, then homeboard ids
 
 Payload: `['speaker_name_1', 'speaker_name_2']`
 
@@ -110,11 +111,12 @@ Published when a TTS announcement completes. Contains generated asset paths
 
 #### `announcement_in_progress`
 
-Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text
+Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text, on the same speakers
 
 | Param | Description |
 |-------|-------------|
 | `msg` | The text being announced |
+| `speakers` | Requested speaker names, Sonos or homeboard (null: all speakers) |
 
 #### `currently_playing`
 
@@ -124,14 +126,14 @@ Published whenever the speakers are asked to play a sound (TTS, user recording o
 |-------|-------------|
 | `uri` | URL of the audio being played |
 | `volume` | Requested volume 0-100 (null: speaker default) |
-| `speakers` | List of target speaker names (null: all speakers) |
+| `speakers` | List of target speaker names, Sonos or homeboard (null: all speakers) |
 | `msg?` | Original text of the TTS request; absent for recordings and assets |
 
 #### `announcement_history_reply`
 
 Announcement history
 
-Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'source': 'Who requested it: mqtt, http, telegram_user or telegram_bot', 'phrase?': 'Text', 'lang': 'Requested language or voice', 'voice': 'Voice used (ZMW TTS voice_id, or google_tts:<lang>); null if not TTS', 'volume': 'Volume', 'uri': 'Asset URI'}]`
 
 #### `get_mqtt_description_reply`
 

@@ -123,6 +123,7 @@ flowchart LR
     zmw_doorman <--> zmw_reolink_cams
     zmw_doorman --> zmw_speaker_announce
     zmw_doorman <--> zmw_telegram
+    zmw_visitor_detect --> zmw_doorman
     zmw_doorman --> zmw_whatsapp
     zmw_heating <--> zigbee2mqtt
     zmw_heating <--> zmw_telegram
@@ -134,13 +135,13 @@ flowchart LR
     zmw_meteo_relay --> zmw_sensormon
     zmw_shelly_plug --> zmw_sensormon
     zmw_sonos_ctrl <--> zmw_spotify
+    zmw_speaker_announce <--> zmw_homeboard
     zmw_speaker_announce <--> zmw_telegram
     zmw_speaker_announce --> zmw_text_to_speech
     zmw_telegram --> zmw_speech_to_text
+    zmw_sucks <--> zmw_unifi_clientmon
     zmw_unifi_clientmon <--> zmw_telegram
     zmw_visitor_detect <--> zmw_reolink_cams
-    zmw_visitor_detect --> zmw_speaker_announce
-    zmw_visitor_detect --> zmw_telegram
 
     class zigbee2mqtt external;
     class zmw_cronenbergs passive;
@@ -503,14 +504,20 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 | `door_open_scene_thing_to_manage` | List of Zigbee light names to control in the door-open scene |
 | `door_open_scene_timeout_secs` | Seconds before the door-open scene auto-expires |
 | `latlon` | `[lat, lon]` for sunrise/sunset calculation (door-open scene only activates when dark) |
+| `allowed_paths` | Dirs camera snapshots may come from; others are ignored |
+| `relay_raw_cam_events` | Also send the camera's motion snapshot to WhatsApp ("Motion detected", at most one every 2 minutes) for any motion, person or not: to be notified of all motion, or as a fallback when ZmwVisitorDetect isn't running |
+| `visitor_face_wait_secs` | After ZmwVisitorDetect reports a person, wait this long for a face before sending the person picture (see below) |
+| `visitor_notify_repeat_secs` | Don't notify the same person again within this time |
+| `visitor_notify_injected` | Also notify sessions from test clips injected into ZmwVisitorDetect |
 
 ## Service Dependencies
 
 - **ZmwSpeakerAnnounce** -- plays doorbell chime sound
-- **ZmwWhatsapp** -- sends motion/doorbell photos via WhatsApp
+- **ZmwWhatsapp** -- sends visitor/doorbell photos via WhatsApp
 - **ZmwTelegram** -- sends motion/doorbell photos via Telegram, handles `/door_snap` command
 - **ZmwReolinkCams** -- provides camera snapshots, doorbell button press, and motion events
 - **ZmwContactmon** -- provides door contact sensor open/close events and chime control
+- **ZmwVisitorDetect** -- people and faces at the door, for the WhatsApp notifications
 
 ## WWW Endpoints
 
@@ -524,10 +531,33 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 | `/get_snap/<filename>` | GET | Serve a camera snapshot image by filename |
 | `/get_cams_svc_url` | GET | JSON: URL of the ZmwReolinkCams web UI |
 | `/get_contactmon_svc_url` | GET | JSON: URL of the ZmwContactmon web UI |
+| `/get_visitor_detect_svc_url` | GET | JSON: URL of the ZmwVisitorDetect web UI |
 
 ## Door-Open Scene
 
 When the door contact sensor reports the door opening and it is dark outside (based on sun position at the configured lat/lon), the service turns on a set of configured Zigbee lights. The scene auto-expires after a configurable timeout. If another service or user manually controls a managed light while the scene is active, that light is released from management. Motion events at the door extend the scene timer.
+
+## Visitor notifications
+
+People at the door are sent to WhatsApp from ZmwVisitorDetect's events, one message per visit, preferably with a
+face (`visitor_notifier.py`). Camera motion alone is only sent with `relay_raw_cam_events`: most of it isn't a person.
+
+- After `on_person_detected`, wait `visitor_face_wait_secs` for a face. The service waits at most this time until
+  the visitor detection service can identify a face; if no face arrives on time, a generic "person detected" message
+  is sent instead. Includes a picture. Defaults to 5s; experiments show that for a Reolink cam, 5s timeout catches a
+  face 70% of the time, whereas 10s only improved that to 80%.
+- At night ZmwVisitorDetect only reports people, so the person picture goes out at once.
+- One follow-up per visit: a face arriving after the first message (late, a second person, or an unknown face
+  identified later).
+- The same person isn't notified again within `visitor_notify_repeat_secs`.
+- Pictures are large crops ZmwVisitorDetect writes to the services' shared scratch dir (its
+  `notification_img_dir`), which must be in ZmwWhatsapp's `allowed_paths`. If ZmwVisitorDetect is down, nothing
+  is sent (its missing dependency is alerted).
+
+Each message sent is recorded in the door history ("visitor" rows); its link opens that session in ZmwVisitorDetect's
+UI (`index.html#session=<id>`), with the visitor's crops and why they were (or weren't) identified.
+
+The doorbell ring is separate: it still sends the camera snapshot ("RING!") to WhatsApp and Telegram.
 
 ## Telegram Integration
 
@@ -541,7 +571,7 @@ Registers a `/door_snap` command with ZmwTelegram. When invoked, requests a snap
 
 #### `get_stats`
 
-List of events: doorbell presses, motion, door open. Response on get_stats_reply
+List of events: doorbell presses, motion, door open, visitors notified. Response on get_stats_reply
 
 _No parameters._
 
@@ -597,6 +627,7 @@ Door stats
 |-------|-------------|
 | `doorbell_press_count_today` | int |
 | `motion_detection_count_today` | int |
+| `visitor_count_today` | int |
 | `last_snap` | filename or null |
 | `last_snap_time` | epoch or null |
 | `history` | list of event records |
@@ -820,6 +851,25 @@ each under `zmw_homeboard/<prefix>/`:
 
 Each is sent only when that part changed, and not at all while it's null.
 
+## Speaker announcements
+
+Every spoken announcement from ZmwSpeakerAnnounce (`announcement_in_progress`) is shown as text on the
+homeboards' overlay: on all of them for an announcement that plays everywhere, or only on the homeboards it
+was targeted at (its `speakers`). So an announcement targeted only at Sonos speakers shows on none, and the
+Raspberry Pi homeboards, which can't be targeted, only show announcements that play everywhere.
+
+Audio is targeted: ZmwSpeakerAnnounce sends `announce_audio` for each homeboard it should play on. Only
+homeboards that can play audio take it, and this service tells ZmwSpeakerAnnounce which ones those are: on
+`ls_audio_targets`, and on `audio_targets` whenever the list changes (both a JSON list of homeboard ids). A
+homeboard is listed when its `availability` record says `"announce_audio": true` (AstroDock sets it from its
+"Play audio announcements" switch). Without the flag, like the Raspberry Pi homeboards, there's no audio.
+
+Devices drop off the broker and reconnect often, so a homeboard that goes offline stays listed until it's been
+offline for 10 minutes (`_AUDIO_TARGET_OFFLINE_TTL_SECS`). Nothing is published when it goes away: it's only
+dropped the next time the list is needed (an availability record from any homeboard, `ls_audio_targets`, or an
+`announce_audio` for it), and only then is `audio_targets` sent. An announcement sent while it's offline is
+lost, as any other command would be.
+
 ## WWW UI
 
 `www/app.js` shows every known homeboard and drives it through these endpoints,
@@ -942,14 +992,20 @@ Show an announcement text in the Homeboard overlay (empty msg clears)
 
 #### `announce_audio`
 
-Tell a homeboard that the speakers are playing an audio file
+Play an audio file on a homeboard, showing msg while it plays. Only for homeboards that can play audio (see ls_audio_targets); dropped for others
 
 | Param | Description |
 |-------|-------------|
 | `homeboard_id` | Name of the target homeboard |
-| `uri` | URL of the audio being played |
-| `volume?` | Volume 0-100 the speakers were asked to use |
+| `uri` | URL of the audio to play |
+| `volume?` | Volume 0-100 (default: the device's, 40% on a Portal) |
 | `msg?` | Text being spoken, when the audio comes from a TTS request |
+
+#### `ls_audio_targets`
+
+List the homeboards that can play audio. Response on ls_audio_targets_reply
+
+_No parameters._
 
 #### `doorbell_ring`
 
@@ -986,6 +1042,20 @@ Pick which albums every homeboard may show pictures from; an empty request clear
 Recompute and push the overlay for all homeboards
 
 _No parameters._
+
+### Announcements
+
+#### `audio_targets`
+
+The homeboards that can play audio (announce_audio), sent whenever that changes. A homeboard that goes offline is only dropped once it's been offline for a while, the next time the list is needed
+
+Payload: `['homeboard_id', '...']`
+
+#### `ls_audio_targets_reply`
+
+Response to ls_audio_targets
+
+Payload: `['homeboard_id', '...']`
 
 # ZmwLights
 
@@ -1210,6 +1280,7 @@ Multi-camera Reolink service with motion detection, doorbell events, recording, 
 | `cameras[].cam_alias` | Unique, stable camera name (eg `doorbell`). MQTT events carry it, and other services use it to pick a camera, so they don't depend on the camera's IP |
 | `cameras[].cam_host` | Hostname/IP of the camera |
 | `cameras[].is_doorbell` | (optional) Set `true` if camera is a doorbell model |
+| `cameras[].video_on_movement` | (optional) Record video when the camera reports motion or the doorbell rings (needs `rec_path`) |
 | `rec_path` | Directory for storing recordings, in a subdirectory per `cam_alias` |
 | `snap_path_on_movement` | (optional) Directory for motion-triggered snapshots, in a subdirectory per `cam_alias` |
 
@@ -1229,7 +1300,7 @@ All camera paths identify a camera by its `cam_alias`, never by its IP.
 ### NVR Web Interface
 - `/nvr` - NVR web UI for browsing recordings and snapshots
 - `/nvr/api/cameras` - JSON list of cameras (by alias) with recordings on disk
-- `/nvr/api/<cam>/recordings?days=N` - JSON list of recordings for a camera (optionally filtered by age)
+- `/nvr/api/<cam>/recordings?days=N` - JSON list of recordings for a camera (optionally filtered by age), each with its thumbnail and faces. Any file next to a recording named `<recording>.face.<label>.jpg` is listed as one of its faces (ZmwVisitorDetect saves them; this service doesn't depend on it), and deleted with the recording by the retention cleanup
 - `/nvr/api/<cam>/snapshots` - JSON list of snapshots for a camera
 - `/nvr/<cam>/get_recording/<file>` - Serve a recording file
 - `/nvr/<cam>/get_snapshot/<file>` - Serve a snapshot file
@@ -1831,6 +1902,7 @@ Network state
 | `speakers` | List of speaker state |
 | `groups` | Map of coordinator name to member |
 | `zones` | List of zone names |
+| `age_secs` | Age of this state; if over 30, a refresh is running |
 
 #### `ls_speakers_reply`
 
@@ -1866,7 +1938,16 @@ Service description
 
 # ZmwSpeakerAnnounce
 
-Sonos speaker announcement service with TTS, pre-recorded asset playback, and live microphone recording support. Announcements are broadcast to all discovered Sonos speakers on the network.
+Speaker announcement service with TTS, pre-recorded asset playback, and live microphone recording support. Announcements play on all Sonos speakers on the network and on the homeboards that can play audio, or only on the ones requested.
+
+## Speakers
+
+A speaker is either a Sonos (by its name) or a homeboard (by its id, case-insensitive), and both can be mixed in one request. No list means all of them.
+
+- **Sonos**: discovered on the network (or `speaker_ip_list`), played through the Sonos API.
+- **Homeboards**: the ones ZmwHomeboard declares can play audio (`ls_audio_targets`, and `audio_targets` when that changes). Played by sending `announce_audio` to ZmwHomeboard for each one. While ZmwHomeboard is down, there are no homeboard speakers.
+
+`announcement_in_progress` carries the requested `speakers`, so services mirroring the text (eg ZmwHomeboard) can show it only where the announcement plays.
 
 ![](zmw_speaker_announce/README_screenshot.png)
 
@@ -1890,7 +1971,7 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 - `/` - Web UI for TTS input and microphone recording (served from `www/` directory, available over both HTTP and HTTPS)
 - `/announce_tts?phrase=X&lang=X&vol=N&fuzzy=true` - Trigger a TTS announcement (fuzzy defaults to true)
 - `/announce_user_recording` - Upload and announce a recorded audio file (PUT/POST, `audio_data` multipart field)
-- `/ls_speakers` - JSON array of discovered Sonos speaker names (sorted)
+- `/ls_speakers` - JSON array of speaker names: Sonos speakers, then homeboards (each sorted)
 - `/announcement_history` - JSON array of the 10 most recent announcements
 - `/svc_config` - JSON with internal config (HTTPS server URL)
 - `/tts/*` - Cached TTS audio assets (served to Sonos speakers over HTTP)
@@ -1898,6 +1979,20 @@ Sonos speaker announcement service with TTS, pre-recorded asset playback, and li
 ## HTTPS
 
 An HTTPS server is started alongside the normal HTTP server. HTTP routes `/zmw.css` and `/zmw.js` are mirrored to HTTPS. The microphone recording UI requires HTTPS because browsers require a secure context for `getUserMedia`. Sonos speakers fetch audio over HTTP (they cannot validate self-signed certificates).
+
+## Telegram
+
+Registers these commands with ZmwTelegram. The `bot_*` ones are meant for bots (eg an LLM sending a daily report), and are named `/bot_[service]_[command]` (Telegram only allows lowercase letters, digits and underscores in command names).
+
+- `/shout <text>` - Announce text on all speakers, with the default voice and fuzzy mode.
+- `/bot_shout {"msg": "text", "voice?": "name", "speakers?": ["name", ...]}` - Announce text, args as JSON. Never fuzzy (the text is already LLM-written), always uses ZmwTextToSpeech (never falls back to Google TTS, regardless of `tts_mode`) with a longer timeout, since reports can be long. TTS failures are reported back over Telegram.
+  - `voice`: a voice name or voice_id, fuzzy matched: case and punctuation are ignored, and it matches part of the name (`glados`, `vincent`, or a description like `pirate`) or a misspelling (`galdos`). If missing, ambiguous, or not a known voice (only logged, not reported back), ZmwTextToSpeech picks its default voice for its own `default_language` (this service's `tts_default_lang` isn't used).
+  - `speakers`: Sonos names and homeboard ids (see Speakers). If missing or empty, all speakers. Unknown names are skipped and only logged; if none match, nothing plays.
+  - Volume can't be set, and `announce_volume` isn't applied: Sonos picks the volume (same as `/shout`).
+- `/bot_shout_voices` - Replies with a JSON list of voices: `[{"voice": "Glados", "locale": "en_US"}, ...]`.
+- `/bot_shout_speakers` - Replies with a JSON list of speakers: `[{"name": "SpeakerCocina", "kind": "sonos"}, {"name": "portalcocina", "kind": "homeboard"}, ...]`.
+
+Replies go to ZmwTelegram's broadcast chat, which rate-limits outgoing messages. ZmwTelegram drops incoming messages over 2048 chars (including the command and its JSON), so keep reports under ~300 words.
 
 ## MQTT
 
@@ -1907,7 +2002,7 @@ An HTTPS server is started alongside the normal HTTP server. HTTP routes `/zmw.c
 
 #### `ls`
 
-List speakers. Response on ls_reply
+List speakers (Sonos and homeboards that can play audio). Response on ls_reply
 
 _No parameters._
 
@@ -1921,6 +2016,7 @@ Say a message out loud on speakers (text-to-speech). Use for announcements and n
 | `lang?` | Language code |
 | `vol?` | Volume 0-100 |
 | `fuzzy?` | Paraphrase text using voice personality before synthesis (default: true) |
+| `speakers?` | List of speaker names, Sonos or homeboard (see ls). Default: all speakers |
 
 #### `announcement_history`
 
@@ -1938,7 +2034,7 @@ _No parameters._
 
 #### `ls_reply`
 
-List of speaker names
+List of speaker names: Sonos speakers, then homeboard ids
 
 Payload: `['speaker_name_1', 'speaker_name_2']`
 
@@ -1953,11 +2049,12 @@ Published when a TTS announcement completes. Contains generated asset paths
 
 #### `announcement_in_progress`
 
-Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text
+Published when a spoken (TTS) announcement starts playing on the speakers. Lets other services mirror the announced text, on the same speakers
 
 | Param | Description |
 |-------|-------------|
 | `msg` | The text being announced |
+| `speakers` | Requested speaker names, Sonos or homeboard (null: all speakers) |
 
 #### `currently_playing`
 
@@ -1967,14 +2064,14 @@ Published whenever the speakers are asked to play a sound (TTS, user recording o
 |-------|-------------|
 | `uri` | URL of the audio being played |
 | `volume` | Requested volume 0-100 (null: speaker default) |
-| `speakers` | List of target speaker names (null: all speakers) |
+| `speakers` | List of target speaker names, Sonos or homeboard (null: all speakers) |
 | `msg?` | Original text of the TTS request; absent for recordings and assets |
 
 #### `announcement_history_reply`
 
 Announcement history
 
-Payload: `[{'timestamp': 'ISO timestamp', 'phrase?': 'Text', 'lang': 'Language', 'volume': 'Volume', 'uri': 'Asset URI'}]`
+Payload: `[{'timestamp': 'ISO timestamp', 'source': 'Who requested it: mqtt, http, telegram_user or telegram_bot', 'phrase?': 'Text', 'lang': 'Requested language or voice', 'voice': 'Voice used (ZMW TTS voice_id, or google_tts:<lang>); null if not TTS', 'volume': 'Volume', 'uri': 'Asset URI'}]`
 
 #### `get_mqtt_description_reply`
 
@@ -1992,7 +2089,7 @@ Offline speech-to-text service using faster-whisper. Transcribes audio from Tele
 |-----|-------------|
 | `stt.model_size` | Whisper model size (default: `tiny.en`). Options: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v2`, `large-v3` |
 | `stt.compute_type` | Model precision (default: `int8`). Options: `int8`, `float16`, `float32` |
-| `stt.local_files_only` | If `true`, only use already-downloaded models. Set to `false` on first run to download, then switch back to `true` |
+| `stt.local_files_only` | If `true`, only use already-downloaded models. Set to `false` on first run to download, then switch back to `true`: while `false`, every start queries huggingface.co, so the service needs internet access |
 | `stt.language` | Source language hint for Whisper (default: `en`). Set to `null` for auto-detection |
 | `stt.task` | Whisper task (default: `translate`). Use `transcribe` to keep original language, `translate` to output English |
 | `stt.beam_size` | Beam search width (default: `5`). Higher values are slower but may be more accurate |
@@ -2009,7 +2106,7 @@ Offline speech-to-text service using faster-whisper. Transcribes audio from Tele
 
 ## Model Loading
 
-The STT model is loaded in a background thread at startup. If loading fails (e.g., `local_files_only` is `true` but the model has not been downloaded), the service stays running but all transcription requests are rejected with a warning. To download the model for the first time, set `local_files_only` to `false`, restart the service, then optionally set it back to `true`.
+The STT model is loaded in a background thread at startup. If loading fails (e.g., `local_files_only` is `true` but the model has not been downloaded), the service stays running but all transcription requests are rejected with a warning. To download the model for the first time, set `local_files_only` to `false`, restart the service, then set it back to `true` (otherwise it queries huggingface.co on every start).
 
 ## MQTT
 
@@ -2179,8 +2276,9 @@ Connects to each robot, exposes its state, stats, settings and schedule, and sta
 
 Problems are sent over Telegram (via ZmwTelegram), and shown as service alerts (`/svc_alerts`) while they last:
 
-- Scheduled runs: 2 minutes after a run in the robot's own schedule was due, check the robot is cleaning. Uses the
-  robot's timezone, and its last known schedule if it's offline. The alert clears when the robot starts a mission.
+- Scheduled runs: 2 minutes after a scheduled run was due, check the robot is cleaning. For the robot's own
+  schedule, uses the robot's timezone, and its last known schedule if it's offline. The alert clears when the robot
+  starts a mission. Works the same for schedules in the service config (see Schedule).
 - Missions: every 5 minutes, check running robots. Reports if a robot gets stuck, reports an error, has a full bin,
   or disconnects. Each problem is reported once, unless it clears and comes back. When a mission ends, its result
   (completed, failed, cancelled) comes from the robot's own mission counters.
@@ -2196,20 +2294,55 @@ Missions not started by the schedule always notify problems and failures, but no
 - Service alerts also include: bin full, errors, stuck, a rejected password, robots not found on the network, and
   robots not connected for 30 minutes. A robot that is not found is only logged the first time.
 
+## History
+
+The last runs of each robot (`history_len` in config, default 20) are kept, and survive service restarts (in the
+runtime state cache). Shown in the UI, and available on `/get_history` and the `get_history` MQTT command. Each run
+has its start and end time, whether it was scheduled, who started it, duration and area cleaned, problems seen
+during the mission, and its result:
+
+- `running`, then `ok`, `failed`, `cancelled` (from the robot's mission counters, see Monitoring), or `unknown` if
+  the robot didn't count it, or the service didn't see it end (eg it was restarting)
+- `missed`: a scheduled run that didn't start (or the robot wasn't connected, so it can't be told)
+
+Duration and area are as last seen while running (missions are checked every 5 minutes), since the robot resets
+them when the mission ends.
+
+## Schedule
+
+A robot can follow its own schedule (set in the iRobot app), or one in the service config (`schedule`, see
+Configuration). With the service schedule, the service sends `start` when a run is due (or up to 2 minutes late, eg
+if the service was restarting), unless the robot is already cleaning. Times are local to the service. These runs
+are monitored and notified like the robot's own scheduled runs.
+
+Only one schedule is followed: if a robot has its own (any enabled entry, even if on hold), the service schedule is
+ignored, an error is logged when the service first sees the robot, and it shows as a service alert until one of
+them is removed. If the robot has no
+schedule of its own but was never seen connected, the service schedule is followed.
+
 ## Configuration
 
-`config.json` (see `config.template.json`) has the notification settings (see Monitoring), and a `roombas`
-list, one entry per robot:
+`config.json` (see `config.template.json`) has the notification settings (see Monitoring), `history_len` (see
+History), and a `roombas` list, one entry per robot:
 
 - `alias`: unique name for the robot, used in MQTT topics (`zmw_sucks/<alias>/state`) and endpoints
 - `blid`: robot ID
 - `password`: the robot's local MQTT password (not the iRobot account password)
-- `ip` (optional): fixed robot IP. If not set, the robot is found by BLID with a UDP broadcast
+- `discovery_mechanism` (optional): how to find the robot's IP. Defaults to `fixed_ip` if `ip` is set, else
+  `broadcast`:
+  - `broadcast`: find the robot by BLID with a UDP broadcast. Only works if the robot is on the same subnet as the
+    service
+  - `unifi`: ask ZmwUnifiClientmon for the IP of the client with hostname `Roomba-<blid>` (or `iRobot-<blid>`),
+    then check the robot answers discovery there. Works across subnets (eg a robot in an IoT VLAN), as long as the
+    service can reach it
+  - `fixed_ip`: always connect to `ip`, never rediscover
+- `ip`: fixed robot IP. Required with (and only allowed with) `discovery_mechanism` `fixed_ip`
+- `schedule` (optional): runs for the service to start, as a list of `{"day": "Mon", "time": "10:00"}`. Days are
+  `Sun` to `Sat`, times are 24h and local to the service. Ignored if the robot has its own schedule (see Schedule)
 - `ignore` (optional): if true, this entry is skipped at startup (eg to keep config for a robot not in use yet)
 
 Robots are discovered at startup, and again if they stay disconnected for 5 minutes (eg if DHCP gave them a new
-IP). Discovery is a broadcast, so robots must be on the same subnet as the service. Robots that can't be found or
-connected to are retried every 30 secs, and show as not connected.
+IP). Robots that can't be found or connected to are retried every 30 secs, and show as not connected.
 
 The BLID is the `robotid` the robot reports on discovery (UDP 5678, `irobotmcs`). The password can be fetched
 locally with `roombapy discover <ip>`, after holding the robot's HOME button for ~2 seconds while docked. Some
@@ -2224,6 +2357,7 @@ To update it to whatever is on the upstream default branch: `make roombapy_dep_u
 ## WWW Endpoints
 
 - `/` - React UI with each robot's status, stats and Start/Pause/Dock/Find buttons (served from `www/` directory)
+- `GET /get_history` - Map of robot alias to its last runs, newest first (see History)
 - `GET /get_state` - Map of robot alias to current state: status, current mission, lifetime stats, Wi-Fi signal and
   position (if the robot supports position requests; only polled while away from the dock)
 - `PUT /set_setting/<alias>/<setting>/<value>` - Change a setting: `passes` (auto/one/two), `bin_pause`
@@ -2243,6 +2377,12 @@ To update it to whatever is on the upstream default branch: `make roombapy_dep_u
 #### `get_state`
 
 Current state of all robots. Response on get_state_reply
+
+_No parameters._
+
+#### `get_history`
+
+Last runs of each robot, newest first. Response on get_history_reply
 
 _No parameters._
 
@@ -2325,6 +2465,7 @@ Published when a robot's state changes
 | `battery` | {'charge_cycles': 'Battery charge cycles', 'est_capacity_mah': 'Estimated battery capacity, mAh', 'manufacture_date': 'Battery manufacture date'} |
 | `settings` | {'passes': 'auto/one/two', 'bin_pause': 'Stop cleaning when the bin is full', 'child_lock': 'Robot buttons disabled'} |
 | `schedule` | {'paused': 'Schedule is on hold', 'timezone': 'Robot timezone, schedule times are local to it', 'entries': [{'enabled': 'Entry is active', 'days': ['Mon', '...'], 'day_nums': 'Days, 0 = Sunday', 'hour': 'Start hour', 'min': 'Start minute', 'command': "Usually 'start'"}]} |
+| `service_schedule` | Schedule from the service config, run by the service, or null. Same format as schedule (times local to the service), plus 'ignored': true if the robot has its own schedule, so this one isn't run |
 | `wifi` | {'rssi': 'Signal strength, dBm', 'snr': 'Signal to noise ratio'} |
 | `position_supported` | Robot answers position requests (null until known) |
 | `position` | Last known position, or null: {x_m, y_m, theta_rad}, origin at the dock |
@@ -2344,6 +2485,14 @@ Everything the robot reports
 Map of robot alias to state
 
 See `<alias>/state`
+
+#### `get_history_reply`
+
+Map of robot alias to its last runs (missions, and scheduled runs that didn't start), newest first
+
+| Param | Description |
+|-------|-------------|
+| `<alias>` | [{'start': 'Start, epoch secs (for missed runs, when the miss was detected)', 'end': 'End, epoch secs, or null while running', 'result': None, 'scheduled': "Started by a schedule (the robot's own or the service's)", 'scheduled_time': 'Scheduled start (HH:MM), if known', 'initiator': "Who started it, as reported by the robot (eg 'localApp', 'schedule')", 'mission_id': "Robot's mission ID", 'minutes': 'Mission duration, as last seen while running', 'sqft': 'Area cleaned, as last seen while running', 'problems': "Problems seen during the mission (eg 'is stuck', 'disconnected')", 'details': 'Robot state when it ended (if not ok), or why the run was missed'}] |
 
 #### `start_reply`
 
@@ -2425,6 +2574,8 @@ MQTT-to-Telegram bridge for bidirectional messaging. Runs a long-polling Telegra
 ## Rate Limiting
 
 Outgoing messages are rate-limited to 3 messages per 60 seconds. If the limit is exceeded, further messages are dropped and the cooldown resets with each attempt (i.e. the window only expires after 60 seconds of silence).
+
+Incoming messages over 2048 chars or 500 words are dropped. This overrides pytelegrambot's own, much lower, limits (150 chars / 20 words), so bots can send long commands (eg `/bot_shout` with a daily report).
 
 ## Voice Processing
 
@@ -2638,76 +2789,173 @@ Service description
 
 # ZmwVisitorDetect
 
-Visitor detection and identification from doorbell camera snapshots. Detects persons using MobileNet-SSD, identifies faces using OpenFace embeddings, and auto-learns new visitors after repeated sightings. All inference runs on CPU via OpenCV DNN.
+Detects people at the doorbell and identifies them, discovering frequent visitors on its own (no enrolment).
+A motion or ring event from ZmwReolinkCams opens a session on the camera's RTSP main stream; the session
+publishes at most one event per person, and stops when the scene is idle or still. All inference is local, on
+the CPU (onnxruntime) or the Intel GPU (OpenVINO).
+
+Models, thresholds and the evidence behind them were chosen in a separate sandbox (`~/src/visitordetect`, see
+its `ARCH.md` and `CLAUDE.md`).
+
+## Pipeline
+
+Per frame (4 fps, newest frame wins), cheapest checks first:
+
+1. Day/night: IR night frames are greyscale. Night only ever reports people: IR faces never matched reliably.
+2. Motion delta on a 160x120 thumbnail (day only): skips the face detector when nothing changed since the last
+   analysed frame, and the person detector when nothing changed since its last run.
+3. Person detector (YOLOX-m + YOLO11m, merged) every 2 s by day, 4 s by night -> `on_person_detected`. Boxes
+   shorter than `person_min_height_px` (background passers-by) are ignored. With `person_detection: "first"`
+   (default) it stops once a person was reported; `"always"` keeps checking (a still person keeps the session
+   open); `"off"` never runs it (people are then only reported through their faces, so never at night).
+4. Face stage (day): SCRFD on the full frame -> face tracker -> quality gate (confidence, size, frontal) ->
+   ArcFace on faces that pass the gate. Once a track has 2 good faces it is decided: same person as earlier
+   in the session (nothing), a known visitor (`on_face_identified`) or unknown (`on_face_detected`).
+
+After a session, unknown faces are clustered; a face seen in 3 visits on 2 different days becomes "Visitor N"
+(`on_new_frequent_visitor`). Name visitors with `visitor_names` in the config.
 
 ## Configuration
 
 | Key | Description |
 |-----|-------------|
-| `doorbell_cam_alias` | `cam_alias` of the doorbell camera to monitor, as configured in ZmwReolinkCams |
-| `detection_cooldown_secs` | (optional) Per-person announcement cooldown, default 300 |
-| `sighting_dedup_gap_secs` | (optional) Min gap between sightings to count as a new sighting, default 1800 |
-| `models_dir` | (optional) Path to DNN model files, default `./models` |
-| `detection_crops_dir` | (optional) Path to save person crops, default `./detection_crops` |
-| `max_crops` | (optional) Max crop files to keep before rotating old ones, default 200 |
+| `cam_aliases` | Cameras (`cam_alias` in ZmwReolinkCams) to watch, default `["doorbell"]` |
+| `models_dir` | ONNX models, default `./models` (`make download_models`) |
+| `data_dir` | Identity store (SQLite + face crops) and session decision logs, default `./visitor_data` |
+| `visitor_names` | `{"visitor_3": "Name"}`: display names for discovered visitors |
+| `person_detection` | `"always"`, `"first"` (default) or `"off"`: when to run the person detector (see Pipeline) |
+| `face_gate` | Quality gate limits, eg `{"max_yaw": 0.3}` (others keep their defaults, see `face_gate.py`) |
+| `inference` | `"cpu"` (default, onnxruntime) or `"gpu"` (OpenVINO on the Intel GPU, ~2.5x faster, same results). No fallback: if the chosen backend can't run, the service refuses to start. GPU setup: `make setup_gpu`, `make check_gpu` |
+| `hw_decode` | `"vaapi"` (default: GPU video decoding, CPU fallback) or `"off"`. The Status page shows which is in use and why. Set the GPU up with `make setup_gpu`, restart, verify with `make check_gpu` |
+| `person_min_height_px` | Ignore person boxes shorter than this, default 300 (on the 1920px tall main stream) |
+| `allowed_paths` | Dirs with recordings: `inject_clip` only plays clips from them, and faces are only saved next to recordings in them |
+| `notification_img_dir` | Where each event's large notification image goes (`notify_img_path` in the event; up to 720px tall). Notifiers read it by path, so use the services' shared scratch dir (`~/run/baticasa/tmp/...`). Only the newest 100 are kept. Unset: no notification images |
+| `faces_next_to_recordings` | Default true: once a session ends, each person's best face (large crop) is saved next to the camera's recording of the visit, as `<recording>.mp4.face.<name>.jpg` (`unknown`, `unknown_2`... for people not identified). The NVR shows them; the recorder's retention cleanup deletes them with the recording. Not for injected clips |
 
-## Recognition Lifecycle
-
-1. **person_no_face_detected** — person body found but no face in the crop
-2. **new_face_detected** — face found but not yet seen enough times to be a visitor
-3. **new_visitor_recognized** — face just crossed the sighting threshold, assigned a name ("Person N")
-4. **visitor_recognized** — previously named visitor seen again
-
-Sightings only increment if `sighting_dedup_gap_secs` has passed since the last sighting, preventing a person standing by the camera from being auto-promoted by rapid-fire motion events.
+Every threshold can be overridden too (`visitor_config.py` has the list and the defaults); changing one never
+requires discarding stored data. Notifications are left to consumers of the events (ZmwDoorman sends them to
+WhatsApp).
 
 ## WWW
 
-- `/` - React detection history UI (served from `www/` directory)
-- `/detections` - JSON: last 20 detection events
-- `/crops/<filename>` - Served crop images
+- `/`: UI. Sessions (timeline and decision log: why each session flagged or didn't), Visitors (faces; split,
+  merge, remove a face, delete), Unknown faces (groups waiting for promotion; reset a group), Status.
+  `index.html#session=<id>` opens that session's decision log on top of the list (ZmwDoorman's history links here).
+- `/status`, `/sessions`, `/session/<id>`, `/visitors`, `/unknown`: JSON. `PUT /admin/<op>`: admin actions.
+- `/data/<path>`: face crops and session crops.
 
-## Announcements
+## Testing with a recorded clip
 
-- **new_visitor_recognized** — sends photo to Telegram: "New visitor recorded: {name}"
-- **visitor_recognized** — TTS via SpeakerAnnounce: "{name} is at the door"
-
-Doorbell press always announces. Motion events respect `detection_cooldown_secs` per person.
-
-## Models
-
-Run `make download_models` to fetch the required DNN models (~64MB):
-
-- `MobileNetSSD_deploy` — person detection (PASCAL VOC)
-- `res10_300x300_ssd_iter_140000` — face detection
-- `nn4.small2.v1.t7` — OpenFace 128-d face embeddings
-
-## Dependencies
-
-- `ZmwReolinkCams` - doorbell camera events (doorbell press, motion detection)
-- `ZmwSpeakerAnnounce` - TTS announcements for known visitors
-- `ZmwTelegram` - photo notifications for new visitors
+`make inject_clip` plays a recorded clip as the doorbell's live stream, in real time (the `inject_clip` command;
+also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store. The clip
+must be inside one of the config's `allowed_paths` (eg the recordings dir); nothing is allowed if it's unset.
+Events from it have `trigger: "injected"`; consumers may ignore them (ZmwDoorman does, unless its `visitor_notify_injected` is set).
 
 ## MQTT
 
 **Topic:** `zmw_visitor_detect`
 
-### Announcements
+### Commands
 
-#### `on_detection`
+#### `inject_clip`
 
-Visitor detection event
+Test the pipeline end to end: play a recorded clip as if it were the camera's live stream. It's a real session: it fires events and feeds the identity store. Response on inject_clip_reply
 
 | Param | Description |
 |-------|-------------|
+| `cam_alias` | Camera to impersonate |
+| `path` | Absolute path to a clip on the server |
+
+### Announcements
+
+#### `on_person_detected`
+
+First person seen in a session (from the person detector, or from a face if that came first). Once per session: faceless people can't be told apart
+
+| Param | Description |
+|-------|-------------|
+| `event` | on_person_detected |
+| `cam_alias` | Camera |
+| `session_id` | Session id |
+| `trigger` | motion, ring or injected (a test clip, see inject_clip) |
 | `timestamp` | float epoch |
-| `event` | new_face_detected | new_visitor_recognized | visitor_recognized |
-| `name` | Person name or null |
-| `sightings` | int or null |
-| `face_confidence` | float |
-| `face_detector` | yunet_sface | yunet_insightface |
-| `bbox` | [x1, y1, x2, y2] |
-| `snap_path` | Source image path |
-| `crop_path` | Cropped face image path |
+| `t` | Seconds into the session |
+| `day_night` | day or night |
+| `via` | person_detector or face |
+| `conf` | Person confidence (null if via face) |
+| `person_count` | People in that frame |
+| `crop_path` | Person crop (local path) |
+| `notify_img_path` | Large person crop (or face, if via face) in notification_img_dir, for notifications; null if not configured |
+
+#### `on_face_detected`
+
+A face good enough to identify, of someone not known (yet). Once per person per session
+
+| Param | Description |
+|-------|-------------|
+| `event` | on_face_detected |
+| `cam_alias` | Camera |
+| `session_id` | Session id |
+| `trigger` | motion, ring or injected |
+| `timestamp` | float epoch |
+| `t` | Seconds into the session |
+| `day_night` | day |
+| `track_id` | Face track in the session |
+| `gated_faces` | Faces used |
+| `closest` | Closest known visitor id or null |
+| `closest_sim` | Its similarity |
+| `face_crop_path` | Aligned 112px face |
+| `context_crop_path` | Crop around the face |
+| `notify_img_path` | Large crop around the face in notification_img_dir, or null |
+
+#### `on_face_identified`
+
+A known visitor's face. Once per visitor per session
+
+| Param | Description |
+|-------|-------------|
+| `event` | on_face_identified |
+| `cam_alias` | Camera |
+| `session_id` | Session id |
+| `trigger` | motion, ring or injected |
+| `timestamp` | float epoch |
+| `t` | Seconds into the session |
+| `day_night` | day |
+| `visitor_id` | Stable id, eg visitor_3 |
+| `name` | Display name (config visitor_names) |
+| `sim` | Similarity |
+| `upgraded` | True if first reported as on_face_detected |
+| `track_id` | Face track in the session |
+| `gated_faces` | Faces used |
+| `face_crop_path` | Aligned 112px face |
+| `context_crop_path` | Crop around the face |
+| `notify_img_path` | Large crop around the face in notification_img_dir, or null |
+
+#### `on_new_frequent_visitor`
+
+Discovery promoted a recurring unknown face to a visitor (after a session ends)
+
+| Param | Description |
+|-------|-------------|
+| `event` | on_new_frequent_visitor |
+| `cam_alias` | Camera |
+| `session_id` | Session id |
+| `trigger` | motion, ring or injected |
+| `timestamp` | float epoch |
+| `visitor_id` | Stable id, eg visitor_3 |
+| `name` | Display name |
+| `visits` | Visits seen in |
+| `days` | Days seen on |
+| `face_crop_paths` | A few crops of this visitor |
+
+#### `inject_clip_reply`
+
+Response to inject_clip
+
+| Param | Description |
+|-------|-------------|
+| `session_id` | Session started, or null |
+| `error` | Why it wasn't started, or null |
 
 # ZmwWhatsapp
 

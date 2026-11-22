@@ -8,7 +8,7 @@ Offline speech-to-text service using faster-whisper. Transcribes audio from Tele
 |-----|-------------|
 | `stt.model_size` | Whisper model size (default: `tiny.en`). Options: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v2`, `large-v3` |
 | `stt.compute_type` | Model precision (default: `int8`). Options: `int8`, `float16`, `float32` |
-| `stt.local_files_only` | If `true`, only use already-downloaded models. Set to `false` on first run to download, then switch back to `true` |
+| `stt.local_files_only` | If `true`, only use already-downloaded models. Set to `false` on first run to download, then switch back to `true`: while `false`, every start queries huggingface.co, so the service needs internet access |
 | `stt.language` | Source language hint for Whisper (default: `en`). Set to `null` for auto-detection |
 | `stt.task` | Whisper task (default: `translate`). Use `transcribe` to keep original language, `translate` to output English |
 | `stt.beam_size` | Beam search width (default: `5`). Higher values are slower but may be more accurate |
@@ -25,7 +25,7 @@ Offline speech-to-text service using faster-whisper. Transcribes audio from Tele
 
 ## Model Loading
 
-The STT model is loaded in a background thread at startup. If loading fails (e.g., `local_files_only` is `true` but the model has not been downloaded), the service stays running but all transcription requests are rejected with a warning. To download the model for the first time, set `local_files_only` to `false`, restart the service, then optionally set it back to `true`.
+The STT model is loaded in a background thread at startup. If loading fails (e.g., `local_files_only` is `true` but the model has not been downloaded), the service stays running but all transcription requests are rejected with a warning. To download the model for the first time, set `local_files_only` to `false`, restart the service, then set it back to `true` (otherwise it queries huggingface.co on every start).
 
 ## MQTT
 

@@ -146,6 +146,7 @@ Network state
 | `speakers` | List of speaker state |
 | `groups` | Map of coordinator name to member |
 | `zones` | List of zone names |
+| `age_secs` | Age of this state; if over 30, a refresh is running |
 
 #### `ls_speakers_reply`
 

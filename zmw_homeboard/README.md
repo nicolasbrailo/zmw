@@ -204,14 +204,20 @@ Show an announcement text in the Homeboard overlay (empty msg clears)
 
 #### `announce_audio`
 
-Tell a homeboard that the speakers are playing an audio file
+Play an audio file on a homeboard, showing msg while it plays. Only for homeboards that can play audio (see ls_audio_targets); dropped for others
 
 | Param | Description |
 |-------|-------------|
 | `homeboard_id` | Name of the target homeboard |
-| `uri` | URL of the audio being played |
-| `volume?` | Volume 0-100 the speakers were asked to use |
+| `uri` | URL of the audio to play |
+| `volume?` | Volume 0-100 (default: the device's, 40% on a Portal) |
 | `msg?` | Text being spoken, when the audio comes from a TTS request |
+
+#### `ls_audio_targets`
+
+List the homeboards that can play audio. Response on ls_audio_targets_reply
+
+_No parameters._
 
 #### `doorbell_ring`
 
@@ -248,3 +254,17 @@ Pick which albums every homeboard may show pictures from; an empty request clear
 Recompute and push the overlay for all homeboards
 
 _No parameters._
+
+### Announcements
+
+#### `audio_targets`
+
+The homeboards that can play audio (announce_audio), sent whenever that changes. A homeboard that goes offline is only dropped once it's been offline for a while, the next time the list is needed
+
+Payload: `['homeboard_id', '...']`
+
+#### `ls_audio_targets_reply`
+
+Response to ls_audio_targets
+
+Payload: `['homeboard_id', '...']`

@@ -12,7 +12,7 @@
     "task": "translate",
     "COMMENT_beam_size": "Beam search width. Higher = more accurate but slower. Typical values: 1 (greedy, fastest), 5 (default, good balance), 10 (slower, diminishing returns).",
     "beam_size": 5,
-    "COMMENT_local_files_only": "If true, only use cached model files (no downloads). Set to false on first run to download the model, then set back to true.",
+    "COMMENT_local_files_only": "If true, only use cached model files (no downloads). Set to false on first run to download the model, then set back to true: while false, every start queries huggingface.co for the model, so the service needs internet access instead of being LAN only.",
     "local_files_only": true
   }
 }
