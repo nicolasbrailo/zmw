@@ -125,10 +125,28 @@ LockPersonality=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 SystemCallArchitectures=native
+# No devices beyond /dev/null and co (a service that needs one adds it in its systemd.conf, eg visitor_detect's GPU)
+PrivateDevices=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Audit mode: syscalls outside the usual set for services are logged (kernel log, audit type=1326), not blocked. Once
+# that's quiet, replace with SystemCallFilter=@system-service (see HARDENING_TODO.md)
+SystemCallLog=~@system-service
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Per-service additions to the unit: zmw_<svc>/systemd.conf (in the repo, for what the service always needs) and
+# <run dir>/systemd.local.conf (this host only, kept across reinstalls like config.json). Each must start with a
+# [Service] line; they're appended after the template, so they override it (for a setting that takes a single value
+# the last one wins; an empty assignment resets a list). @RUN@ and @SRC@ expand to the service's run and source dirs.
+for override in "$TGT_SVC_SRC/systemd.conf" "$TGT_SVC_RUN/systemd.local.conf"; do
+  if [ -f "$override" ]; then
+    echo "Adding $override to the unit"
+    SVC_TMPL+=$'\n\n'"$(sed -e "s|@RUN@|$TGT_SVC_RUN|g" -e "s|@SRC@|$TGT_SVC_SRC|g" "$override")"
+  fi
+done
 
 read -r -d '' RESTART_AND_LOGS_TMPL <<EOF || true
   set -euo pipefail
