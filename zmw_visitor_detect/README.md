@@ -24,7 +24,8 @@ Per frame (4 fps, newest frame wins), cheapest checks first:
    in the session (nothing), a known visitor (`on_face_identified`) or unknown (`on_face_detected`).
 
 After a session, unknown faces are clustered; a face seen in 3 visits on 2 different days becomes "Visitor N"
-(`on_new_frequent_visitor`). Name visitors with `visitor_names` in the config.
+(`on_new_frequent_visitor`). Name visitors in the UI (Visitors tab, Rename); names are kept in the identity
+store, with the faces.
 
 ## Configuration
 
@@ -33,7 +34,6 @@ After a session, unknown faces are clustered; a face seen in 3 visits on 2 diffe
 | `cam_aliases` | Cameras (`cam_alias` in ZmwReolinkCams) to watch, default `["doorbell"]` |
 | `models_dir` | ONNX models, default `./models` (`make download_models`) |
 | `data_dir` | Identity store (SQLite + face crops) and session decision logs, default `./visitor_data` |
-| `visitor_names` | `{"visitor_3": "Name"}`: display names for discovered visitors |
 | `person_detection` | `"always"`, `"first"` (default) or `"off"`: when to run the person detector (see Pipeline) |
 | `face_gate` | Quality gate limits, eg `{"max_yaw": 0.3}` (others keep their defaults, see `face_gate.py`) |
 | `inference` | `"cpu"` (default, onnxruntime) or `"gpu"` (OpenVINO on the Intel GPU, ~2.5x faster, same results). No fallback: if the chosen backend can't run, the service refuses to start. GPU setup: `make setup_gpu`, `make check_gpu` |
@@ -50,7 +50,7 @@ WhatsApp).
 ## WWW
 
 - `/`: UI. Sessions (timeline and decision log: why each session flagged or didn't), Visitors (faces; split,
-  merge, remove a face, delete), Unknown faces (groups waiting for promotion; reset a group), Status.
+  merge, rename, remove a face, delete), Unknown faces (groups waiting for promotion; reset a group), Status.
   `index.html#session=<id>` opens that session's decision log on top of the list (ZmwDoorman's history links here).
 - `/status`, `/sessions`, `/session/<id>`, `/visitors`, `/unknown`: JSON. `PUT /admin/<op>`: admin actions.
 - `/data/<path>`: face crops and session crops.
@@ -133,7 +133,7 @@ A known visitor's face. Once per visitor per session
 | `t` | Seconds into the session |
 | `day_night` | day |
 | `visitor_id` | Stable id, eg visitor_3 |
-| `name` | Display name (config visitor_names) |
+| `name` | Display name (set in the UI; Visitor N until named) |
 | `sim` | Similarity |
 | `upgraded` | True if first reported as on_face_detected |
 | `track_id` | Face track in the session |
@@ -158,6 +158,7 @@ Discovery promoted a recurring unknown face to a visitor (after a session ends)
 | `visits` | Visits seen in |
 | `days` | Days seen on |
 | `face_crop_paths` | A few crops of this visitor |
+| `notify_img_path` | One of them, copied to notification_img_dir, or null |
 
 #### `inject_clip_reply`
 

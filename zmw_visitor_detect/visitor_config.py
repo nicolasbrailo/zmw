@@ -70,8 +70,6 @@ DEFAULTS = {
     "faces_next_to_recordings": True,
     # Decision logs (with their crops) kept for the UI; stored identities are not affected
     "keep_sessions": 500,
-    # {"visitor_3": "Belen"}: display names for discovered visitors
-    "visitor_names": {},
 }
 
 
@@ -81,7 +79,7 @@ PERSON_DETECTION_MODES = ('always', 'first', 'off')
 def with_defaults(cfg):
     out = copy.deepcopy(DEFAULTS)
     for k, v in (cfg or {}).items():
-        if isinstance(v, dict) and isinstance(out.get(k), dict) and k != 'visitor_names':
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = {**out[k], **v}
         else:
             out[k] = v

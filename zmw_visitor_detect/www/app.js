@@ -279,6 +279,11 @@ class VdVisitors extends React.Component {
     if (thr) this.admin('split_identity', { id: v.id, thr: parseFloat(thr) });
   }
 
+  rename(v) {
+    const name = window.prompt(`Name for ${v.key} (empty: unnamed, shown as "Visitor ${v.id}")`, v.named ? v.name : '');
+    if (name !== null) this.admin('rename_identity', { id: v.id, name });
+  }
+
   merge(v, others) {
     const into = window.prompt(`Merge ${v.name} into which visitor id? (${others.map(o => `${o.id}: ${o.name}`).join(', ')})`);
     if (into) this.admin('merge_identities', { keep_id: parseInt(into), other_id: v.id });
@@ -292,8 +297,6 @@ class VdVisitors extends React.Component {
     }
     return (
       <div>
-        <p><small>Name a visitor with <code>"visitor_names": {'{'}"visitor_3": "Name"{'}'}</code> in the service
-          config.</small></p>
         {visitors.map(v => (
           <div key={v.id} className="card">
             <b>{v.name}</b> <small>({v.key}{v.named ? '' : ', unnamed'})</small><br/>
@@ -312,6 +315,7 @@ class VdVisitors extends React.Component {
             </div>
             <button onClick={() => this.setState({ open: this.state.open === v.id ? null : v.id })}>
               {this.state.open === v.id ? 'Less' : 'All faces / fix'}</button>
+            <button onClick={() => this.rename(v)}>Rename</button>
             <button onClick={() => this.split(v)}>Split</button>
             <button onClick={() => this.merge(v, visitors.filter(o => o.id !== v.id))}>Merge into...</button>
             <button onClick={() => this.admin('delete_identity', { id: v.id, to_pool: true },

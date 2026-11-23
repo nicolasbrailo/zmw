@@ -136,7 +136,7 @@ class ZmwVisitorDetect(ZmwMqttService):
                     "payload": {"event": "on_face_identified", "cam_alias": "Camera", "session_id": "Session id",
                                 "trigger": "motion, ring or injected",
                                 "timestamp": "float epoch", "t": "Seconds into the session", "day_night": "day",
-                                "visitor_id": "Stable id, eg visitor_3", "name": "Display name (config visitor_names)",
+                                "visitor_id": "Stable id, eg visitor_3", "name": "Display name (set in the UI; Visitor N until named)",
                                 "sim": "Similarity", "upgraded": "True if first reported as on_face_detected",
                                 "track_id": "Face track in the session", "gated_faces": "Faces used",
                                 "face_crop_path": "Aligned 112px face", "context_crop_path": "Crop around the face",
@@ -366,6 +366,8 @@ class ZmwVisitorDetect(ZmwMqttService):
         req = request.get_json(silent=True) or {}
         try:
             match op:
+                case 'rename_identity':
+                    self._store.rename_identity(int(req['id']), req.get('name'))
                 case 'reset_tracks':
                     self._store.reset_tracks([int(r) for r in req['track_rows']])
                 case 'remove_track':

@@ -10,6 +10,7 @@ Every threshold is a runtime comparison, so changing one never requires discardi
 - An identity's gallery is a capped subset of its tracks; matching takes the best similarity over a gallery.
 - Discovery clusters the unknown pool (average linkage) from scratch after every session; a cluster seen in
   enough visits on enough days becomes an identity ("Visitor N"). Prefer splitting a person over merging two.
+- An identity's name (set from the UI) is stored with it; unnamed identities show as "Visitor N".
 """
 import json
 import logging
@@ -23,13 +24,15 @@ import numpy as np
 
 log = logging.getLogger("IdentityStore")
 
+MAX_NAME_LEN = 64
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY, cam_alias TEXT, start_ts REAL, end_ts REAL, visit_id INTEGER, day TEXT,
     summary TEXT);
 CREATE TABLE IF NOT EXISTS identities (
     id INTEGER PRIMARY KEY AUTOINCREMENT, created_ts REAL, discovered_session TEXT,
-    deleted INTEGER NOT NULL DEFAULT 0);
+    deleted INTEGER NOT NULL DEFAULT 0, name TEXT);
 CREATE TABLE IF NOT EXISTS tracks (
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, track_id INTEGER, cam_alias TEXT, ts REAL,
     visit_id INTEGER, day TEXT, state TEXT, identity_id INTEGER, sim REAL, in_gallery INTEGER NOT NULL DEFAULT 0,
@@ -86,11 +89,13 @@ class IdentityStore:
         self._faces_dir = os.path.join(self._dir, 'faces')
         os.makedirs(self._faces_dir, exist_ok=True)
         self._cfg = cfg
-        self._names = cfg.get('visitor_names', {})
         self._lock = threading.RLock()
         self._db = sqlite3.connect(os.path.join(self._dir, 'visitor_store.sqlite'), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
+        # Stores created before identities had names
+        if 'name' not in [c['name'] for c in self._db.execute('PRAGMA table_info(identities)')]:
+            self._db.execute('ALTER TABLE identities ADD COLUMN name TEXT')
         self._db.commit()
         self._galleries = None
 
@@ -100,8 +105,13 @@ class IdentityStore:
     def visitor_key(identity_id):
         return f"visitor_{identity_id}"
 
+    def _name(self, identity_id):
+        with self._lock:
+            r = self._db.execute('SELECT name FROM identities WHERE id = ?', (identity_id,)).fetchone()
+            return r['name'] if r else None
+
     def display_name(self, identity_id):
-        return self._names.get(self.visitor_key(identity_id), f"Visitor {identity_id}")
+        return self._name(identity_id) or f"Visitor {identity_id}"
 
     def abs_path(self, rel):
         return os.path.join(self._dir, rel)
@@ -303,7 +313,7 @@ class IdentityStore:
             rows = self._db.execute("SELECT * FROM tracks WHERE identity_id = ? AND state = 'identity' "
                                     'ORDER BY ts DESC', (iid,)).fetchall()
             return {'id': iid, 'key': self.visitor_key(iid), 'name': self.display_name(iid),
-                    'named': self.visitor_key(iid) in self._names, 'created_ts': i['created_ts'],
+                    'named': bool(i['name']), 'created_ts': i['created_ts'],
                     'discovered_session': i['discovered_session'], 'deleted': bool(i['deleted']),
                     'visits': len({r['visit_id'] for r in rows}), 'days': len({r['day'] for r in rows}),
                     'gallery_size': sum(r['in_gallery'] for r in rows),
@@ -333,6 +343,16 @@ class IdentityStore:
         r = self._db.execute('SELECT deleted FROM identities WHERE id = ?', (iid,)).fetchone()
         if r is None or r['deleted']:
             raise ValueError(f"No visitor with id {iid}")
+
+    def rename_identity(self, iid, name):
+        """Names a visitor; an empty name makes it unnamed ("Visitor N") again."""
+        name = ' '.join(str(name or '').split())
+        if len(name) > MAX_NAME_LEN:
+            raise ValueError(f"Name longer than {MAX_NAME_LEN} characters")
+        with self._lock:
+            self._require_identity(iid)
+            self._db.execute('UPDATE identities SET name = ? WHERE id = ?', (name or None, iid))
+            self._db.commit()
 
     def reset_tracks(self, track_rows):
         """Remove unknown tracks from the pool (eg a cluster of a courier)."""
@@ -373,6 +393,9 @@ class IdentityStore:
             self._require_identity(other_id)
             self._db.execute('UPDATE tracks SET identity_id = ? WHERE identity_id = ?', (keep_id, other_id))
             self._db.execute('UPDATE identities SET deleted = 1 WHERE id = ?', (other_id,))
+            # The merged visitor keeps its name, or takes the other's if it had none
+            if not self._name(keep_id):
+                self._db.execute('UPDATE identities SET name = ? WHERE id = ?', (self._name(other_id), keep_id))
             self._cap_gallery(keep_id)
             self._db.commit()
             self._invalidate()
