@@ -148,7 +148,8 @@ class ZmwVisitorDetect(ZmwMqttService):
                                 "trigger": "motion, ring or injected",
                                 "timestamp": "float epoch", "visitor_id": "Stable id, eg visitor_3",
                                 "name": "Display name", "visits": "Visits seen in", "days": "Days seen on",
-                                "face_crop_paths": "A few crops of this visitor"}
+                                "face_crop_paths": "A few crops of this visitor",
+                                "notify_img_path": "One of them, copied to notification_img_dir, or null"}
                 },
                 "inject_clip_reply": {
                     "description": "Response to inject_clip",

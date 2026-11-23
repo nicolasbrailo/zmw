@@ -148,6 +148,20 @@ class TestVisitorNotifier:
         notifier.on_visitor_event('on_face_identified', identified('s2'))
         assert reported == [('s1', 'Belen is at the door')]
 
+    def test_new_regular_visitor_goes_to_telegram_only(self):
+        announced = []
+        notifier = VisitorNotifier(CFG, lambda path, text: self.sent.append((path, text)), self.clock.schedule,
+                                   send_new_visitor=lambda path, text: announced.append((path, text)),
+                                   now=self.clock.now)
+        msg = {'session_id': 's1', 'trigger': 'motion', 'visitor_id': 'visitor_5', 'name': 'Visitor 5',
+               'visits': 3, 'days': 2, 'notify_img_path': '/tmp/shared/new.jpg'}
+        notifier.on_visitor_event('on_new_frequent_visitor', msg)
+        notifier.on_visitor_event('on_new_frequent_visitor', {**msg, 'trigger': 'injected'})
+        assert not self.sent
+        assert len(announced) == 1
+        assert announced[0][0] == '/tmp/shared/new.jpg'
+        assert announced[0][1].startswith('New regular visitor: Visitor 5, seen in 3 visits on 2 days')
+
     def test_missing_config_key_fails(self):
         for key in CFG:
             cfg = {k: v for k, v in CFG.items() if k != key}

@@ -466,6 +466,17 @@ class Session:
 
     # ------------------------------------------------------------------ end of session
 
+    def _stored_crop_notification_img(self, name, crops):
+        """A notification image copied from a stored crop (identities keep only small crops), or None."""
+        if self._notification_imgs is None or not crops:
+            return None
+        try:
+            with open(crops[0], 'rb') as f:
+                return self._notification_img(name, f.read())
+        except OSError:
+            log.error("Can't read crop %s for a notification image", crops[0], exc_info=True)
+            return None
+
     def person_faces(self):
         """Each reported person's best face, as a large crop: [{'person', 'named', 'label', 'ts', 'jpg'}]. A person
         is a reported track with the tracks found to be the same person; tracks of the same visitor are one person."""
@@ -517,10 +528,10 @@ class Session:
 
         new_ids = self._store.discover(self.start_ts, self.id)
         for ident in new_ids:
+            crops = [self._store.abs_path(b['ctx'] or b['crop']) for tr in ident['tracks'][:3] for b in tr['best'][:1]]
             self._emit('on_new_frequent_visitor', self.t, False, visitor_id=ident['key'], name=ident['name'],
-                       visits=ident['visits'], days=ident['days'],
-                       face_crop_paths=[self._store.abs_path(b['ctx'] or b['crop'])
-                                        for tr in ident['tracks'][:3] for b in tr['best'][:1]])
+                       visits=ident['visits'], days=ident['days'], face_crop_paths=crops,
+                       notify_img_path=self._stored_crop_notification_img(f"new_{ident['key']}", crops))
         self.log['discovery'] = [{'visitor_id': i['key'], 'name': i['name'], 'visits': i['visits'],
                                   'days': i['days']} for i in new_ids]
 

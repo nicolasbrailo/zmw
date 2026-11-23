@@ -25,7 +25,7 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 
 - **ZmwSpeakerAnnounce** -- plays doorbell chime sound
 - **ZmwWhatsapp** -- sends visitor/doorbell photos via WhatsApp
-- **ZmwTelegram** -- sends motion/doorbell photos via Telegram, handles `/door_snap` command
+- **ZmwTelegram** -- sends doorbell photos and new regular visitors via Telegram, handles `/door_snap` command
 - **ZmwReolinkCams** -- provides camera snapshots, doorbell button press, and motion events
 - **ZmwContactmon** -- provides door contact sensor open/close events and chime control
 - **ZmwVisitorDetect** -- people and faces at the door, for the WhatsApp notifications
@@ -67,6 +67,10 @@ face (`visitor_notifier.py`). Camera motion alone is only sent with `relay_raw_c
 
 Each message sent is recorded in the door history ("visitor" rows); its link opens that session in ZmwVisitorDetect's
 UI (`index.html#session=<id>`), with the visitor's crops and why they were (or weren't) identified.
+
+A newly discovered regular visitor (`on_new_frequent_visitor`) goes to Telegram, not WhatsApp: "New regular
+visitor: Visitor 5, seen in 3 visits on 2 days", with one of their faces, so they can be named in
+ZmwVisitorDetect's `visitor_names`.
 
 The doorbell ring is separate: it still sends the camera snapshot ("RING!") to WhatsApp and Telegram.
 

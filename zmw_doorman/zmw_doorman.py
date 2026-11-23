@@ -62,7 +62,8 @@ class ZmwDoorman(ZmwMqttService):
         # with some luck contain face identification.
         self._visitor_notifier = VisitorNotifier(
             cfg, lambda path, text: self.message_svc("ZmwWhatsapp", "send_photo", {'path': path, 'msg': text}),
-            self._schedule, self._door_stats.record_visitor)
+            self._schedule, lambda session_id, text: self._door_stats.record_visitor(text, session_id),
+            send_new_visitor=self._send_telegram)
 
         # Snap paths come over MQTT, and we serve files from their dir: only accept those in allowed_paths
         self._snaps_allowlist = PathAllowlist(cfg, "snapshots")
@@ -448,6 +449,13 @@ class ZmwDoorman(ZmwMqttService):
         log.warning("Motion event timedout, no vacancy reported")
         self._door_stats.record_motion_end()
         self.publish_own_svc_message("on_motion_cleared", {})
+
+    def _send_telegram(self, path, text):
+        """A photo with a caption, or only the text if there's no photo."""
+        if path:
+            self.message_svc("ZmwTelegram", "send_photo", {'path': path, 'msg': text})
+        else:
+            self.message_svc("ZmwTelegram", "send_text", {'msg': text})
 
     def _schedule(self, delay_secs, callback):
         """Runs callback in delay_secs; returns a function that cancels it."""

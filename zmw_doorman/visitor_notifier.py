@@ -6,6 +6,9 @@ is sent when the wait ends. At night faces are never analysed, so the person pic
 arriving after the person picture is sent as one follow-up (so is a second person, or an unknown face later
 identified). The same person (visitor id, "unknown visitor" or "someone") isn't sent again within
 visitor_notify_repeat_secs, so someone lingering at the door doesn't spam.
+
+A newly discovered regular visitor (on_new_frequent_visitor) is announced separately, through send_new_visitor
+(Telegram): it's rare, and says who to name in ZmwVisitorDetect's visitor_names.
 """
 import threading
 import time
@@ -20,6 +23,7 @@ _MAX_FOLLOW_UPS = 1
 _FORGET_SESSION_SECS = 600
 
 _PERSON = 'on_person_detected'
+_NEW_VISITOR = 'on_new_frequent_visitor'
 _FACE_EVENTS = ('on_face_identified', 'on_face_detected')
 
 
@@ -34,13 +38,15 @@ class _Session:
 
 
 class VisitorNotifier:
-    def __init__(self, cfg, send_photo, schedule, on_sent=lambda session_id, text: None, now=time.time):
+    def __init__(self, cfg, send_photo, schedule, on_sent=lambda session_id, text: None,
+                 send_new_visitor=lambda path, text: None, now=time.time):
         """
         Args:
             cfg: Service config; the visitor_* keys are required (no defaults: KeyError at startup if missing)
             send_photo: fn(path, msg) that sends a photo to WhatsApp
             schedule: fn(delay_secs, callback) -> cancel fn
             on_sent: fn(session_id, text), after each message sent (eg for the door history)
+            send_new_visitor: fn(path, text) that announces a new regular visitor (path may be None)
             now: Clock
         """
         self._wait_secs = cfg['visitor_face_wait_secs']
@@ -48,6 +54,7 @@ class VisitorNotifier:
         self._notify_injected = cfg['visitor_notify_injected']
         self._send_photo = send_photo
         self._on_sent = on_sent
+        self._send_new_visitor = send_new_visitor
         self._schedule = schedule
         self._now = now
         self._lock = threading.Lock()
@@ -55,13 +62,16 @@ class VisitorNotifier:
         self._last_sent = {}      # who key -> when
 
     def on_visitor_event(self, subtopic, msg):
-        if subtopic != _PERSON and subtopic not in _FACE_EVENTS:
+        if subtopic != _PERSON and subtopic != _NEW_VISITOR and subtopic not in _FACE_EVENTS:
             return
         if not isinstance(msg, dict) or not msg.get('session_id'):
             log.error("Bad %s from ZmwVisitorDetect, no session_id: %s", subtopic, msg)
             return
         if msg.get('trigger') == 'injected' and not self._notify_injected:
             log.info("Not notifying %s from injected (test) session %s", subtopic, msg['session_id'])
+            return
+        if subtopic == _NEW_VISITOR:
+            self._announce_new_visitor(msg)
             return
         with self._lock:
             now = self._now()
@@ -73,6 +83,13 @@ class VisitorNotifier:
                 self._on_person(sid, session, msg)
             else:
                 self._on_face(session, msg)
+
+    def _announce_new_visitor(self, msg):
+        name = msg.get('name') or msg.get('visitor_id')
+        text = (f"New regular visitor: {name}, seen in {msg.get('visits')} visits on {msg.get('days')} days. "
+                f"Name them in ZmwVisitorDetect's visitor_names ({msg.get('visitor_id')})")
+        log.info("Announcing over Telegram: %s", text)
+        self._send_new_visitor(msg.get('notify_img_path'), text)
 
     def _on_person(self, sid, session, msg):
         if session.person is not None or session.messages:
