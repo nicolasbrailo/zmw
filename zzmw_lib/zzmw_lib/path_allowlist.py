@@ -10,20 +10,21 @@ class PathAllowlist:
     Checks requested paths against the dirs in the service config's `allowed_paths`.
 
     Paths are resolved with realpath, so symlinks (eg planted in a shared dir) can't point out of the allowed dirs.
-    No `allowed_paths` means nothing is allowed. A rejected path is logged as an error: it's either a misconfig or
-    someone probing, and errors in the journal trigger a notification.
+    `allowed_paths` is required (a KeyError at startup if it's missing); empty or null means nothing is allowed. A
+    rejected path is logged as an error: it's either a misconfig or someone probing, and errors in the journal trigger a
+    notification.
     """
 
     def __init__(self, cfg, feature_name):
         """
         Args:
             cfg: The service config; reads its `allowed_paths` list
-            feature_name: What gets disabled without `allowed_paths`, for the logs (eg "send_photo")
+            feature_name: What the paths are for, for the logs (eg "send_photo")
         """
         self._feature = feature_name
-        self._dirs = [os.path.realpath(d) for d in cfg.get('allowed_paths', [])]
+        self._dirs = [os.path.realpath(d) for d in cfg['allowed_paths'] or []]
         if not self._dirs:
-            log.warning("No 'allowed_paths' in config, %s will reject every path", feature_name)
+            log.warning("'allowed_paths' is empty, %s will reject every path", feature_name)
         # Find out now, not when a request first needs it (eg the next doorbell ring)
         for d in self._dirs:
             if not os.path.isdir(d) or not os.access(d, os.R_OK | os.X_OK):

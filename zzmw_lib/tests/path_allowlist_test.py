@@ -47,9 +47,13 @@ class TestPathAllowlist(unittest.TestCase):
         with self.assertLogs('PathAllowlist', level='ERROR'):
             self.assertIsNone(al.check(link))
 
-    def test_no_allowed_paths_rejects_everything_and_warns(self):
+    def test_missing_allowed_paths_is_an_error(self):
+        with self.assertRaises(KeyError):
+            PathAllowlist({}, 'test')
+
+    def test_empty_allowed_paths_rejects_everything_and_warns(self):
         with self.assertLogs('PathAllowlist', level='WARNING') as logs:
-            al = PathAllowlist({}, 'test')
+            al = PathAllowlist({'allowed_paths': None}, 'test')
         self.assertTrue(any('WARNING' in l for l in logs.output))
         with self.assertLogs('PathAllowlist', level='ERROR'):
             self.assertIsNone(al.check(os.path.join(self.allowed, 'f.jpg')))
