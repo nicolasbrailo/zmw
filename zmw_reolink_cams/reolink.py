@@ -121,7 +121,7 @@ class ReolinkDoorbell(ABC):
         self._snap_manager = SnapOnMovement(cfg)
 
         self._video_on_movement = cfg.get('video_on_movement', False)
-        self._rec_path = cfg.get('rec_path')
+        self._rec_path = cfg['rec_path']
         if self._video_on_movement and not self._rec_path:
             self._video_on_movement = False
             log.error("Cam %s requests video on movement, but rec_path not available. Recordings disabled.", self._cam_host)

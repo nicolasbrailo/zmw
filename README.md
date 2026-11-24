@@ -514,7 +514,7 @@ Doorbell event handler and notification coordinator. Orchestrates door events fr
 
 - **ZmwSpeakerAnnounce** -- plays doorbell chime sound
 - **ZmwWhatsapp** -- sends visitor/doorbell photos via WhatsApp
-- **ZmwTelegram** -- sends motion/doorbell photos via Telegram, handles `/door_snap` command
+- **ZmwTelegram** -- sends doorbell photos and new regular visitors via Telegram, handles `/door_snap` command
 - **ZmwReolinkCams** -- provides camera snapshots, doorbell button press, and motion events
 - **ZmwContactmon** -- provides door contact sensor open/close events and chime control
 - **ZmwVisitorDetect** -- people and faces at the door, for the WhatsApp notifications
@@ -556,6 +556,10 @@ face (`visitor_notifier.py`). Camera motion alone is only sent with `relay_raw_c
 
 Each message sent is recorded in the door history ("visitor" rows); its link opens that session in ZmwVisitorDetect's
 UI (`index.html#session=<id>`), with the visitor's crops and why they were (or weren't) identified.
+
+A newly discovered regular visitor (`on_new_frequent_visitor`) goes to Telegram, not WhatsApp: "New regular
+visitor: Visitor 5, seen in 3 visits on 2 days", with one of their faces, so they can be named in
+ZmwVisitorDetect's `visitor_names`.
 
 The doorbell ring is separate: it still sends the camera snapshot ("RING!") to WhatsApp and Telegram.
 
@@ -1282,7 +1286,7 @@ Multi-camera Reolink service with motion detection, doorbell events, recording, 
 | `cameras[].is_doorbell` | (optional) Set `true` if camera is a doorbell model |
 | `cameras[].video_on_movement` | (optional) Record video when the camera reports motion or the doorbell rings (needs `rec_path`) |
 | `rec_path` | Directory for storing recordings, in a subdirectory per `cam_alias` |
-| `snap_path_on_movement` | (optional) Directory for motion-triggered snapshots, in a subdirectory per `cam_alias` |
+| `snap_path_on_movement` | Directory for motion-triggered snapshots, in a subdirectory per `cam_alias`; `null` disables them |
 
 ## WWW Endpoints
 
@@ -2813,7 +2817,8 @@ Per frame (4 fps, newest frame wins), cheapest checks first:
    in the session (nothing), a known visitor (`on_face_identified`) or unknown (`on_face_detected`).
 
 After a session, unknown faces are clustered; a face seen in 3 visits on 2 different days becomes "Visitor N"
-(`on_new_frequent_visitor`). Name visitors with `visitor_names` in the config.
+(`on_new_frequent_visitor`). Name visitors in the UI (Visitors tab, Rename); names are kept in the identity
+store, with the faces.
 
 ## Configuration
 
@@ -2822,14 +2827,13 @@ After a session, unknown faces are clustered; a face seen in 3 visits on 2 diffe
 | `cam_aliases` | Cameras (`cam_alias` in ZmwReolinkCams) to watch, default `["doorbell"]` |
 | `models_dir` | ONNX models, default `./models` (`make download_models`) |
 | `data_dir` | Identity store (SQLite + face crops) and session decision logs, default `./visitor_data` |
-| `visitor_names` | `{"visitor_3": "Name"}`: display names for discovered visitors |
 | `person_detection` | `"always"`, `"first"` (default) or `"off"`: when to run the person detector (see Pipeline) |
 | `face_gate` | Quality gate limits, eg `{"max_yaw": 0.3}` (others keep their defaults, see `face_gate.py`) |
 | `inference` | `"cpu"` (default, onnxruntime) or `"gpu"` (OpenVINO on the Intel GPU, ~2.5x faster, same results). No fallback: if the chosen backend can't run, the service refuses to start. GPU setup: `make setup_gpu`, `make check_gpu` |
 | `hw_decode` | `"vaapi"` (default: GPU video decoding, CPU fallback) or `"off"`. The Status page shows which is in use and why. Set the GPU up with `make setup_gpu`, restart, verify with `make check_gpu` |
 | `person_min_height_px` | Ignore person boxes shorter than this, default 300 (on the 1920px tall main stream) |
 | `allowed_paths` | Dirs with recordings: `inject_clip` only plays clips from them, and faces are only saved next to recordings in them |
-| `notification_img_dir` | Where each event's large notification image goes (`notify_img_path` in the event; up to 720px tall). Notifiers read it by path, so use the services' shared scratch dir (`~/run/baticasa/tmp/...`). Only the newest 100 are kept. Unset: no notification images |
+| `notification_img_dir` | Where each event's large notification image goes (`notify_img_path` in the event; up to 720px tall). Notifiers read it by path, so use the services' shared scratch dir (`~/run/baticasa/tmp/...`). Only the newest 100 are kept. Required; `null`: no notification images |
 | `faces_next_to_recordings` | Default true: once a session ends, each person's best face (large crop) is saved next to the camera's recording of the visit, as `<recording>.mp4.face.<name>.jpg` (`unknown`, `unknown_2`... for people not identified). The NVR shows them; the recorder's retention cleanup deletes them with the recording. Not for injected clips |
 
 Every threshold can be overridden too (`visitor_config.py` has the list and the defaults); changing one never
@@ -2839,7 +2843,7 @@ WhatsApp).
 ## WWW
 
 - `/`: UI. Sessions (timeline and decision log: why each session flagged or didn't), Visitors (faces; split,
-  merge, remove a face, delete), Unknown faces (groups waiting for promotion; reset a group), Status.
+  merge, rename, remove a face, delete), Unknown faces (groups waiting for promotion; reset a group), Status.
   `index.html#session=<id>` opens that session's decision log on top of the list (ZmwDoorman's history links here).
 - `/status`, `/sessions`, `/session/<id>`, `/visitors`, `/unknown`: JSON. `PUT /admin/<op>`: admin actions.
 - `/data/<path>`: face crops and session crops.
@@ -2848,7 +2852,7 @@ WhatsApp).
 
 `make inject_clip` plays a recorded clip as the doorbell's live stream, in real time (the `inject_clip` command;
 also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store. The clip
-must be inside one of the config's `allowed_paths` (eg the recordings dir); nothing is allowed if it's unset.
+must be inside one of the config's `allowed_paths` (eg the recordings dir), which is required.
 Events from it have `trigger: "injected"`; consumers may ignore them (ZmwDoorman does, unless its `visitor_notify_injected` is set).
 
 ## MQTT
@@ -2922,7 +2926,7 @@ A known visitor's face. Once per visitor per session
 | `t` | Seconds into the session |
 | `day_night` | day |
 | `visitor_id` | Stable id, eg visitor_3 |
-| `name` | Display name (config visitor_names) |
+| `name` | Display name (set in the UI; Visitor N until named) |
 | `sim` | Similarity |
 | `upgraded` | True if first reported as on_face_detected |
 | `track_id` | Face track in the session |
@@ -2947,6 +2951,7 @@ Discovery promoted a recurring unknown face to a visitor (after a session ends)
 | `visits` | Visits seen in |
 | `days` | Days seen on |
 | `face_crop_paths` | A few crops of this visitor |
+| `notify_img_path` | One of them, copied to notification_img_dir, or null |
 
 #### `inject_clip_reply`
 

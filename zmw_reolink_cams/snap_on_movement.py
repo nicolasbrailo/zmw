@@ -18,10 +18,11 @@ class SnapOnMovement:
             cfg: Configuration dict containing:
                 - cam_host: Camera host (used for logging)
                 - cam_alias: Camera name (used for subdirectory name)
-                - snap_path_on_movement: Base directory for storing snapshots (optional)
+                - snap_path_on_movement: Base directory for storing snapshots (required, null disables them)
                 - snap_count_on_movement: Maximum snapshots to keep per camera (default 10)
         """
         self._cam_host = cfg['cam_host']
+        base_path = cfg['snap_path_on_movement']
         self._snaps_enabled = cfg.get('snap_on_movement_enabled')
         self._max_snaps = cfg.get('snap_history_len', 10)
         self._snap_dir = None
@@ -30,9 +31,8 @@ class SnapOnMovement:
             log.info("Cam %s: will not save snapshots on movement.", self._cam_host)
             return
 
-        base_path = cfg.get('snap_path_on_movement')
         if base_path is None:
-            log.info("Cam %s: snap_path_on_movement not configured, snapshots disabled", self._cam_host)
+            log.info("Cam %s: snap_path_on_movement is null, snapshots disabled", self._cam_host)
             return
 
         self._snap_dir = os.path.join(base_path, cfg['cam_alias'])

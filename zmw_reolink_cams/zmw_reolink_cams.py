@@ -122,7 +122,7 @@ class ZmwReolinkCams(ZmwMqttService):
             www.serve_url(f'/cam/{cam_alias}', cam.on_cam_webhook, methods=['GET', 'POST'])
 
         # Initialize NVR
-        self.nvr = Nvr(cfg['rec_path'], cfg.get('snap_path_on_movement'), www)
+        self.nvr = Nvr(cfg['rec_path'], cfg['snap_path_on_movement'], www)
 
         # Register Flask routes
         www.serve_url('/ls_cams', self._get_online_cam_aliases)

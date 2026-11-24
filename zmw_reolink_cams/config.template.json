@@ -27,7 +27,7 @@
   "COMMENT": "How often should we check if movement is still detected after the event fires",
   "cam_movement_active_watchdog": 60,
 
-  "COMMENT_snap_path_on_movement": "If set, will save a single snapshot of the camera whenever movement is detected",
+  "COMMENT_snap_path_on_movement": "Required: where to save a single snapshot of the camera whenever movement is detected; null disables snapshots",
   "snap_path_on_movement": "/home/batman/nvrish/cam_snaps",
 
   "COMMENT": "Record a clip when movement is reported",
