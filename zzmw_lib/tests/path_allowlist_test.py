@@ -60,6 +60,17 @@ class TestPathAllowlist(unittest.TestCase):
             with self.assertLogs('PathAllowlist', level='ERROR'):
                 self.assertIsNone(al.check(bad))
 
+    def test_inaccessible_dir_logs_error_at_startup(self):
+        missing = os.path.join(self.root, 'not_bound')
+        with self.assertLogs('PathAllowlist', level='ERROR') as logs:
+            PathAllowlist({'allowed_paths': [self.allowed, missing]}, 'test')
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn('not_bound', logs.output[0])
+
+    def test_accessible_dirs_log_nothing(self):
+        with self.assertNoLogs('PathAllowlist', level='ERROR'):
+            PathAllowlist({'allowed_paths': [self.allowed, self.other]}, 'test')
+
     def test_multiple_dirs(self):
         al = PathAllowlist({'allowed_paths': [self.allowed, self.other]}, 'test')
         p = os.path.join(self.other, 'f.jpg')

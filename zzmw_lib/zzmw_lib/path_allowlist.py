@@ -24,6 +24,12 @@ class PathAllowlist:
         self._dirs = [os.path.realpath(d) for d in cfg.get('allowed_paths', [])]
         if not self._dirs:
             log.warning("No 'allowed_paths' in config, %s will reject every path", feature_name)
+        # Find out now, not when a request first needs it (eg the next doorbell ring)
+        for d in self._dirs:
+            if not os.path.isdir(d) or not os.access(d, os.R_OK | os.X_OK):
+                log.error("%s: allowed_paths has '%s', but it isn't accessible: it doesn't exist, or the service's "
+                          "unit doesn't bind it (after changing config.json, make update_units regenerates it)",
+                          feature_name, d)
 
     @property
     def allowed_dirs(self):
