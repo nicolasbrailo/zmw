@@ -40,7 +40,7 @@ store, with the faces.
 | `hw_decode` | `"vaapi"` (default: GPU video decoding, CPU fallback) or `"off"`. The Status page shows which is in use and why. Set the GPU up with `make setup_gpu`, restart, verify with `make check_gpu` |
 | `person_min_height_px` | Ignore person boxes shorter than this, default 300 (on the 1920px tall main stream) |
 | `allowed_paths` | Dirs with recordings: `inject_clip` only plays clips from them, and faces are only saved next to recordings in them |
-| `notification_img_dir` | Where each event's large notification image goes (`notify_img_path` in the event; up to 720px tall). Notifiers read it by path, so use the services' shared scratch dir (`~/run/baticasa/tmp/...`). Only the newest 100 are kept. Unset: no notification images |
+| `notification_img_dir` | Where each event's large notification image goes (`notify_img_path` in the event; up to 720px tall). Notifiers read it by path, so use the services' shared scratch dir (`~/run/baticasa/tmp/...`). Only the newest 100 are kept. Required; `null`: no notification images |
 | `faces_next_to_recordings` | Default true: once a session ends, each person's best face (large crop) is saved next to the camera's recording of the visit, as `<recording>.mp4.face.<name>.jpg` (`unknown`, `unknown_2`... for people not identified). The NVR shows them; the recorder's retention cleanup deletes them with the recording. Not for injected clips |
 
 Every threshold can be overridden too (`visitor_config.py` has the list and the defaults); changing one never
@@ -59,7 +59,7 @@ WhatsApp).
 
 `make inject_clip` plays a recorded clip as the doorbell's live stream, in real time (the `inject_clip` command;
 also a form in the UI's Status tab). It's a real session: it fires events and feeds the identity store. The clip
-must be inside one of the config's `allowed_paths` (eg the recordings dir); nothing is allowed if it's unset.
+must be inside one of the config's `allowed_paths` (eg the recordings dir), which is required.
 Events from it have `trigger: "injected"`; consumers may ignore them (ZmwDoorman does, unless its `visitor_notify_injected` is set).
 
 ## MQTT

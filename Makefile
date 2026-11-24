@@ -12,6 +12,7 @@ test:
 	@for dir in $(TEST_DIRS); do \
 		make -C $$dir test || true; \
 	done
+	python3 scripts/gen_unit_test.py
 
 .PHONY: install_all_services
 install_all_services:

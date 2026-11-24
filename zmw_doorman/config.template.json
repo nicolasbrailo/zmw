@@ -1,5 +1,4 @@
 {
-  "allowed_paths": ["/home/batman/nvrish/cam_snaps"],
   "latlon_comment": "Used to determine when it's dark outside, and lights should automatically turn on",
   "latlon": [
     51.5476529,
