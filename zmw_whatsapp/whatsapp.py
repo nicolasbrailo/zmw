@@ -245,6 +245,11 @@ class WhatsApp:
                 res = self.template_message_with_image(
                     tmpl_name, imgid, caption)
                 log.info("Sent motion detect messages to WA: %s", str(res))
+                # A 200 only means accepted: the body has each message's id and status (eg held for quality
+                # assessment), the only trace of why a message isn't delivered
+                for r in res or []:
+                    if r is not None:
+                        log.info("WA reply %s: %s", r.status_code, r.text[:500])
             except (json.JSONDecodeError, KeyError):
                 log.error("Failed WA image send, bad template?", exc_info=True)
             except (requests.ConnectionError, requests.Timeout):
