@@ -18,6 +18,9 @@ ExecStart=@EXEC_START@
 WorkingDirectory=@RUN@
 Restart=always
 RestartSec=10s
+# Services exit within ~5s of SIGTERM (service_runner); past this they're killed. Also caps a stop while starting up,
+# if a SIGTERM ever gets lost
+TimeoutStopSec=10s
 User=@USER@
 
 # Hardening that needs no per-service exceptions
@@ -34,6 +37,9 @@ ProtectSystem=strict
 ProtectHome=tmpfs
 BindReadOnlyPaths=@SRC@ @SRC_LIBS@
 BindPaths=@RUN@ @SVC_TMP@
+# Own PID namespace: other services' processes aren't visible, so no reading their /proc/<pid>/root or cwd (they all
+# run as @USER@), and no signalling them. The service is its namespace's PID 1 (service_runner handles SIGTERM)
+PrivatePIDs=yes
 # @USER@ is in the docker group (docker.sock = root), and the user session bus can start unsandboxed processes
 InaccessiblePaths=-/run/docker.sock -/run/containerd -/run/user
 ProtectKernelTunables=yes

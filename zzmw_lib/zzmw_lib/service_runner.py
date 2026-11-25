@@ -23,6 +23,12 @@ from .network_helpers import get_lan_ip, get_cached_port, is_safe_path
 
 log = build_logger("ServiceRunner")
 
+# Exit right away on SIGTERM until service_runner() installs the real shutdown handler, which happens after the config
+# and the app's __init__ (that may load models for a while). Python's default would do the same, except as PID 1 of a
+# PID namespace (PrivatePIDs= in the unit): the kernel drops signals PID 1 has no handler for, so a stop would wait for
+# systemd's stop timeout instead. Nothing to clean up yet, so no need for a graceful exit.
+signal.signal(signal.SIGTERM, lambda _sig, _frame: os._exit(0))
+
 
 def _get_http_host(cfg):
     """
@@ -169,11 +175,14 @@ def _get_config():
 
 def get_this_service_logs():
     """Return logs from the last 24 hours, newest first, as a flask tuple-response"""
-    pid = os.getpid()
+    # This run of the service. Under systemd, by its invocation id: in a PID namespace (PrivatePIDs=) getpid() is 1, not
+    # the pid the journal knows
+    invocation = os.environ.get('INVOCATION_ID')
+    match = f'_SYSTEMD_INVOCATION_ID={invocation}' if invocation else f'_PID={os.getpid()}'
     try:
         result = subprocess.run([
                 'journalctl',
-                f'_PID={pid}',
+                match,
                 '--since', '24 hours ago',
                 '-r',  # reverse order (newest first)
                 '-o', 'json'  # JSON output, one object per line
