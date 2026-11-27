@@ -51,8 +51,22 @@ def _setting_to_prefs(setting, value):
 
 
 def _parse_schedule(reported):
-    """ cleanSchedule2 (i/s series) to something readable. Robots with the older cleanSchedule aren't supported """
+    """ cleanSchedule2 (i/s series) or the older cleanSchedule (eg 600 series) to something readable """
     entries = []
+    # Older robots: one slot per day (Sunday first), each with its own time; cycle is 'none' for days without a run
+    legacy = reported.get("cleanSchedule") or {}
+    for day, (cycle, hour, minute) in enumerate(zip(legacy.get("cycle") or [], legacy.get("h") or [],
+                                                    legacy.get("m") or [])):
+        if cycle == "none" or day >= len(SCHEDULE_DAYS):
+            continue
+        entries.append({
+            "enabled": True,
+            "days": [SCHEDULE_DAYS[day]],
+            "day_nums": [day],
+            "hour": hour,
+            "min": minute,
+            "command": cycle,
+        })
     for entry in reported.get("cleanSchedule2") or []:
         start = entry.get("start", {})
         days = start.get("day") or []

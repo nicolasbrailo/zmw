@@ -61,6 +61,22 @@ class TestRobotSchedule:
         assert (sched["entries"][0]["hour"], sched["entries"][0]["min"]) == (10, 30)
         assert sched["entries"][1]["enabled"] is False
 
+    def test_parse_legacy_robot_schedule(self):
+        reported = {
+            "timezone": "Europe/London",
+            "cleanSchedule": {"cycle": ["none", "start", "start", "none", "start", "start", "none"],
+                              "h": [9, 9, 9, 9, 9, 9, 8], "m": [0, 0, 0, 0, 0, 30, 0]},
+        }
+        sched = _parse_schedule(reported)
+        assert sched["paused"] is False
+        # Days without a run aren't entries
+        assert [e["days"] for e in sched["entries"]] == [["Mon"], ["Tue"], ["Thu"], ["Fri"]]
+        assert all(e["enabled"] for e in sched["entries"])
+        assert (sched["entries"][3]["hour"], sched["entries"][3]["min"]) == (9, 30)
+        assert sched["entries"][3]["day_nums"] == [5]
+        assert has_own_schedule(sched)
+        assert _parse_schedule({"cleanSchedule": {"cycle": ["none"] * 7, "h": [9] * 7, "m": [0] * 7}})["entries"] == []
+
     def test_no_robot_schedule(self):
         assert _parse_schedule({})["entries"] == []
 
