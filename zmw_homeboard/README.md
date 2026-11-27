@@ -128,6 +128,7 @@ which forward to the same commands as the MQTT interface:
 | Endpoint | Method | Effect |
 |----------|--------|--------|
 | `/get_homeboards_state` | GET | everything the UI renders (below) |
+| `/thumbnail_immich/<asset id>` | GET | thumbnail of an Immich picture on screen (below) |
 | `/cmd/<hb_id>/next`, `/cmd/<hb_id>/prev` | GET | move the slideshow |
 | `/cmd/<hb_id>/force_on`, `/cmd/<hb_id>/force_off` | GET | screen on/off |
 | `/cmd/<hb_id>/set_transition_time_secs/<secs>` | GET | seconds per picture, at least 1 |
@@ -141,6 +142,12 @@ before it publishes one), `displayed_photo`, `host_info` (the whole availability
 record) and `doctor`. The top-level `album_filter` is the one this service last
 sent, or null; what each device is actually running is in its
 `device_state.slideshow.album_filter`.
+
+Thumbnails come from Immich, with this service's own key (config `immich`, required), by asset id: the same
+picture has the same URL on every homeboard. Only the asset `id` in `displayed_photo` is taken from the device,
+never its `src_url`, so a device can't make us send the key elsewhere. Only pictures on some homeboard's screen
+are fetched, so this can't browse Immich; the last few fetched are still served after the boards move on. A
+thumbnail is cached by the browser for a day (an asset never changes picture).
 
 Announcements go out with the `announce` command rather than the composed SVG
 overlay (`_set_announce`), so they also reach devices with no SVG renderer, such

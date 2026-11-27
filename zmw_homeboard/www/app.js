@@ -1,3 +1,7 @@
+// After next/prev: how often, and how many times, to look for the new picture
+const HB_PHOTO_FOLLOW_MS = 700;
+const HB_PHOTO_FOLLOW_TRIES = 6;
+
 class Homeboard extends React.Component {
   static buildProps() {
     return {
@@ -38,6 +42,8 @@ class Homeboard extends React.Component {
     // they're the user's to type in, and the 5s refresh must not stomp them
     this._albumBoxesSeeded = false;
     this._poller = null;
+    // hb id -> timer of the refresh waiting for its next/prev picture
+    this._photoFollow = {};
   }
 
   componentDidMount() {
@@ -55,6 +61,8 @@ class Homeboard extends React.Component {
   componentWillUnmount() {
     window.removeEventListener('hashchange', this.onHashChange);
     this._poller?.stop();
+    Object.values(this._photoFollow).forEach(clearTimeout);
+    this._photoFollow = {};
   }
 
   // A homeboard's page lives at #hb=<id>, so the back button and bookmarks work
@@ -77,17 +85,23 @@ class Homeboard extends React.Component {
     window.scrollTo(0, 0);
   }
 
-  // Where a homeboard's thumbnail of the picture on screen will be served from
-  static thumbUrl(hbId) {
-    return `/thumbnail/${encodeURIComponent(hbId)}`;
+  // The thumbnail of the picture a homeboard has on screen, or null if it isn't
+  // showing an Immich picture. It's by Immich asset id, so each picture has its
+  // own URL, the same on every homeboard: the browser caches it once.
+  static thumbUrl(hb) {
+    const id = hb.displayed_photo && hb.displayed_photo.id;
+    if (typeof id !== 'string' || !id) return null;
+    return `/thumbnail_immich/${encodeURIComponent(id)}`;
   }
 
-  refresh() {
+  // onDone, if given, runs once the new state is rendered (or the fetch failed)
+  refresh(onDone) {
+    const done = (typeof onDone === 'function') ? onDone : undefined;
     mJsonGet('/get_homeboards_state', (data) => {
       const homeboards = (data && data.homeboards) || [];
       const albumFilter = (data && data.album_filter) || null;
       const brokerConnected = !data || data.broker_connected !== false;
-      this.setState({ homeboards, albumFilter, brokerConnected, loading: false });
+      this.setState({ homeboards, albumFilter, brokerConnected, loading: false }, done);
       if (albumFilter && !this._albumBoxesSeeded) {
         this._albumBoxesSeeded = true;
         this.setState({
@@ -98,14 +112,44 @@ class Homeboard extends React.Component {
         });
       }
     }, () => {
-      this.setState({ loading: false });
+      this.setState({ loading: false }, done);
     });
   }
 
   // Commands are the same ones the MQTT interface offers; the service
   // forwards them to the homeboard
   sendCmd(hbId, path) {
-    mJsonGet(`/cmd/${encodeURIComponent(hbId)}/${path}`, () => this.refresh());
+    const moves = (path === 'next' || path === 'prev');
+    const before = moves ? this.photoId(hbId) : null;
+    mJsonGet(`/cmd/${encodeURIComponent(hbId)}/${path}`, () => {
+      if (moves) this.followPhotoChange(hbId, before);
+      else this.refresh();
+    });
+  }
+
+  photoId(hbId) {
+    const hb = this.state.homeboards.find((h) => h.id === hbId);
+    return (hb && hb.displayed_photo && hb.displayed_photo.id) || null;
+  }
+
+  // A homeboard publishes its new picture a moment after taking next/prev, and
+  // more so on a slow device, so the refresh right after the command would
+  // still show the old one. Ask again shortly, until the picture changes; past
+  // a few tries the normal poll takes over.
+  followPhotoChange(hbId, before) {
+    clearTimeout(this._photoFollow[hbId]);
+    let tries = 0;
+    const check = () => {
+      tries += 1;
+      this.refresh(() => {
+        if (this.photoId(hbId) !== before || tries >= HB_PHOTO_FOLLOW_TRIES) {
+          delete this._photoFollow[hbId];
+          return;
+        }
+        this._photoFollow[hbId] = setTimeout(check, HB_PHOTO_FOLLOW_MS);
+      });
+    };
+    this._photoFollow[hbId] = setTimeout(check, HB_PHOTO_FOLLOW_MS);
   }
 
   setTransitionSecs(hbId, value) {
@@ -749,8 +793,11 @@ class Homeboard extends React.Component {
     return out;
   }
 
+  // An empty box of the same size when there's no picture, so the tiles line up
   renderThumb(hb) {
-    return (<img className="hb-thumb" src={Homeboard.thumbUrl(hb.id)} alt={`Picture on ${hb.id}`}/>);
+    const url = Homeboard.thumbUrl(hb);
+    if (!url) return (<div className="hb-thumb"/>);
+    return (<img className="hb-thumb" src={url} alt={`Picture on ${hb.id}`}/>);
   }
 
   // The list's buttons sit on a clickable tile: a press mustn't also open the page

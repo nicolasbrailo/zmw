@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from flask import abort, request
+from flask import Response, abort, request
 
 from zzmw_lib.logs import build_logger
 from zzmw_lib.meteo_relay_client import METEO_RELAY_SVC, get_weather_from_relay
@@ -14,6 +14,7 @@ from zzmw_lib.zmw_mqtt_service import ZmwMqttService
 
 from homeboard_janitor import HomeboardJanitor, is_gone
 from homeboard_mqtt import HomeboardMqtt, as_year
+from immich_thumbs import ImmichThumbs, as_asset_id
 
 from announce_overlay import AnnounceOverlay
 from overlay import Overlay
@@ -128,6 +129,9 @@ class ZmwHomeboard(ZmwMqttService):
         # Where wake word recordings go. Used to share WW audio with transcription service
         self._wakeword_dir = os.path.abspath(cfg['wakeword_dir'])
 
+        # Where the UI's thumbnails of the pictures on screen come from
+        self._thumbs = ImmichThumbs(cfg['immich']['url'], cfg['immich']['api_key'])
+
         self._core = HomeboardMqtt(
             cfg['homeboard']['mqtt_ip'],
             int(cfg['homeboard']['mqtt_port']),
@@ -139,6 +143,7 @@ class ZmwHomeboard(ZmwMqttService):
         self._core.start()
 
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
+        www.serve_url('/thumbnail_immich/<asset_id>', self._www_thumbnail_immich)
         # Per-homeboard controls for the www UI. Each maps to the same command
         # the MQTT interface offers, so both routes behave identically.
         www.serve_url('/cmd/<hb_id>/next', self._www_next)
@@ -519,6 +524,26 @@ class ZmwHomeboard(ZmwMqttService):
         }
 
     # ---- WWW UI ----------------------------------------------------------
+
+    def _www_thumbnail_immich(self, asset_id):
+        """Thumbnail of an Immich asset, by its id (the same on every homeboard).
+
+        Only pictures on some homeboard's screen are fetched, so this can't be used to browse Immich. One fetched
+        before is still served after the board moves on, so a page that asked just as it did gets it.
+        """
+        asset_id = as_asset_id(asset_id)
+        if asset_id is None:
+            return abort(404, description="Not an Immich asset id")
+        on_screen = {as_asset_id((hb['displayed_photo'] or {}).get('id')) for hb in self._core.list_homeboards()}
+        try:
+            body, ctype = self._thumbs.get(asset_id, may_fetch=asset_id in on_screen)
+        except LookupError as e:
+            return abort(404, description=str(e))
+        except RuntimeError as e:
+            log.warning("No thumbnail of %s: %s", asset_id, e)
+            return abort(502, description=str(e))
+        # An asset never changes picture
+        return Response(body, mimetype=ctype, headers={'Cache-Control': 'private, max-age=86400, immutable'})
 
     def _www_next(self, hb_id):
         return {"ok": self._core.next(hb_id)}

@@ -1,6 +1,11 @@
 {
   "COMMENT_wakeword_dir": "Where newest N wake word recordings are saved. In the services' shared scratch dir, so ZmwSpeechToText can read them by path",
   "wakeword_dir": "/home/batman/run/baticasa/tmp/zmw_homeboard_wakeword",
+  "COMMENT_immich": "Where the UI's thumbnails of the pictures on screen come from: the Immich server (the devices' own), and an API key for this service with only the asset.view permission",
+  "immich": {
+    "url": "http://10.0.0.20:2283",
+    "api_key": "IMMICH_API_KEY"
+  },
   "homeboard": {
     "mqtt_ip": "10.0.0.10",
     "mqtt_port": "4500"
