@@ -24,8 +24,12 @@ class Homeboard extends React.Component {
       albumFilterStatus: null,
       // Per homeboard, what the transition time box holds
       transitionSecs: {},
+      // The homeboard whose page is open, or null for the list of them all.
+      // The homeboard's QR code links here with ?hb_id=<id>, which opens its page.
+      selectedId: new URLSearchParams(window.location.search).get('hb_id') || Homeboard.hbIdFromHash(),
     };
     this.refresh = this.refresh.bind(this);
+    this.onHashChange = this.onHashChange.bind(this);
     this.announceAll = this.announceAll.bind(this);
     this.clearAnnounce = this.clearAnnounce.bind(this);
     this.applyAlbumFilter = this.applyAlbumFilter.bind(this);
@@ -33,30 +37,49 @@ class Homeboard extends React.Component {
     // The boxes are seeded once from whatever filter is in force; after that
     // they're the user's to type in, and the 5s refresh must not stomp them
     this._albumBoxesSeeded = false;
-    // The homeboard's QR code links here with ?hb_id=<id>: scroll to that
-    // board once, after the first load, and leave scrolling to the user after
-    this._scrollToHbId = new URLSearchParams(window.location.search).get('hb_id');
     this._poller = null;
   }
 
   componentDidMount() {
+    // A QR link becomes the same #hb=<id> the list links to, so going back
+    // from that page lands on the list, and a reload doesn't reopen it
+    if (new URLSearchParams(window.location.search).has('hb_id')) {
+      const hash = this.state.selectedId ? Homeboard.hbHash(this.state.selectedId) : '';
+      window.history.replaceState(null, '', `${window.location.pathname}${hash}`);
+    }
+    window.addEventListener('hashchange', this.onHashChange);
     this.refresh();
     this._poller = mPoll(this.refresh, 5000);
   }
 
-  componentDidUpdate() {
-    if (!this._scrollToHbId || this.state.loading) return;
-    const card = document.getElementById(Homeboard.cardId(this._scrollToHbId));
-    this._scrollToHbId = null;
-    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  static cardId(hbId) {
-    return `homeboard-${hbId}`;
-  }
-
   componentWillUnmount() {
+    window.removeEventListener('hashchange', this.onHashChange);
     this._poller?.stop();
+  }
+
+  // A homeboard's page lives at #hb=<id>, so the back button and bookmarks work
+  static hbHash(hbId) {
+    return `#hb=${encodeURIComponent(hbId)}`;
+  }
+
+  static hbIdFromHash() {
+    const m = /(?:^#|&)hb=([^&]*)/.exec(window.location.hash);
+    if (!m) return null;
+    try {
+      return decodeURIComponent(m[1]) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  onHashChange() {
+    this.setState({ selectedId: Homeboard.hbIdFromHash() });
+    window.scrollTo(0, 0);
+  }
+
+  // Where a homeboard's thumbnail of the picture on screen will be served from
+  static thumbUrl(hbId) {
+    return `/thumbnail/${encodeURIComponent(hbId)}`;
   }
 
   refresh() {
@@ -324,12 +347,12 @@ class Homeboard extends React.Component {
   renderControls(hb) {
     const secs = this.state.transitionSecs[hb.id] ?? '';
     return (
-      <div>
-        <button onClick={() => this.sendCmd(hb.id, 'prev')}>Previous</button>
-        <button onClick={() => this.sendCmd(hb.id, 'next')}>Next</button>
+      <div className="hb-actions">
+        <button onClick={() => this.sendCmd(hb.id, 'prev')}>&#9664; Previous</button>
+        <button onClick={() => this.sendCmd(hb.id, 'next')}>Next &#9654;</button>
         <button onClick={() => this.sendCmd(hb.id, 'force_on')}>Screen on</button>
         <button onClick={() => this.sendCmd(hb.id, 'force_off')}>Screen off</button>
-        <label>
+        <label className="hb-sub">
           {' Seconds per picture '}
           <input
             type="number"
@@ -388,16 +411,21 @@ class Homeboard extends React.Component {
     return parts.join(', ');
   }
 
+  // wanted null means the platform decides; otherwise the device is holding
+  // the screen one way, and it not being that way is worth seeing
+  static screenWanted(screen) {
+    if (!screen || typeof screen.on !== 'boolean') return { wanted: null, mismatch: false };
+    const wanted = (screen.wanted === 'on' || screen.wanted === 'off') ? screen.wanted : null;
+    return { wanted, mismatch: wanted !== null && (wanted === 'on') !== screen.on };
+  }
+
   renderScreen(screen) {
     if (!screen || typeof screen.on !== 'boolean') {
       return (<div>Screen: <em>unknown</em></div>);
     }
     const since = Homeboard.secsSince(screen.since);
     const reason = screen.wanted_reason ? ` (${screen.wanted_reason})` : '';
-    // wanted null means the platform decides; otherwise the device is holding
-    // the screen one way, and it not being that way is worth seeing
-    const wanted = (screen.wanted === 'on' || screen.wanted === 'off') ? screen.wanted : null;
-    const mismatch = wanted !== null && (wanted === 'on') !== screen.on;
+    const { wanted, mismatch } = Homeboard.screenWanted(screen);
     return (
       <div>
         Screen: <strong>{screen.on ? 'On' : 'Off'}</strong>
@@ -415,8 +443,8 @@ class Homeboard extends React.Component {
   renderErrors(errors) {
     if (!Array.isArray(errors) || errors.length === 0) return null;
     return (
-      <div className="warn">
-        <strong>Errors:</strong>
+      <div className="dash-alert">
+        <b>Errors</b>
         <ul>
           {errors.map((e, i) => (
             <li key={i}>
@@ -430,6 +458,32 @@ class Homeboard extends React.Component {
     );
   }
 
+  // What both the list and a homeboard's page say about the picture on screen
+  static photoSummary(photo) {
+    const geo = photo.reverse_geo || {};
+    const gps = photo.gps;
+    return {
+      album: photo.albumname || null,
+      taken: photo['EXIF DateTimeOriginal'] || null,
+      location: geo.revgeo || [geo.city, geo.state, geo.country].filter(Boolean).join(', ') || null,
+      mapUrl: (gps && gps.lat != null && gps.lon != null)
+        ? `https://www.openstreetmap.org/?mlat=${gps.lat}&mlon=${gps.lon}#map=16/${gps.lat}/${gps.lon}`
+        : null,
+    };
+  }
+
+  // EXIF dates look like 2019:04:12 10:22:33; the list only wants the day
+  static photoDay(taken) {
+    const m = /^(\d{4}):(\d{2}):(\d{2})/.exec(taken || '');
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : taken;
+  }
+
+  renderLocation(location, mapUrl) {
+    return mapUrl
+      ? (<a href={mapUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{location}</a>)
+      : location;
+  }
+
   renderDisplayedPhoto(photo) {
     if (!photo) {
       return (<p>No photo info available.</p>);
@@ -438,13 +492,7 @@ class Homeboard extends React.Component {
     const w = photo['EXIF ExifImageWidth'];
     const h = photo['EXIF ExifImageLength'];
     const size = (w && h) ? `${w} x ${h}` : null;
-    const taken = photo['EXIF DateTimeOriginal'];
-    const geo = photo.reverse_geo || {};
-    const location = geo.revgeo || [geo.city, geo.state, geo.country].filter(Boolean).join(', ');
-    const gps = photo.gps;
-    const mapUrl = (gps && gps.lat != null && gps.lon != null)
-      ? `https://www.openstreetmap.org/?mlat=${gps.lat}&mlon=${gps.lon}#map=16/${gps.lat}/${gps.lon}`
-      : null;
+    const { taken, location, mapUrl } = Homeboard.photoSummary(photo);
     return (
       <div>
         <dl>
@@ -465,11 +513,7 @@ class Homeboard extends React.Component {
           {location && (
             <>
               <dt>Location</dt>
-              <dd>
-                {mapUrl
-                  ? (<a href={mapUrl} target="_blank" rel="noreferrer">{location}</a>)
-                  : location}
-              </dd>
+              <dd>{this.renderLocation(location, mapUrl)}</dd>
             </>
           )}
         </dl>
@@ -521,6 +565,20 @@ class Homeboard extends React.Component {
     return (<span style={{ color: good ? 'var(--cemph)' : 'var(--cerror)' }}>{v ? 'yes' : 'no'}</span>);
   }
 
+  // bad is whether the health telemetry is worth a warning
+  static doctorStatus(doctor) {
+    const tsMs = doctor.ts ? Date.parse(doctor.ts) : NaN;
+    const ageSec = Number.isNaN(tsMs) ? null : Math.max(0, Math.round((Date.now() - tsMs) / 1000));
+    // No LWT and non-retained: infer liveness from ts. > ~3x the 30s poll = stale.
+    const stale = ageSec === null || ageSec > 90;
+    return {
+      ageSec,
+      stale,
+      label: stale ? 'stale / unknown' : (doctor.state || 'unknown'),
+      bad: stale || doctor.state === 'net_down' || doctor.state === 'degraded',
+    };
+  }
+
   renderDeviceHealth(doctor) {
     if (!doctor) {
       return (
@@ -532,12 +590,7 @@ class Homeboard extends React.Component {
     }
 
     const num = (v, unit = '') => (typeof v === 'number' ? `${v}${unit}` : '—');
-    const tsMs = doctor.ts ? Date.parse(doctor.ts) : NaN;
-    const ageSec = Number.isNaN(tsMs) ? null : Math.max(0, Math.round((Date.now() - tsMs) / 1000));
-    // No LWT and non-retained: infer liveness from ts. > ~3x the 30s poll = stale.
-    const stale = ageSec === null || ageSec > 90;
-
-    const statusLabel = stale ? 'stale / unknown' : (doctor.state || 'unknown');
+    const { ageSec, stale, label: statusLabel, bad } = Homeboard.doctorStatus(doctor);
     let statusColor = 'inherit';
     if (stale || doctor.state === 'net_down') statusColor = 'var(--cerror)';
     else if (doctor.state === 'ok') statusColor = 'var(--cemph)';
@@ -548,7 +601,7 @@ class Homeboard extends React.Component {
     const uptime = (typeof doctor.uptime_s === 'number') ? this.formatUptime(doctor.uptime_s) : '—';
 
     return (
-      <details className={(stale || doctor.state === 'net_down' || doctor.state === 'degraded') ? 'warn' : ''}>
+      <details className={bad ? 'warn' : ''}>
         <summary>Device health</summary>
         <div>
           Status: <strong style={{ color: statusColor }}>{statusLabel}</strong>
@@ -676,36 +729,146 @@ class Homeboard extends React.Component {
     );
   }
 
-  renderHomeboard(hb) {
+  // What's wrong with a homeboard, one short line each: the list only flags
+  // these, its page has the details. A device without health telemetry (eg a
+  // Portal) isn't a problem; telemetry that went stale is.
+  static problems(hb) {
+    const out = [];
+    if (hb.state !== 'online') out.push(`bridge ${hb.state || 'unknown'}`);
+    const record = Homeboard.part(hb, 'device_state');
+    const errors = record && record.errors;
+    if (Array.isArray(errors) && errors.length) {
+      out.push(errors.length === 1 ? '1 error' : `${errors.length} errors`);
+    }
+    if (hb.doctor) {
+      const doc = Homeboard.doctorStatus(hb.doctor);
+      if (doc.bad) out.push(`health ${doc.label}`);
+    }
+    const { wanted, mismatch } = Homeboard.screenWanted(Homeboard.part(record, 'screen'));
+    if (mismatch) out.push(`screen should be ${wanted}`);
+    return out;
+  }
+
+  renderThumb(hb) {
+    return (<img className="hb-thumb" src={Homeboard.thumbUrl(hb.id)} alt={`Picture on ${hb.id}`}/>);
+  }
+
+  // The list's buttons sit on a clickable tile: a press mustn't also open the page
+  renderPrevNext(hb) {
+    const cmd = (path) => (e) => {
+      e.stopPropagation();
+      this.sendCmd(hb.id, path);
+    };
+    return (
+      <div className="hb-actions">
+        <button onClick={cmd('prev')}>&#9664; Previous</button>
+        <button onClick={cmd('next')}>Next &#9654;</button>
+      </div>
+    );
+  }
+
+  renderRow(hb) {
+    const record = Homeboard.part(hb, 'device_state');
+    const problems = Homeboard.problems(hb);
+    const photo = hb.displayed_photo;
+    const summary = photo ? Homeboard.photoSummary(photo) : null;
+    const day = summary && Homeboard.photoDay(summary.taken);
+    return (
+      <div
+        key={hb.id}
+        className={problems.length ? 'hb-tile hb-bad' : 'hb-tile'}
+        onClick={() => { window.location.hash = Homeboard.hbHash(hb.id); }}
+      >
+        {this.renderThumb(hb)}
+        <div>
+          <h3 className="hb-name"><a href={Homeboard.hbHash(hb.id)}>{hb.id}</a></h3>
+          {problems.length > 0 && (
+            <div className="hb-problems">
+              {problems.map((p) => (<span key={p} className="hb-problem">{p}</span>))}
+            </div>
+          )}
+          <div className="hb-line">{this.renderOccupancy(Homeboard.part(record, 'occupancy'))}</div>
+          {!summary && (<div className="hb-sub"><em>No photo info</em></div>)}
+          {summary && summary.album && (<div className="hb-line"><strong>{summary.album}</strong></div>)}
+          {summary && (day || summary.location) && (
+            <div className="hb-sub">
+              {day}
+              {day && summary.location && ' · '}
+              {summary.location && this.renderLocation(summary.location, summary.mapUrl)}
+            </div>
+          )}
+          {this.renderPrevNext(hb)}
+        </div>
+      </div>
+    );
+  }
+
+  renderList() {
+    const { homeboards } = this.state;
+    return (
+      <div>
+        <h4 className="dash-heading">{homeboards.length} homeboard(s)</h4>
+        <div className="hb-list">
+          {homeboards.map((hb) => this.renderRow(hb))}
+        </div>
+        <details className="hb-settings">
+          <summary className="dash-heading">Settings for all homeboards</summary>
+          {this.renderAlbumFilter()}
+          {this.renderAnnounce()}
+        </details>
+      </div>
+    );
+  }
+
+  renderDetail(hbId) {
+    const back = (<a className="hb-back" href="#">&larr; All homeboards</a>);
+    const hb = this.state.homeboards.find((h) => h.id === hbId);
+    if (!hb) {
+      return (
+        <div>
+          {back}
+          <div className="dash-alert"><b>Unknown homeboard</b><span>{hbId} isn't known (yet?).</span></div>
+        </div>
+      );
+    }
     const online = hb.state === 'online';
     const record = Homeboard.part(hb, 'device_state');
+    const slideshow = Homeboard.part(record, 'slideshow');
     return (
-      <div key={hb.id} id={Homeboard.cardId(hb.id)} className={online ? 'card' : 'card warn'}>
-        <h3>{hb.id}</h3>
-        <div>
-          Bridge: <strong>{hb.state}</strong>
-          {online && (
-            <> — Slideshow: <strong>{Homeboard.describeSlideshow(Homeboard.part(record, 'slideshow'))}</strong></>
-          )}
+      <div>
+        {back}
+        <div className="hb-panel">
+          <h3 className="hb-name">{hb.id}</h3>
+          <div className="hb-sub">
+            Bridge: <strong style={{ color: online ? 'inherit' : 'var(--dash-err)' }}>{hb.state}</strong>
+            {online && (<> · Slideshow: <strong>{Homeboard.describeSlideshow(slideshow)}</strong></>)}
+          </div>
+          <div className="hb-sub">
+            Album filter: <em>{Homeboard.describeAlbumFilter(Homeboard.part(slideshow, 'album_filter'), 'unknown')}</em>
+          </div>
+          {this.renderErrors(record && record.errors)}
+          {this.renderControls(hb)}
+
+          <h4 className="dash-heading">Status</h4>
+          {this.renderOccupancy(Homeboard.part(record, 'occupancy'))}
+          {this.renderScreen(Homeboard.part(record, 'screen'))}
+
+          <h4 className="dash-heading">Now showing</h4>
+          <div className="hb-now">
+            {this.renderThumb(hb)}
+            <div>{this.renderDisplayedPhoto(hb.displayed_photo)}</div>
+          </div>
+
+          <h4 className="dash-heading">Device</h4>
+          {this.renderDeviceState(record)}
+          {this.renderDeviceHealth(hb.doctor)}
         </div>
-        {this.renderErrors(record && record.errors)}
-        {this.renderControls(hb)}
-        {this.renderOccupancy(Homeboard.part(record, 'occupancy'))}
-        {this.renderScreen(Homeboard.part(record, 'screen'))}
-        {this.renderDeviceState(record)}
-        {this.renderDeviceHealth(hb.doctor)}
-        {hb.displayed_photo && (
-          <>
-            <h4>Now showing</h4>
-            {this.renderDisplayedPhoto(hb.displayed_photo)}
-          </>
-        )}
       </div>
     );
   }
 
   render() {
-    const { homeboards, brokerConnected, loading } = this.state;
+    const { homeboards, brokerConnected, loading, selectedId } = this.state;
     if (loading) {
       return (<div>Loading...</div>);
     }
@@ -725,13 +888,6 @@ class Homeboard extends React.Component {
         </div>
       );
     }
-    return (
-      <div>
-        <div>{homeboards.length} homeboard(s) known</div>
-        {this.renderAnnounce()}
-        {this.renderAlbumFilter()}
-        {homeboards.map((hb) => this.renderHomeboard(hb))}
-      </div>
-    );
+    return selectedId ? this.renderDetail(selectedId) : this.renderList();
   }
 }
