@@ -105,7 +105,8 @@ class ZmwHomeboard(ZmwMqttService):
 
     def __init__(self, cfg, www, _sched):
         super().__init__(cfg, "zmw_homeboard", scheduler=_sched,
-                         svc_deps=["ZmwSpeakerAnnounce", "ZmwDoorman", METEO_RELAY_SVC])
+                         svc_deps=["ZmwSpeakerAnnounce", "ZmwDoorman", METEO_RELAY_SVC,
+                                   "ZmwSpeechToText"])
 
         self._sched = _sched
         # The weather panel shows the relay's default location (the house). The relay asks Open-Meteo with
@@ -434,6 +435,46 @@ class ZmwHomeboard(ZmwMqttService):
             return
         log.info("Saved wake word recording %s from '%s' to %s", req['id'], hb_id, path)
         _prune_wakeword_dir(self._wakeword_dir)
+        # The result comes back as ZmwSpeechToText's transcription announcement, with this same path
+        self.message_svc("ZmwSpeechToText", "transcribe", {"wav_path": path})
+
+    def _on_stt_transcription(self, payload):
+        """Store what ZmwSpeechToText understood of one of our recordings in its metadata, for the wake word page.
+
+        Every transcription is announced to everyone (Telegram voice messages too), so it's ours if its file is
+        a recording in wakeword_dir: those names are unique, so the path says which one it is.
+        """
+        if not isinstance(payload, dict):
+            return
+        path = payload.get('file')
+        if not isinstance(path, str) or os.path.dirname(os.path.abspath(path)) != self._wakeword_dir:
+            return
+        if not _WAKEWORD_FILE_RE.match(os.path.basename(path)) or not os.path.isfile(path):
+            # Pruned meanwhile, or not a recording
+            return
+        meta_path = _wakeword_meta_path(path)
+        try:
+            with open(meta_path, encoding='utf-8') as fp:
+                meta = json.load(fp)
+        except (OSError, ValueError):
+            meta = None
+        if not isinstance(meta, dict):
+            meta = {}
+        meta['transcription'] = {
+            'text': payload.get('text'),
+            'confidence': payload.get('confidence'),
+            'ts': time.time(),
+        }
+        # Replaced whole, so the page never reads half a file
+        tmp_path = meta_path + '.tmp'
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as fp:
+                json.dump(meta, fp)
+            os.replace(tmp_path, meta_path)
+        except OSError:
+            log.error("Can't save the transcription of %s", path, exc_info=True)
+            return
+        log.info("Wake word recording %s from '%s' says: '%s'", meta.get('id'), meta.get('hb_id'), payload.get('text'))
 
     def _on_hb_online(self, hb_id):
         """Re-send the config we hold to a homeboard that just (re)started.
@@ -524,6 +565,9 @@ class ZmwHomeboard(ZmwMqttService):
         # Audio isn't mirrored: ZmwSpeakerAnnounce sends announce_audio to the
         # homeboards it targets (see audio_targets)
 
+        elif svc_name == "ZmwSpeechToText" and subtopic == "transcription":
+            self._on_stt_transcription(payload)
+
         # Someone rang: every homeboard gets the ring, with the door's streams so it can show who's there
         elif svc_name == "ZmwDoorman" and subtopic == "on_doorbell_ring":
             if not isinstance(payload, dict):
@@ -577,8 +621,9 @@ class ZmwHomeboard(ZmwMqttService):
         """The wake word recordings kept, newest first.
 
         Each has `file` (for /wakeword/file/<file>), `received` (unix time we got it) and, from the metadata saved
-        next to it, `hb_id`, `id`, `ts`, `duration_ms`, `sample_rate` and `end`; those are null for a recording
-        saved without metadata, whose `received` is the file's mtime.
+        next to it, `hb_id`, `id`, `ts`, `duration_ms`, `sample_rate`, `end` and `transcription` (`text`,
+        `confidence` and `ts`, once ZmwSpeechToText answered); those are null for a recording saved without
+        metadata, whose `received` is the file's mtime.
         """
         try:
             files = _wakeword_recordings(self._wakeword_dir)
@@ -601,7 +646,8 @@ class ZmwHomeboard(ZmwMqttService):
                 "file": e.name,
                 "received": meta.get('received') or e.stat().st_mtime,
                 "size": e.stat().st_size,
-                **{k: meta.get(k) for k in ('hb_id', 'id', 'ts', 'duration_ms', 'sample_rate', 'end')},
+                **{k: meta.get(k) for k in ('hb_id', 'id', 'ts', 'duration_ms', 'sample_rate', 'end',
+                                            'transcription')},
             })
         return {"recordings": out}
 
@@ -697,9 +743,10 @@ class ZmwHomeboard(ZmwMqttService):
             # Reads: mirrors live speaker announcements onto the overlay, and
             # tells them when the doorbell rings. Audio announcements come in as
             # announce_audio commands from ZmwSpeakerAnnounce, for the homeboards
-            # it targets.
+            # it targets. Wake word recordings are sent to ZmwSpeechToText, and
+            # its transcriptions of them kept.
             # Own state is published too (consumed by ZmwSensormon).
-            "reads_mqtt_topic": ["zmw_speaker_announce", "zmw_doorman"],
+            "reads_mqtt_topic": ["zmw_speaker_announce", "zmw_doorman", "zmw_speech_to_text"],
             "writes_mqtt_topic": [],
             "commands": {
                 "next": {

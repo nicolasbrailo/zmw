@@ -120,7 +120,9 @@ scratch dir (`~/run/baticasa/tmp`), so ZmwSpeechToText can read it by path. Next
 `<name>.json` with the recording's fields (all but the audio), the homeboard it came from (`hb_id`) and when we got
 it (`received`, unix time). `wakeword.html` lists them, for debugging.
 Retained events, events from prefixes without an `availability` record, and ones without a numeric id
-are dropped. Sending it on to ZmwSpeechToText, and the replies back, is still to do.
+are dropped. Each saved recording is sent to ZmwSpeechToText (`transcribe` with its `wav_path`); its
+`transcription` announcement carries the same path back, and what it understood (`text`, `confidence`) is added to
+the recording's `.json` as `transcription`. Nothing is sent back to the device yet.
 
 ## WWW UI
 

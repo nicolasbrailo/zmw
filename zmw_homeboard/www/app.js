@@ -977,6 +977,26 @@ class HomeboardWakewords extends React.Component {
     return parts.join(', ');
   }
 
+  // Null until ZmwSpeechToText answers, which it never does when it can't
+  // transcribe (eg its model isn't loaded): then it just stays that way
+  static renderTranscription(t) {
+    if (!t || typeof t !== 'object') return (<em>no transcription</em>);
+    const text = (typeof t.text === 'string') ? t.text.trim() : '';
+    const c = (t.confidence && typeof t.confidence === 'object') ? t.confidence : {};
+    const num = (v) => (typeof v === 'number' ? v.toFixed(2) : null);
+    const details = [
+      c.language && `${c.language}${num(c.language_prob) ? ` (${num(c.language_prob)})` : ''}`,
+      num(c.no_speech_prob) && `no speech ${num(c.no_speech_prob)}`,
+      num(c.avg_log_prob) && `avg log prob ${num(c.avg_log_prob)}`,
+    ].filter(Boolean);
+    return (
+      <>
+        {text ? text : (<em>nothing understood</em>)}
+        {details.length > 0 && (<div className="hb-sub">{details.join(', ')}</div>)}
+      </>
+    );
+  }
+
   render() {
     const { recordings } = this.state;
     // Relative, so it also works behind the dashboard's proxy prefix
@@ -1003,8 +1023,7 @@ class HomeboardWakewords extends React.Component {
                     <a href={`/wakeword/file/${encodeURIComponent(r.file)}`} download={r.file}>{r.file}</a>
                     <div className="hb-sub">{HomeboardWakewords.describeDuration(r)}</div>
                   </td>
-                  {/* Transcribing isn't wired up yet */}
-                  <td>Lorem ipsum</td>
+                  <td>{HomeboardWakewords.renderTranscription(r.transcription)}</td>
                 </tr>
               ))}
             </tbody>
