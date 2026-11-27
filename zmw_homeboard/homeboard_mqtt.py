@@ -1,6 +1,8 @@
 """MQTT link to the homeboards: their state, and the commands we send them.
 """
 
+import base64
+import binascii
 import json
 import logging
 import os
@@ -61,6 +63,54 @@ def as_bool(v):
     return None
 
 
+def parse_wakeword_id(prefix, what, data):
+    """The id of a wake word event, or None (logged) when it has none.
+
+    A number, one more for each wake word the device hears, which only ties a device's events and
+    the replies to them together; it is passed along, never interpreted.
+    """
+    req_id = as_positive_int(data.get('id'))
+    # A number, not a string of one, and from 1, as the device counts
+    if not req_id or isinstance(data.get('id'), str):
+        log.warning("Wake word %s from '%s' has a bad id %r", what, prefix, data.get('id'))
+        return None
+    return req_id
+
+
+def parse_wakeword_recording(prefix, data):
+    """The checked fields of a `<prefix>/on_wakeword/recording`, or None (logged) when it can't be used.
+
+    The device sends {"id", "ts", "format": "wav", "sample_rate", "duration_ms", "end", "audio_b64"}:
+    what was said after its wake word, base64 since the bus only carries JSON. The id is the one its
+    `on_wakeword/triggered` had, and what the replies to it must carry. The returned dict has the same
+    fields, with `audio` (bytes) in place of `audio_b64`.
+    """
+    req_id = parse_wakeword_id(prefix, 'recording', data)
+    if req_id is None:
+        return None
+    if data.get('format') != 'wav':
+        log.warning("Wake word recording %s from '%s' is in unknown format %r", req_id, prefix, data.get('format'))
+        return None
+    audio_b64 = data.get('audio_b64')
+    if not isinstance(audio_b64, str) or not audio_b64:
+        log.warning("Wake word recording %s from '%s' has no audio", req_id, prefix)
+        return None
+    try:
+        audio = base64.b64decode(audio_b64, validate=True)
+    except (binascii.Error, ValueError):
+        log.warning("Wake word recording %s from '%s' has audio that isn't base64", req_id, prefix)
+        return None
+    return {
+        'id': req_id,
+        'ts': as_positive_int(data.get('ts')),
+        'format': 'wav',
+        'sample_rate': as_positive_int(data.get('sample_rate')),
+        'duration_ms': as_positive_int(data.get('duration_ms')),
+        'end': data.get('end') if isinstance(data.get('end'), str) else None,
+        'audio': audio,
+    }
+
+
 def _parse_json_object(prefix, what, raw_payload):
     """The payload as a dict, or None (logged) when it isn't a JSON object."""
     try:
@@ -82,7 +132,10 @@ class HomeboardMqtt:
     prefix (`availability` for online/offline, `state` for the device's state
     record, `state/displayed_photo`), plus the non-retained `doctor`
     telemetry, keeps the latest of each in memory, and publishes commands
-    back.
+    back. It also takes a device's wake word events, `on_wakeword/triggered`
+    as it hears it and `on_wakeword/recording` with what was said after it,
+    neither retained, which it hands to on_wakeword_triggered and
+    on_wakeword_recording without keeping.
 
     Callbacks run on the paho-mqtt loop thread, so callers doing non-trivial
     work in them (e.g. republishing on another bus) must mind thread safety.
@@ -103,11 +156,15 @@ class HomeboardMqtt:
                  on_device_state=None,
                  on_host_info=None,
                  on_online=None,
+                 on_wakeword_triggered=None,
+                 on_wakeword_recording=None,
                  client_id_suffix=""):
         self._broker = (mqtt_ip, int(mqtt_port))
         self._on_device_state = on_device_state
         self._on_host_info = on_host_info
         self._on_online = on_online
+        self._on_wakeword_triggered = on_wakeword_triggered
+        self._on_wakeword_recording = on_wakeword_recording
 
         self._lock = threading.Lock()
         self._homeboards = {}
@@ -174,6 +231,9 @@ class HomeboardMqtt:
         client.subscribe('+/state/displayed_photo', qos=0)
         # Health/telemetry from the homeboard-doctor service (not retained).
         client.subscribe('+/doctor', qos=0)
+        # A device's wake word events (not retained). QoS 1 as the device
+        # sends them, so a recording isn't dropped on the way.
+        client.subscribe('+/on_wakeword/#', qos=1)
 
     def _on_connect_fail(self, _client, _ud):
         if self._connect_fail_logged:
@@ -193,6 +253,8 @@ class HomeboardMqtt:
             self._handle_displayed_photo(prefix, msg.payload)
         elif leaf == 'doctor':
             self._handle_doctor(prefix, msg.payload)
+        elif leaf in ('on_wakeword/triggered', 'on_wakeword/recording'):
+            self._handle_wakeword(prefix, leaf.split('/')[1], msg.payload, msg.retain)
 
     def _handle_availability(self, prefix, raw_payload):
         # An empty retained payload is the broker replaying a deleted retained
@@ -241,7 +303,7 @@ class HomeboardMqtt:
         # are stale/renamed retained records, and republishing them leaks ghost
         # homeboards onto downstream buses.
         if not self._is_known_homeboard(prefix):
-            log.debug("Ignoring displayed_photo for unknown homeboard '%s'", prefix)
+            log.error("Ignoring displayed_photo for unknown homeboard '%s'", prefix)
             return
         data = _parse_json_object(prefix, 'displayed_photo', raw_payload)
         if data is None:
@@ -256,7 +318,7 @@ class HomeboardMqtt:
                 self._device_state.pop(prefix, None)
             return
         if not self._is_known_homeboard(prefix):
-            log.debug("Ignoring state record for unknown homeboard '%s'", prefix)
+            log.error("Ignoring state record for unknown homeboard '%s'", prefix)
             return
         data = _parse_json_object(prefix, 'state record', raw_payload)
         if data is None:
@@ -274,13 +336,40 @@ class HomeboardMqtt:
                 self._doctor.pop(prefix, None)
             return
         if not self._is_known_homeboard(prefix):
-            log.debug("Ignoring doctor stats for unknown homeboard '%s'", prefix)
+            log.error("Ignoring doctor stats for unknown homeboard '%s'", prefix)
             return
         data = _parse_json_object(prefix, 'doctor stats', raw_payload)
         if data is None:
             return
         with self._lock:
             self._doctor[prefix] = data
+
+    def _handle_wakeword(self, prefix, event, raw_payload, retained):
+        # A retained event would come back on every reconnect, and be acted on again
+        if retained or not raw_payload:
+            log.error("Ignoring retained or empty wake word %s from '%s'", event, prefix)
+            return
+        if not self._is_known_homeboard(prefix):
+            log.error("Ignoring wake word %s from unknown homeboard '%s'", event, prefix)
+            return
+        data = _parse_json_object(prefix, f'wake word {event}', raw_payload)
+        if data is None:
+            return
+        if event == 'triggered':
+            req_id = parse_wakeword_id(prefix, event, data)
+            if req_id is None:
+                return
+            log.info("Wake word %s heard by '%s'", req_id, prefix)
+            if self._on_wakeword_triggered is not None:
+                self._on_wakeword_triggered(prefix, req_id)
+            return
+        req = parse_wakeword_recording(prefix, data)
+        if req is None:
+            return
+        log.info("Wake word recording %s from '%s': %s ms, %d bytes of audio, ended by %s",
+                 req['id'], prefix, req['duration_ms'], len(req['audio']), req['end'])
+        if self._on_wakeword_recording is not None:
+            self._on_wakeword_recording(prefix, req)
 
     def list_homeboards(self):
         with self._lock:

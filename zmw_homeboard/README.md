@@ -16,6 +16,8 @@ and this service reads:
 | `<prefix>/state` | the device's state record (below) |
 | `<prefix>/state/displayed_photo` | metadata of the picture on screen |
 | `<prefix>/doctor` | health telemetry from homeboard-doctor (not retained) |
+| `<prefix>/on_wakeword/triggered` | the device heard its wake word (not retained, QoS 1; see "Wake word") |
+| `<prefix>/on_wakeword/recording` | what was said after it (not retained, QoS 1; see "Wake word") |
 
 Commands go out on `<prefix>/cmd/<service>/<command>`.
 
@@ -81,6 +83,42 @@ offline for 10 minutes (`_AUDIO_TARGET_OFFLINE_TTL_SECS`). Nothing is published 
 dropped the next time the list is needed (an availability record from any homeboard, `ls_audio_targets`, or an
 `announce_audio` for it), and only then is `audio_targets` sent. An announcement sent while it's offline is
 lost, as any other command would be.
+
+## Wake word
+
+A device with a wake word (AstroDock, whose availability record then says `"voice": true`) sends two
+events, tied together by an id it makes as it hears the phrase: a number, one more for each wake word
+that device hears. As it hears it, on `<prefix>/on_wakeword/triggered`:
+
+```json
+{"id": 12, "ts": 1764150000}
+```
+
+Then, once it has recorded what was said after it (unless nothing was), on
+`<prefix>/on_wakeword/recording`:
+
+```json
+{"id": 12, "ts": 1764150003, "format": "wav", "sample_rate": 16000,
+ "duration_ms": 2480, "end": "silence", "audio_b64": "..."}
+```
+
+The audio is 16 bit mono WAV, base64 since the bus only carries JSON, at most 8 seconds (about 350 KB
+encoded). `end` is why the recording stopped: `silence` or `too_long`. The prefix in the topic is who
+asked, and where replies go; the `id` is what they must carry, since the device drops replies to any
+request but the one on its screen:
+
+| Topic | Payload |
+|-------|---------|
+| `<prefix>/cmd/voice/transcription` | `{"id", "text"}`: what was understood, shown on the device; empty text for nothing |
+| `<prefix>/cmd/voice/result` | `{"id", "msg"}`: what came of it, shown on the device |
+
+The device says "No answer" if neither arrives within 15 seconds of sending.
+
+For now this service only logs `triggered`, and saves each recording to a file with a random name in the config's
+`wakeword_dir` (the newest 50 are kept; `null` to not save them), logging its path. It's in the services' shared
+scratch dir (`~/run/baticasa/tmp`), so ZmwSpeechToText can read it by path.
+Retained events, events from prefixes without an `availability` record, and ones without a numeric id
+are dropped. Sending it on to ZmwSpeechToText, and the replies back, is still to do.
 
 ## WWW UI
 

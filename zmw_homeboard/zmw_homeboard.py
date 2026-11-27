@@ -1,5 +1,6 @@
 import os
 import pathlib
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
@@ -49,6 +50,25 @@ def can_play_audio(host_info):
     announcements" switch). Without it (eg the Raspberry Pi homeboards) there's no audio.
     """
     return host_info.get('announce_audio') is True
+
+
+# How many wake word recordings are kept
+_WAKEWORD_KEEP = 50
+
+
+def _prune_wakeword_dir(wakeword_dir):
+    """Drops all but the newest _WAKEWORD_KEEP recordings, so the dir doesn't fill up."""
+    try:
+        files = sorted((e for e in os.scandir(wakeword_dir) if e.is_file() and e.name.endswith('.wav')),
+                       key=lambda e: e.stat().st_mtime, reverse=True)
+    except OSError:
+        log.warning("Can't list %s", wakeword_dir, exc_info=True)
+        return
+    for old in files[_WAKEWORD_KEEP:]:
+        try:
+            os.remove(old.path)
+        except OSError:
+            log.warning("Can't remove old wake word recording %s", old.path, exc_info=True)
 
 
 class ZmwHomeboard(ZmwMqttService):
@@ -105,12 +125,16 @@ class ZmwHomeboard(ZmwMqttService):
         www_path = os.path.join(pathlib.Path(__file__).parent.resolve(), 'www')
         self._public_url_base = www.register_www_dir(www_path)
 
+        # Where wake word recordings go. Used to share WW audio with transcription service
+        self._wakeword_dir = os.path.abspath(cfg['wakeword_dir'])
+
         self._core = HomeboardMqtt(
             cfg['homeboard']['mqtt_ip'],
             int(cfg['homeboard']['mqtt_port']),
             on_device_state=self._on_hb_device_state,
             on_host_info=self._on_hb_host_info,
             on_online=self._on_hb_online,
+            on_wakeword_recording=self._on_hb_wakeword_recording,
         )
         self._core.start()
 
@@ -362,6 +386,21 @@ class ZmwHomeboard(ZmwMqttService):
         # Recompute everyone: weather comes from ZmwMeteoRelay's cache, so
         # this is cheap unless we have many homeboards.
         self._recompute_all_overlays(scheduled=False)
+
+    def _on_hb_wakeword_recording(self, hb_id, req):
+        """Keep what a homeboard heard after its wake word. Saved for now, in the config's wakeword_dir.
+        Runs on the homeboard broker's loop thread; the file is a few hundred KB at most.
+        """
+        try:
+            os.makedirs(self._wakeword_dir, exist_ok=True)
+            fd, path = tempfile.mkstemp(suffix='.wav', dir=self._wakeword_dir)
+            with os.fdopen(fd, 'wb') as fp:
+                fp.write(req['audio'])
+        except OSError:
+            log.error("Can't save wake word recording %s from '%s'", req['id'], hb_id, exc_info=True)
+            return
+        log.info("Saved wake word recording %s from '%s' to %s", req['id'], hb_id, path)
+        _prune_wakeword_dir(self._wakeword_dir)
 
     def _on_hb_online(self, hb_id):
         """Re-send the config we hold to a homeboard that just (re)started.
