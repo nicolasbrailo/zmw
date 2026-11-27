@@ -122,7 +122,10 @@ it (`received`, unix time). `wakeword.html` lists them, for debugging.
 Retained events, events from prefixes without an `availability` record, and ones without a numeric id
 are dropped. Each saved recording is sent to ZmwSpeechToText (`transcribe` with its `wav_path`); its
 `transcription` announcement carries the same path back, and what it understood (`text`, `confidence`) is added to
-the recording's `.json` as `transcription`. Nothing is sent back to the device yet.
+the recording's `.json` as `transcription`. The text goes back to the homeboard that recorded it, on
+`<prefix>/cmd/voice/transcription` with the request's `id` (empty when nothing was understood), as soon as it
+arrives. Requests in flight share nothing but ZmwSpeechToText, so several devices can ask at once. Sending
+`cmd/voice/result` is still to do.
 
 ## WWW UI
 

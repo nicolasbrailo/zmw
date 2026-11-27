@@ -439,10 +439,12 @@ class ZmwHomeboard(ZmwMqttService):
         self.message_svc("ZmwSpeechToText", "transcribe", {"wav_path": path})
 
     def _on_stt_transcription(self, payload):
-        """Store what ZmwSpeechToText understood of one of our recordings in its metadata, for the wake word page.
+        """Send what ZmwSpeechToText understood of one of our recordings back to the homeboard that recorded it,
+        and store it in the recording's metadata, for the wake word page.
 
         Every transcription is announced to everyone (Telegram voice messages too), so it's ours if its file is
-        a recording in wakeword_dir: those names are unique, so the path says which one it is.
+        a recording in wakeword_dir: those names are unique, so the path says which one it is, and its metadata
+        who asked. Requests in flight don't share anything else, so any number of them can be.
         """
         if not isinstance(payload, dict):
             return
@@ -460,11 +462,26 @@ class ZmwHomeboard(ZmwMqttService):
             meta = None
         if not isinstance(meta, dict):
             meta = {}
+        text = payload.get('text')
+        text = text.strip() if isinstance(text, str) else ''
+        hb_id, req_id = meta.get('hb_id'), meta.get('id')
+        log.info("Wake word recording %s from '%s' says: '%s'", req_id, hb_id, text)
+
+        # First, so the device shows it as soon as possible; storing it is only for the page. Recordings saved
+        # before their metadata was don't say who asked.
+        if hb_id is None or req_id is None:
+            log.warning("Can't send the transcription of %s back: its metadata doesn't say who asked", path)
+        elif not self._core.voice_transcription(hb_id, req_id, text):
+            log.warning("Can't send the transcription of request %s back to '%s'", req_id, hb_id)
+
         meta['transcription'] = {
-            'text': payload.get('text'),
+            'text': text,
             'confidence': payload.get('confidence'),
             'ts': time.time(),
         }
+        # Pruned while it was being transcribed: don't leave its metadata behind with no recording
+        if not os.path.isfile(path):
+            return
         # Replaced whole, so the page never reads half a file
         tmp_path = meta_path + '.tmp'
         try:
@@ -473,8 +490,6 @@ class ZmwHomeboard(ZmwMqttService):
             os.replace(tmp_path, meta_path)
         except OSError:
             log.error("Can't save the transcription of %s", path, exc_info=True)
-            return
-        log.info("Wake word recording %s from '%s' says: '%s'", meta.get('id'), meta.get('hb_id'), payload.get('text'))
 
     def _on_hb_online(self, hb_id):
         """Re-send the config we hold to a homeboard that just (re)started.

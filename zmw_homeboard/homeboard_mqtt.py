@@ -462,6 +462,15 @@ class HomeboardMqtt:
         return self._send_cmd(hb_id, 'ambience', 'announce',
                               json.dumps({"timeout": timeout_secs, "msg": msg}))
 
+    def voice_transcription(self, hb_id, req_id, text):
+        """Tell a homeboard what was understood of its wake word request req_id (see "Wake word" in the README).
+
+        An empty text means nothing was understood. The device drops it unless req_id is the request on its screen.
+        """
+        if as_positive_int(req_id) is None or not isinstance(text, str):
+            return False
+        return self._send_cmd(hb_id, 'voice', 'transcription', json.dumps({"id": req_id, "text": text}))
+
     def announce_audio(self, hb_id, uri, volume=None, msg=None):
         """Tell the homeboard that the speakers started playing `uri`.
 
