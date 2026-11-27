@@ -116,7 +116,9 @@ The device says "No answer" if neither arrives within 15 seconds of sending.
 
 For now this service only logs `triggered`, and saves each recording to a file with a random name in the config's
 `wakeword_dir` (the newest 50 are kept; `null` to not save them), logging its path. It's in the services' shared
-scratch dir (`~/run/baticasa/tmp`), so ZmwSpeechToText can read it by path.
+scratch dir (`~/run/baticasa/tmp`), so ZmwSpeechToText can read it by path. Next to each `<name>.wav` goes a
+`<name>.json` with the recording's fields (all but the audio), the homeboard it came from (`hb_id`) and when we got
+it (`received`, unix time). `wakeword.html` lists them, for debugging.
 Retained events, events from prefixes without an `availability` record, and ones without a numeric id
 are dropped. Sending it on to ZmwSpeechToText, and the replies back, is still to do.
 
@@ -129,6 +131,8 @@ which forward to the same commands as the MQTT interface:
 |----------|--------|--------|
 | `/get_homeboards_state` | GET | everything the UI renders (below) |
 | `/thumbnail_immich/<asset id>` | GET | thumbnail of an Immich picture on screen (below) |
+| `/wakeword/ls` | GET | the wake word recordings kept, newest first, with their metadata |
+| `/wakeword/file/<name>` | GET | download one of them |
 | `/cmd/<hb_id>/next`, `/cmd/<hb_id>/prev` | GET | move the slideshow |
 | `/cmd/<hb_id>/force_on`, `/cmd/<hb_id>/force_off` | GET | screen on/off |
 | `/cmd/<hb_id>/set_transition_time_secs/<secs>` | GET | seconds per picture, at least 1 |

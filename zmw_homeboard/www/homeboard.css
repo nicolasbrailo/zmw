@@ -154,6 +154,13 @@ body {
 .hb-settings > summary { cursor: pointer; box-shadow: none; }
 .hb-settings > summary:hover { color: var(--cfg); box-shadow: none; }
 
+/* Wake word page. The classless css lays tables out as flex rows; this one wants to be a plain table. */
+.hb-ww, .hb-ww thead, .hb-ww tbody, .hb-ww tr { display: revert; }
+.hb-ww td, .hb-ww th { display: revert; flex: revert; vertical-align: top; text-align: left; }
+.hb-ww { width: 100%; table-layout: auto; font-size: .85rem; }
+.hb-ww td:nth-child(1), .hb-ww td:nth-child(2) { white-space: nowrap; }
+.hb-ww td:nth-child(3) a { word-break: break-all; }
+
 @media (max-width: 30rem) {
   .hb-tile { grid-template-columns: 112px minmax(0, 1fr); }
 }

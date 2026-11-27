@@ -863,6 +863,7 @@ class Homeboard extends React.Component {
           {this.renderAlbumFilter()}
           {this.renderAnnounce()}
         </details>
+        <h4 className="dash-heading"><a href="wakeword.html">Wake word recordings</a></h4>
       </div>
     );
   }
@@ -936,5 +937,80 @@ class Homeboard extends React.Component {
       );
     }
     return selectedId ? this.renderDetail(selectedId) : this.renderList();
+  }
+}
+
+// wakeword.html: the wake word recordings the service kept, for debugging
+class HomeboardWakewords extends React.Component {
+  static buildProps() {
+    return {
+      key: 'HomeboardWakewords',
+    };
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = { recordings: null };
+    this.refresh = this.refresh.bind(this);
+    this._poller = null;
+  }
+
+  componentDidMount() {
+    this.refresh();
+    this._poller = mPoll(this.refresh, 10000);
+  }
+
+  componentWillUnmount() {
+    this._poller?.stop();
+  }
+
+  refresh() {
+    mJsonGet('/wakeword/ls', (data) => {
+      this.setState({ recordings: (data && data.recordings) || [] });
+    });
+  }
+
+  static describeDuration(r) {
+    const parts = [];
+    if (typeof r.duration_ms === 'number') parts.push(`${(r.duration_ms / 1000).toFixed(1)} s`);
+    if (r.end) parts.push(`ended by ${r.end}`);
+    return parts.join(', ');
+  }
+
+  render() {
+    const { recordings } = this.state;
+    // Relative, so it also works behind the dashboard's proxy prefix
+    const back = (<a className="hb-back" href="index.html">&larr; Homeboards</a>);
+    if (recordings === null) {
+      return (<div>{back}<div>Loading...</div></div>);
+    }
+    return (
+      <div>
+        {back}
+        <h4 className="dash-heading">{recordings.length} wake word recording(s), newest first</h4>
+        {recordings.length === 0 && (<p className="hb-sub">Nothing recorded yet.</p>)}
+        {recordings.length > 0 && (
+          <table className="hb-ww">
+            <thead>
+              <tr><th>When</th><th>Homeboard</th><th>Recording</th><th>Transcription</th></tr>
+            </thead>
+            <tbody>
+              {recordings.map((r) => (
+                <tr key={r.file}>
+                  <td>{new Date(r.received * 1000).toLocaleString()}</td>
+                  <td>{r.hb_id || (<em>unknown</em>)}</td>
+                  <td>
+                    <a href={`/wakeword/file/${encodeURIComponent(r.file)}`} download={r.file}>{r.file}</a>
+                    <div className="hb-sub">{HomeboardWakewords.describeDuration(r)}</div>
+                  </td>
+                  {/* Transcribing isn't wired up yet */}
+                  <td>Lorem ipsum</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
   }
 }

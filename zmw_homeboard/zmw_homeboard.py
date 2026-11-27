@@ -1,11 +1,13 @@
+import json
 import os
 import pathlib
+import re
 import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
 
-from flask import Response, abort, request
+from flask import Response, abort, request, send_from_directory
 
 from zzmw_lib.logs import build_logger
 from zzmw_lib.meteo_relay_client import METEO_RELAY_SVC, get_weather_from_relay
@@ -57,19 +59,37 @@ def can_play_audio(host_info):
 _WAKEWORD_KEEP = 50
 
 
+# What a recording's file is called: mkstemp's names, which is all the download route serves
+_WAKEWORD_FILE_RE = re.compile(r'^[A-Za-z0-9_-]+\.wav$')
+
+
+def _wakeword_recordings(wakeword_dir):
+    """The recordings in wakeword_dir, newest first, as DirEntry."""
+    return sorted((e for e in os.scandir(wakeword_dir) if e.is_file() and _WAKEWORD_FILE_RE.match(e.name)),
+                  key=lambda e: e.stat().st_mtime, reverse=True)
+
+
+def _wakeword_meta_path(wav_path):
+    """Where what we know about a recording is kept: next to it, same name, .json."""
+    return wav_path[:-len('.wav')] + '.json'
+
+
 def _prune_wakeword_dir(wakeword_dir):
     """Drops all but the newest _WAKEWORD_KEEP recordings, so the dir doesn't fill up."""
     try:
-        files = sorted((e for e in os.scandir(wakeword_dir) if e.is_file() and e.name.endswith('.wav')),
-                       key=lambda e: e.stat().st_mtime, reverse=True)
+        files = _wakeword_recordings(wakeword_dir)
     except OSError:
         log.warning("Can't list %s", wakeword_dir, exc_info=True)
         return
     for old in files[_WAKEWORD_KEEP:]:
-        try:
-            os.remove(old.path)
-        except OSError:
-            log.warning("Can't remove old wake word recording %s", old.path, exc_info=True)
+        for path in (old.path, _wakeword_meta_path(old.path)):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                # Recordings saved before their metadata was, have none
+                pass
+            except OSError:
+                log.warning("Can't remove old wake word recording %s", path, exc_info=True)
 
 
 class ZmwHomeboard(ZmwMqttService):
@@ -144,6 +164,9 @@ class ZmwHomeboard(ZmwMqttService):
 
         www.serve_url('/get_homeboards_state', self._get_homeboards_state)
         www.serve_url('/thumbnail_immich/<asset_id>', self._www_thumbnail_immich)
+        # The wake word page (wakeword.html), for debugging
+        www.serve_url('/wakeword/ls', self._www_wakeword_ls)
+        www.serve_url('/wakeword/file/<name>', self._www_wakeword_file)
         # Per-homeboard controls for the www UI. Each maps to the same command
         # the MQTT interface offers, so both routes behave identically.
         www.serve_url('/cmd/<hb_id>/next', self._www_next)
@@ -401,6 +424,11 @@ class ZmwHomeboard(ZmwMqttService):
             fd, path = tempfile.mkstemp(suffix='.wav', dir=self._wakeword_dir)
             with os.fdopen(fd, 'wb') as fp:
                 fp.write(req['audio'])
+            # The file name says nothing, so who said it and when goes next to it (for the wake word page)
+            meta = {k: v for k, v in req.items() if k != 'audio'}
+            meta.update({'hb_id': hb_id, 'received': time.time()})
+            with open(_wakeword_meta_path(path), 'w', encoding='utf-8') as fp:
+                json.dump(meta, fp)
         except OSError:
             log.error("Can't save wake word recording %s from '%s'", req['id'], hb_id, exc_info=True)
             return
@@ -544,6 +572,44 @@ class ZmwHomeboard(ZmwMqttService):
             return abort(502, description=str(e))
         # An asset never changes picture
         return Response(body, mimetype=ctype, headers={'Cache-Control': 'private, max-age=86400, immutable'})
+
+    def _www_wakeword_ls(self):
+        """The wake word recordings kept, newest first.
+
+        Each has `file` (for /wakeword/file/<file>), `received` (unix time we got it) and, from the metadata saved
+        next to it, `hb_id`, `id`, `ts`, `duration_ms`, `sample_rate` and `end`; those are null for a recording
+        saved without metadata, whose `received` is the file's mtime.
+        """
+        try:
+            files = _wakeword_recordings(self._wakeword_dir)
+        except FileNotFoundError:
+            # Nothing was recorded yet
+            return {"recordings": []}
+        except OSError:
+            log.warning("Can't list %s", self._wakeword_dir, exc_info=True)
+            return abort(500, description="Can't list the wake word recordings")
+        out = []
+        for e in files:
+            try:
+                with open(_wakeword_meta_path(e.path), encoding='utf-8') as fp:
+                    meta = json.load(fp)
+            except (OSError, ValueError):
+                meta = None
+            if not isinstance(meta, dict):
+                meta = {}
+            out.append({
+                "file": e.name,
+                "received": meta.get('received') or e.stat().st_mtime,
+                "size": e.stat().st_size,
+                **{k: meta.get(k) for k in ('hb_id', 'id', 'ts', 'duration_ms', 'sample_rate', 'end')},
+            })
+        return {"recordings": out}
+
+    def _www_wakeword_file(self, name):
+        if not _WAKEWORD_FILE_RE.match(name):
+            return abort(404)
+        # send_from_directory also refuses anything outside the dir
+        return send_from_directory(self._wakeword_dir, name, mimetype='audio/wav', as_attachment=True)
 
     def _www_next(self, hb_id):
         return {"ok": self._core.next(hb_id)}
