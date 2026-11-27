@@ -3506,49 +3506,19 @@ function SonosCtrlSection(props) {
   );
 }
 
-function ConfigSection(props) {
-  const [userLinks, setUserLinks] = React.useState([]);
-
-  React.useEffect(() => {
-    mJsonGet('/get_user_defined_links', (links) => {
-      setUserLinks(links || []);
-    });
-  }, []);
-
-  const handleClearCache = () => {
-    localStorage.clear();
-    location.reload();
-  };
-
-  return (
-    <section id="config-section">
-      <img className="section-badge" src="/settings.ico"/>
-      <div style={{display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.5rem', alignItems: 'center'}}>
-        <label>Fixes:</label>
-        <div><button alt="This fixes things if something is out of sync" onClick={handleClearCache}>Clear cache</button></div>
-
-        <label>More:</label>
-        <div>
-          {userLinks.map((link, idx) => (
-            <button key={idx} onClick={() => window.open(link.url, '_blank')}>
-              <img src={link.icon} alt=""/>
-              {link.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-
 // Main Dashboard Component
 function Dashboard(props) {
   const [expandedSection, setExpandedSection] = React.useState(null);
+  const [showExtras, setShowExtras] = React.useState(false);
+  const [userLinks, setUserLinks] = React.useState([]);
   const contentRef = React.useRef(null);
   const groupNames = useLightGroupNames();
   const { groupBadges, otherSensors } = useRoomTemperatures(groupNames);
   const sonos = useSpeakers();
+
+  React.useEffect(() => {
+    mJsonGet('/get_user_defined_links', (links) => setUserLinks(links || []));
+  }, []);
 
   const toggleSection = (section) => {
     const newSection = expandedSection === section ? null : section;
@@ -3575,6 +3545,22 @@ function Dashboard(props) {
   }
   const renderSvcBtn =
     (sectionName, serviceName) => renderIcoBtn(sectionName, `/${serviceName}/favicon.ico`);
+  const renderLinkBtn = (key, label, icoUrl, url) => {
+    return <button key={key} onClick={() => window.open(url, '_blank')}>
+              <img src={icoUrl} alt=""/>
+              {label}
+           </button>
+  }
+  // Only for services the dashboard proxies; hidden if the service isn't running
+  const renderSvcLinkBtn = (label, serviceName) => {
+    const url = ProxiedServices.get(serviceName);
+    return url && renderLinkBtn(serviceName, label, `/${serviceName}/favicon.ico`, url);
+  }
+
+  const handleClearCache = () => {
+    localStorage.clear();
+    location.reload();
+  };
 
   return (
     <main>
@@ -3582,7 +3568,6 @@ function Dashboard(props) {
       <LightsSection groupBadges={groupBadges} groupExtras={speakersByRoom(groupNames, sonos)} />
       <SensorsSection sensors={otherSensors} />
 
-      <h4 className="dash-heading">More</h4>
       <section id="zmw_other_services">
         { renderSvcBtn('Shout', 'ZmwSpeakerAnnounce') }
         { renderSvcBtn('Cat', 'ZmwCatSnackDispenser') }
@@ -3590,11 +3575,27 @@ function Dashboard(props) {
         { renderSvcBtn('Sucks', 'ZmwSucks') }
         { renderSvcBtn('Heat', 'ZmwHeating') }
         { renderSvcBtn('Sonos', 'ZmwSonosCtrl') }
+        {/* Always shown, so the main row doesn't change shape: the url is looked up on click, since the list of
+            proxied services may not have arrived on the first render */}
         <button onClick={() => window.open(ProxiedServices.get('ZmwServicemon'), '_blank')}>
           <img src="/ZmwServicemon/favicon.ico" alt=""/>
           Svcs
         </button>
-        { renderIcoBtn('Settings', '/settings.ico') }
+        <button data-selected={showExtras} onClick={() => setShowExtras(!showExtras)}>
+          <img src="/settings.ico" alt=""/>
+          More
+        </button>
+        {showExtras && <>
+          <hr className="dash-extras-sep"/>
+          { renderSvcLinkBtn('Homeboard', 'ZmwHomeboard') }
+          { renderSvcLinkBtn('Assistant', 'ZmwAssistant') }
+          { renderSvcLinkBtn('Visitors', 'ZmwVisitorDetect') }
+          {userLinks.map((link, idx) => renderLinkBtn(`user_link_${idx}`, link.label, link.icon, link.url))}
+          <button title="This fixes things if something is out of sync" onClick={handleClearCache}>
+            <img src="/clear_cache.svg" alt=""/>
+            Clear cache
+          </button>
+        </>}
       </section>
 
       <div ref={contentRef}>
@@ -3604,7 +3605,6 @@ function Dashboard(props) {
         {expandedSection === 'Sucks' && <SucksSection />}
         {expandedSection === 'Heat' && <MqttHeatingSection />}
         {expandedSection === 'Sonos' && <SonosCtrlSection />}
-        {expandedSection === 'Settings' && <ConfigSection />}
       </div>
     </main>
   );

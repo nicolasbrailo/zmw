@@ -132,7 +132,10 @@ main section { padding-bottom: 0; }
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 5px;
+  /* Icon-only tiles (user links with no label) keep the height of labelled ones */
+  min-height: 4.25rem;
   margin: 0;
   padding: .75rem 0 .55rem;
   border: 0;
@@ -144,10 +147,18 @@ main section { padding-bottom: 0; }
 }
 #zmw_other_services button img { width: 28px; height: 28px; }
 #zmw_other_services button[data-selected="true"] { background: var(--cemph); color: var(--cbg); }
+/* Separates the extra tiles opened from the "More" tile from the main ones */
+#zmw_other_services .dash-extras-sep {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--clight);
+}
 
-/* The panel opened from "More" embeds other services' UIs, written for pages that may scroll sideways. Let their
- * control rows wrap (eg the speaker announce row), and if something is still too wide, scroll it inside the panel
- * instead of widening the whole page. */
+/* The panel opened from the service tiles embeds other services' UIs, written for pages that may scroll sideways.
+ * Let their control rows wrap (eg the speaker announce row), and if something is still too wide, scroll it inside
+ * the panel instead of widening the whole page. */
 #zmw_other_services + div { min-width: 0; overflow-x: auto; }
 /* Room from the buttons above, and a few px inside the scroll area: classless cards draw their border as an outline,
  * outside the box, which the overflow would otherwise clip */
@@ -163,7 +174,7 @@ main .ctrl-box-with-range input[type=range] { flex: 1 1 8rem; width: auto; min-w
   main {
     display: grid;
     grid-template-columns: minmax(0, 3fr) minmax(26rem, 2fr);
-    grid-template-rows: auto auto auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto 1fr;
     column-gap: 28px;
     align-items: start;
   }
@@ -171,9 +182,8 @@ main .ctrl-box-with-range input[type=range] { flex: 1 1 8rem; width: auto; min-w
   main > .dash-alerts { grid-column: 1 / -1; grid-row: 1; }
   main > #lights-section { grid-column: 1; grid-row: 2 / -1; }
   main > #sensors-list-section { grid-row: 2; }
-  main > .dash-heading { grid-row: 3; }
-  main > #zmw_other_services { grid-row: 4; }
-  main > #zmw_other_services + div { grid-row: 5; }
+  main > #zmw_other_services { grid-row: 3; }
+  main > #zmw_other_services + div { grid-row: 4; }
   /* Top of the right column lines up with the top of the room tiles */
   main > #sensors-list-section .dash-heading { margin-top: 0; }
 

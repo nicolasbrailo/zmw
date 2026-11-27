@@ -5,7 +5,6 @@
   "COMMENT": "Which service will provide a list of scenes (user defined, so not part of ZMW)",
   "scenes_service_name": "Baticasa",
   "user_defined_links": [
-        {"label": "Servicemon", "url": "http://10.0.0.10:4200/index.html",      "icon": "http://10.0.0.10:4200/favicon.ico"},
         {"label": "Z2M",        "url": "http://10.0.0.10:4100",                 "icon": "/z2m.ico"},
         {"label": "",           "url": "http://bati.casa:5000/client_ls_txt",   "icon": "/wwwslider.ico"},
         {"label": "",           "url": "http://bati.casa:2222/photos",          "icon": "/immich.ico"},
