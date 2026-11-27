@@ -477,7 +477,7 @@ class Homeboard extends React.Component {
         {screen.screensaver === true && (<>, screensaver running</>)}
         {wanted !== null && !mismatch && (<> — held {wanted}{reason}</>)}
         {mismatch && (
-          <> — <strong style={{ color: 'var(--cerror)' }}>should be {wanted}{reason}</strong></>
+          <> — <strong className="text-error">should be {wanted}{reason}</strong></>
         )}
       </div>
     );
@@ -606,7 +606,7 @@ class Homeboard extends React.Component {
   boolCell(v, goodWhenTrue = true) {
     if (v == null) return (<span>—</span>);
     const good = goodWhenTrue ? (v === true) : (v === false);
-    return (<span style={{ color: good ? 'var(--cemph)' : 'var(--cerror)' }}>{v ? 'yes' : 'no'}</span>);
+    return (<span className={good ? 'text-primary' : 'text-error'}>{v ? 'yes' : 'no'}</span>);
   }
 
   // bad is whether the health telemetry is worth a warning
@@ -635,9 +635,9 @@ class Homeboard extends React.Component {
 
     const num = (v, unit = '') => (typeof v === 'number' ? `${v}${unit}` : '—');
     const { ageSec, stale, label: statusLabel, bad } = Homeboard.doctorStatus(doctor);
-    let statusColor = 'inherit';
-    if (stale || doctor.state === 'net_down') statusColor = 'var(--cerror)';
-    else if (doctor.state === 'ok') statusColor = 'var(--cemph)';
+    let statusClass;
+    if (stale || doctor.state === 'net_down') statusClass = 'text-error';
+    else if (doctor.state === 'ok') statusClass = 'text-primary';
 
     const throttled = this.decodeThrottled(doctor.throttled);
     const memMb = (typeof doctor.mem_avail_kb === 'number')
@@ -648,7 +648,7 @@ class Homeboard extends React.Component {
       <details className={bad ? 'warn' : ''}>
         <summary>Device health</summary>
         <div>
-          Status: <strong style={{ color: statusColor }}>{statusLabel}</strong>
+          Status: <strong className={statusClass}>{statusLabel}</strong>
           {ageSec !== null && (<> — updated {ageSec}s ago</>)}
         </div>
         <dl>
@@ -658,7 +658,7 @@ class Homeboard extends React.Component {
           <dt>Load (1m)</dt><dd>{typeof doctor.load1 === 'number' ? `${doctor.load1} / 4 cores` : '—'}</dd>
           <dt>Mem available</dt><dd>{memMb !== '—' ? `${memMb} / ~425 MB` : '—'}</dd>
           <dt>Power / thermal</dt>
-          <dd><span style={{ color: throttled.alert ? 'var(--cerror)' : 'inherit' }}>{throttled.text}</span></dd>
+          <dd><span className={throttled.alert ? 'text-error' : undefined}>{throttled.text}</span></dd>
 
           <dt>Gateway reachable</dt><dd>{this.boolCell(doctor.gateway_ok)}</dd>
           <dt>Photo provider</dt><dd>{this.boolCell(doctor.photo_ok)}</dd>
@@ -888,7 +888,7 @@ class Homeboard extends React.Component {
         <div className="hb-panel">
           <h3 className="hb-name">{hb.id}</h3>
           <div className="hb-sub">
-            Bridge: <strong style={{ color: online ? 'inherit' : 'var(--dash-err)' }}>{hb.state}</strong>
+            Bridge: <strong className={online ? undefined : 'text-error'}>{hb.state}</strong>
             {online && (<> · Slideshow: <strong>{Homeboard.describeSlideshow(slideshow)}</strong></>)}
           </div>
           <div className="hb-sub">
@@ -990,7 +990,7 @@ class HomeboardWakewords extends React.Component {
         <h4 className="dash-heading">{recordings.length} wake word recording(s), newest first</h4>
         {recordings.length === 0 && (<p className="hb-sub">Nothing recorded yet.</p>)}
         {recordings.length > 0 && (
-          <table className="hb-ww">
+          <table className="plain-table">
             <thead>
               <tr><th>When</th><th>Homeboard</th><th>Recording</th><th>Transcription</th></tr>
             </thead>

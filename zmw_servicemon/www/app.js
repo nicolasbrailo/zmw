@@ -81,13 +81,13 @@ class ServiceMonitor extends React.Component {
     return <section id="zmw_services" className="card">
       <h3>ZMW Services</h3>
         <p>{statusSummary}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+        <div className="card-grid">
         {services.map((srv) => (
-          <div key={srv.name} className="card" style={{ padding: '10px', position: 'relative', paddingBottom: '35px' }}>
-            <h4 style={{ margin: '0 0 5px 0' }}>
+          <div key={srv.name} className="card">
+            <h4>
             {srv.www ? (
               <a href={srv.www} target="_blank" rel="noopener noreferrer">
-                <img src={`${srv.www}/favicon.ico`} style={{ width: '16px', height: '16px', marginRight: '5px', verticalAlign: 'middle' }} />
+                <img src={`${srv.www}/favicon.ico`} className="icon-inline" />
                 {this.formatServiceName(srv)}
               </a>
             ) : (
@@ -95,19 +95,19 @@ class ServiceMonitor extends React.Component {
             )}
             </h4>
 
-            <div style={{ fontSize: '0.9em', color: this.isStale(srv.last_seen)? "red" : "inherit", marginBottom: '5px' }}>
+            <div className={this.isStale(srv.last_seen) ? 'text-small text-error' : 'text-small'}>
               {srv.last_seen || "Service down"}
             </div>
 
             {(srv.methods && (srv.methods.length > 0) && (
-            <div style={{ fontSize: '0.85em', color: '#666' }}>
+            <div className="text-small text-secondary">
               <em>Methods:</em> {srv.methods.join(", ")}
             </div>
             ))}
 
             {srv.www && (
               <a href={`${srv.www}/svc_logs.html`} target="_blank" rel="noopener noreferrer"
-                 style={{ position: 'absolute', bottom: '8px', right: '8px', fontSize: '0.8em' }}>
+                 className="card-corner">
                 📜 Logs
               </a>
             )}
@@ -133,19 +133,19 @@ class ServiceMonitor extends React.Component {
     return <section id="monitored_systemd_services" className="card">
       <h3>Monitored Systemd non-ZMW Services</h3>
         <p>{statusSummary}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+        <div className="card-grid">
         {services.map((srv) => (
-          <div key={srv.name} className="card" style={{ padding: '10px', position: 'relative', paddingBottom: '35px' }}>
-            <h4 style={{ margin: '0 0 5px 0' }}>
+          <div key={srv.name} className="card">
+            <h4>
               <strong>{srv.name}</strong>
             </h4>
 
-            <div style={{ fontSize: '0.9em', color: srv.running ? "green" : "red", marginBottom: '5px' }}>
+            <div className={srv.running ? 'text-small text-ok' : 'text-small text-error'}>
               {srv.status}
             </div>
 
             <a href={`/systemd_logs?service=${encodeURIComponent(srv.name)}`} target="_blank" rel="noopener noreferrer"
-               style={{ position: 'absolute', bottom: '8px', right: '8px', fontSize: '0.8em' }}>
+               className="card-corner">
               Logs
             </a>
           </div>

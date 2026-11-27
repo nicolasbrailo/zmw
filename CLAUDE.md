@@ -28,6 +28,11 @@ See `README.md` for the list, the architecture and the MQTT topic map. Part of b
   `fetch`, so the net-down state stays right (for non-HTTP failures, eg a websocket closing, call `mNetProbe()`).
   An app polling with `mPoll` already refreshes on becoming visible (if a full interval went by while hidden):
   don't repeat that fetch in `on_app_became_visible`. Keep `on_app_became_visible` cheap: it runs on every tab switch.
+- CSS: every page links only the compiled `/zmw.css` (built from `zzmw_lib/www/css/*`), never the part files, and
+  services don't ship their own css or `<style>` blocks. Use the classless defaults and the existing classes
+  (`02-components.css`, eg `.card`, `.warn`, `.text-error`, `.entry-*`, `.plain-table`) and the palette tokens
+  (`--cfg`, `--cemph`, `--cerror`...), never hardcoded colors. Avoid new classes unless absolutely necessary; if one is,
+  make it generic and add it to `02-components.css`. One or two small inline styles per service are fine.
 
 ## Sandbox
 

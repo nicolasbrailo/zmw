@@ -15,7 +15,7 @@
   #log_status {
     margin: 10px 0;
     font-size: 0.9em;
-    color: var(--color-grey);
+    color: var(--cdark);
   }
 
   #logs_container {
@@ -24,10 +24,10 @@
   }
 
   .log_entry {
-    font-family: var(--font-family-mono);
+    font: var(--font-c);
     font-size: 0.85em;
     padding: 8px;
-    border-bottom: 1px solid var(--color-lightGrey);
+    border-bottom: 1px solid var(--cmed);
   }
 
   .log_metadata {
@@ -37,7 +37,7 @@
   }
 
   .log_timestamp {
-    color: var(--color-darkGrey);
+    color: var(--cdark);
     white-space: nowrap;
   }
 
@@ -51,24 +51,24 @@
   .log_level_1,
   .log_level_2,
   .log_level_3 {
-    color: var(--color-error);
+    color: var(--cerror);
   }
 
   .log_level_4 {
-    color: #ff9800;
+    color: var(--zl-lit);
   }
 
   .log_level_5,
   .log_level_6 {
-    color: var(--color-success);
+    color: var(--cok);
   }
 
   .log_level_7 {
-    color: var(--color-grey);
+    color: var(--cdark);
   }
 
   .log_logger {
-    color: var(--color-secondary);
+    color: var(--cemph);
   }
 
   .log_message {
@@ -79,10 +79,10 @@
 
   .error_display {
     padding: 20px;
-    background-color: var(--bg-secondary-color);
-    border: 2px solid var(--color-error);
+    background-color: var(--dash-errbg);
+    border: 2px solid var(--cerror);
     border-radius: 10px;
-    color: var(--color-error);
+    color: var(--cerror);
   }
 </style>
 </head>

@@ -55,7 +55,6 @@ class WhatsAppMonitor extends React.Component {
   }
 
   renderMessage(msg, idx) {
-    const directionStyle = { color: '#4a90e2', fontWeight: 'bold' };
 
     let messageContent = '';
     let statusBadge = null;
@@ -63,7 +62,7 @@ class WhatsAppMonitor extends React.Component {
     if (msg.type === 'text') {
       messageContent = msg.text || '';
       if (msg.status === 'not_implemented') {
-        statusBadge = <span style={{ color: '#ff6b6b', marginLeft: '10px', fontSize: '0.9em' }}>[NOT IMPLEMENTED]</span>;
+        statusBadge = <span className="text-small text-error">[NOT IMPLEMENTED]</span>;
       }
     } else if (msg.type === 'photo') {
       messageContent = `📷 Photo: ${msg.path}`;
@@ -74,16 +73,16 @@ class WhatsAppMonitor extends React.Component {
 
     return (
       <li key={idx}>
-        <div style={{ marginBottom: '5px' }}>
-          <span style={directionStyle}>
+        <div className="entry-head">
+          <span className="entry-title">
             → Sent
           </span>
-          <span style={{ color: '#888', fontSize: '0.9em', marginLeft: '10px' }}>
+          <span className="entry-meta">
             {this.formatTimestamp(msg.timestamp)}
           </span>
           {statusBadge}
         </div>
-        <div style={{ marginLeft: '20px', fontSize: '0.95em' }}>
+        <div className="entry-body">
           {messageContent}
         </div>
       </li>

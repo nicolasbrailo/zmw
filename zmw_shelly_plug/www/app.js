@@ -70,7 +70,7 @@ class ShellyPlugMonitor extends React.Component {
     return (
       <div key={name} className={cardClass}>
         <p><b>{name}</b>, {powerStatus} - <small>updated: {stats.device_current_time || '?'}</small></p>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Power</td><td>{this.formatNumber(stats.active_power_watts, 1)} W</td></tr>
             <tr><td>Current</td><td>{this.formatNumber(stats.current_amps, 3)} A</td></tr>
@@ -78,7 +78,7 @@ class ShellyPlugMonitor extends React.Component {
             <tr><td>Temperature</td><td>{this.formatNumber(stats.temperature_c, 1)} °C</td></tr>
             <tr><td>Energy (last min)</td><td>{this.formatNumber(stats.last_minute_energy_use_watt_hour, 3)} Wh</td></tr>
             <tr><td>Energy (lifetime)</td><td>{this.formatNumber(stats.lifetime_energy_use_watt_hour, 3)} Wh</td></tr>
-            <tr><td>Uptime</td><td style={{wordBreak: 'break-word'}}>{uptime}</td></tr>
+            <tr><td>Uptime</td><td>{uptime}</td></tr>
             <tr><td>IP</td><td>{ipDisplay}</td></tr>
           </tbody>
         </table>

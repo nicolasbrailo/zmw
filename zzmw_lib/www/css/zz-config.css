@@ -1,24 +1,56 @@
+/* The ZMW look, for every service: Material 3 palette (material-color-utilities, tonal spot, seed #3b6ea8), light
+ * and dark following the device's setting. Loaded last, so it overrides the classless defaults. Services use these
+ * tokens and the classes in 02-components.css; they don't ship their own css. */
 :root {
-  padding-top:-10REM;
+  color-scheme: light;
   --rem:    12pt;       /* the base size of 1rem */
-  --width:  95%;      /* container width */
+  --width:  40rem;      /* container width; wider on big screens, below */
   --navpos: absolute;   /* fixed | absolute */
-  --font-p: ...;        /* font shorthand for paragraphs */
-  --font-h: ...;        /* font shorthand for headings and captions */
-  --font-c: ...;        /* font shorthand for code */
-  --border: ...;        /* border shorthand */
-  --ornament: "";  /* ornament content after sections */
+  --font-p: 1em/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-h: 1em/1.3 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-c: .9em/1.4 ui-monospace, "DejaVu Sans Mono", monospace;
+  --border: none;       /* no table / fieldset rules: cards and tiles separate things */
+  --ornament: "";       /* ornament content after sections */
 
-  --cfg:   #433;        /* foreground color for text  */
-  --cbg:   #fff;        /* background color for html  */
-  --cdark: #888;        /* dark gray for captions  */
-  --cmed:  #d1d1d1;     /* medium gray for borders, table separator  */
-  --clight:#f5f6f7;     /* light gray for different background (code) */
-  --clink: #07c;        /* color to indicate clickable elements */
-  --cemph: #088;        /* the primary emphasis color of the theme */
+  --cbg:   #f9f9fe;     /* background color for html */
+  --cfg:   #2e333a;     /* foreground color for text */
+  --cdark: #5b5f67;     /* secondary text, captions */
+  --clight:#e5e8f0;     /* tonal background: tiles, cards, code */
+  --cmed:  #aeb2bb;     /* borders, separators */
+  --clink: #416189;     /* clickable elements */
+  --cemph: #416189;     /* the primary emphasis color */
+  --cemphbg: #d7e3f8;   /* tonal background for emphasis (buttons, hints) */
+  --cok:   #386a20;     /* "this is fine" text */
+
+  --dash-err: #a83836;
+  --dash-errbg: #fa746f33;
+  --dash-errink: #6e0a12;
+  --cerror: var(--dash-err);
 
   --slider-thumb: var(--cemph);
   --slider-track: var(--cmed);
   --font-color: var(--cfg);
-  --cerror: #F00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --cbg:   #0c0e12;
+    --cfg:   #e2e5ef;
+    --cdark: #a7abb4;
+    --clight:#1c2026;
+    --cmed:  #444850;
+    --clink: #b0c8ec;
+    --cemph: #b0c8ec;
+    --cemphbg: #313c4c;
+    --cok:   #9cd67d;
+
+    --dash-err: #fa746f;
+    --dash-errbg: #871f21;
+    --dash-errink: #ff9993;
+  }
+}
+
+@media (min-width: 60rem) {
+  :root { --width: 84rem; }
 }

@@ -508,7 +508,7 @@ function Dashboard(props) {
 
 Dashboard.buildProps = () => ({ key: 'dashboard' });
 
-// Initialize: fetch prefetch data and start React app in parallel. Colors come from dashboard.css and follow the
+// Initialize: fetch prefetch data and start React app in parallel. Colors come from zmw.css (zz-config.css) and follow the
 // phone's light/dark setting, so there's no theme to restore.
 ProxiedServices.init(() => {}); // Fetch in background for badge links
 z2mStartReactApp('#app_root', Dashboard);

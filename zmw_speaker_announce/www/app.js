@@ -1,14 +1,3 @@
-// Table rows are flex (see zmw.css): give the header and body cells of a column the same flex so they line up
-const HISTORY_COL = (grow) => ({flex: `${grow} 1 0`});
-const HISTORY_COLS = {
-  time: HISTORY_COL(2),
-  source: HISTORY_COL(1.5),
-  phrase: HISTORY_COL(4),
-  voice: HISTORY_COL(2),
-  vol: HISTORY_COL(0.7),
-  link: HISTORY_COL(0.7),
-};
-
 class TTSAnnounce extends React.Component {
   static buildProps(api_base_path = '', https_server = '') {
     return {
@@ -277,29 +266,29 @@ class TTSAnnounce extends React.Component {
           {this.state.announcementHistory.length === 0 ? (
             <p>No announcements yet</p>
           ) : (
-            <table>
+            <table className="plain-table">
               <thead>
                 <tr>
-                  <th style={HISTORY_COLS.time}>Time</th>
-                  <th style={HISTORY_COLS.source}>Source</th>
-                  <th style={HISTORY_COLS.phrase}>Phrase</th>
-                  <th style={HISTORY_COLS.voice}>Voice</th>
-                  <th style={HISTORY_COLS.vol}>Vol</th>
-                  <th style={HISTORY_COLS.link}>Link</th>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Phrase</th>
+                  <th>Voice</th>
+                  <th>Vol</th>
+                  <th>Link</th>
                 </tr>
               </thead>
               <tbody>
                 {this.state.announcementHistory.slice().reverse().map((item, idx) => (
                   <tr key={idx}>
-                    <td style={HISTORY_COLS.time}>{new Date(item.timestamp).toLocaleString()}</td>
-                    <td style={HISTORY_COLS.source}>{item.source}</td>
-                    <td style={{...HISTORY_COLS.phrase, flexDirection: "column"}}>
+                    <td>{new Date(item.timestamp).toLocaleString()}</td>
+                    <td>{item.source}</td>
+                    <td>
                       {item.phrase}
                       {item.fuzzy_text && <div><small><em>{item.fuzzy_text}</em></small></div>}
                     </td>
-                    <td style={HISTORY_COLS.voice}>{item.voice || item.lang || "default"}</td>
-                    <td style={HISTORY_COLS.vol}>{item.volume}</td>
-                    <td style={HISTORY_COLS.link}><a href={item.uri}>🔊</a></td>
+                    <td>{item.voice || item.lang || "default"}</td>
+                    <td>{item.volume}</td>
+                    <td><a href={item.uri}>🔊</a></td>
                   </tr>
                 ))}
               </tbody>

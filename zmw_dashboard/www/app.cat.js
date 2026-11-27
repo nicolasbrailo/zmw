@@ -2492,17 +2492,6 @@ class SonosCtrl extends React.Component {
     );
   }
 }
-// Table rows are flex (see zmw.css): give the header and body cells of a column the same flex so they line up
-const HISTORY_COL = (grow) => ({flex: `${grow} 1 0`});
-const HISTORY_COLS = {
-  time: HISTORY_COL(2),
-  source: HISTORY_COL(1.5),
-  phrase: HISTORY_COL(4),
-  voice: HISTORY_COL(2),
-  vol: HISTORY_COL(0.7),
-  link: HISTORY_COL(0.7),
-};
-
 class TTSAnnounce extends React.Component {
   static buildProps(api_base_path = '', https_server = '') {
     return {
@@ -2771,29 +2760,29 @@ class TTSAnnounce extends React.Component {
           {this.state.announcementHistory.length === 0 ? (
             <p>No announcements yet</p>
           ) : (
-            <table>
+            <table className="plain-table">
               <thead>
                 <tr>
-                  <th style={HISTORY_COLS.time}>Time</th>
-                  <th style={HISTORY_COLS.source}>Source</th>
-                  <th style={HISTORY_COLS.phrase}>Phrase</th>
-                  <th style={HISTORY_COLS.voice}>Voice</th>
-                  <th style={HISTORY_COLS.vol}>Vol</th>
-                  <th style={HISTORY_COLS.link}>Link</th>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Phrase</th>
+                  <th>Voice</th>
+                  <th>Vol</th>
+                  <th>Link</th>
                 </tr>
               </thead>
               <tbody>
                 {this.state.announcementHistory.slice().reverse().map((item, idx) => (
                   <tr key={idx}>
-                    <td style={HISTORY_COLS.time}>{new Date(item.timestamp).toLocaleString()}</td>
-                    <td style={HISTORY_COLS.source}>{item.source}</td>
-                    <td style={{...HISTORY_COLS.phrase, flexDirection: "column"}}>
+                    <td>{new Date(item.timestamp).toLocaleString()}</td>
+                    <td>{item.source}</td>
+                    <td>
                       {item.phrase}
                       {item.fuzzy_text && <div><small><em>{item.fuzzy_text}</em></small></div>}
                     </td>
-                    <td style={HISTORY_COLS.voice}>{item.voice || item.lang || "default"}</td>
-                    <td style={HISTORY_COLS.vol}>{item.volume}</td>
-                    <td style={HISTORY_COLS.link}><a href={item.uri}>🔊</a></td>
+                    <td>{item.voice || item.lang || "default"}</td>
+                    <td>{item.volume}</td>
+                    <td><a href={item.uri}>🔊</a></td>
                   </tr>
                 ))}
               </tbody>
@@ -2909,7 +2898,7 @@ class ZmwSucks extends React.Component {
     return (
       <details>
         <summary>Lifetime stats</summary>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Runtime</td><td>{runtime}</td></tr>
             <tr><td>Area cleaned</td><td>{this.formatArea(l.sqft)}</td></tr>
@@ -2939,7 +2928,7 @@ class ZmwSucks extends React.Component {
     return (
       <details>
         <summary>Settings</summary>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Passes</td><td>
               <select value={s.passes} onChange={(e) => this.setSetting(r.alias, 'passes', e.target.value)}>
@@ -2984,7 +2973,7 @@ class ZmwSucks extends React.Component {
           <p className="warn"><small>The schedule in the service config is ignored, because the robot has its
             own. Remove one of them.</small></p>
         )}
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <thead><tr><th>Days</th><th>Time</th><th>Active</th></tr></thead>
           <tbody>
             {sch.entries.map((e, i) => (
@@ -3024,7 +3013,7 @@ class ZmwSucks extends React.Component {
     return (
       <details>
         <summary>History</summary>
-        <table style={{width: '100%', maxWidth: '500px'}}>
+        <table className="narrow-table">
           <thead><tr><th>Started</th><th>By</th><th>Result</th><th>Duration</th><th>Cleaned</th></tr></thead>
           <tbody>
             {runs.map((run, i) => (<React.Fragment key={i}>
@@ -3065,7 +3054,7 @@ class ZmwSucks extends React.Component {
     return (
       <div key={r.alias} className="card hint">
         <p><b>{r.alias}</b>: {r.state || '?'}</p>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Battery</td><td>{r.battery_pct ?? '?'}%</td></tr>
             <tr><td>Phase</td><td>{r.phase || '?'}</td></tr>
@@ -3612,7 +3601,7 @@ function Dashboard(props) {
 
 Dashboard.buildProps = () => ({ key: 'dashboard' });
 
-// Initialize: fetch prefetch data and start React app in parallel. Colors come from dashboard.css and follow the
+// Initialize: fetch prefetch data and start React app in parallel. Colors come from zmw.css (zz-config.css) and follow the
 // phone's light/dark setting, so there's no theme to restore.
 ProxiedServices.init(() => {}); // Fetch in background for badge links
 z2mStartReactApp('#app_root', Dashboard);

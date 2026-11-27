@@ -4,24 +4,12 @@
 <title>Spotify Service</title>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body { font-family: sans-serif; padding: 20px; }
-.info { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 10px 0; }
-#auth { padding: 10px; border-radius: 5px; margin: 10px 0; border-left: 5px solid #999; }
-#auth.ok { border-left-color: #2ecc71; background: #eafaf1; }
-#auth.broken { border-left-color: #e74c3c; background: #fdedec; }
-#auth h2 { margin: 0 0 5px 0; font-size: 1.1em; }
-#auth_reason { color: #c0392b; }
-#auth_action a {
-  display: inline-block; margin-top: 8px; padding: 8px 14px;
-  background: #1db954; color: #fff; border-radius: 20px; text-decoration: none;
-}
-</style>
+<link rel="stylesheet" href="/zmw.css" />
 </head>
 <body>
   <h1>MQTT Spotify Service</h1>
-  <div id="auth"><h2>Checking Spotify authentication…</h2></div>
-  <div class="info">
+  <div id="auth" class="card"><h2>Checking Spotify authentication…</h2></div>
+  <div class="card">
     <p>This service exposes Spotify control over MQTT.</p>
   </div>
   <h2>Available MQTT Topics</h2>
@@ -56,15 +44,15 @@ function renderAuth(state) {
   const div = document.getElementById('auth');
   const reauth = state.reauth_url || '/reauth';
   if (state.is_authenticated) {
-    div.className = 'ok';
+    div.className = 'card hint';
     div.innerHTML = '<h2>Spotify: authenticated</h2>' +
       '<div id="auth_action"><a href="' + reauth + '">Reauthorize anyway</a></div>';
     return;
   }
-  div.className = 'broken';
+  div.className = 'card warn';
   const reason = state.auth_error || 'Not authenticated';
   div.innerHTML = '<h2>Spotify: not authenticated</h2>' +
-    '<p id="auth_reason"></p>' +
+    '<p id="auth_reason" class="text-error"></p>' +
     '<div id="auth_action"><a href="' + reauth + '">Sign in to Spotify</a></div>';
   document.getElementById('auth_reason').textContent = reason;
 }
@@ -75,7 +63,7 @@ function pollAuth() {
     .then(renderAuth)
     .catch(e => {
       const div = document.getElementById('auth');
-      div.className = 'broken';
+      div.className = 'card warn';
       div.innerHTML = '<h2>Cannot reach the Spotify service</h2>';
       console.error(e);
     });

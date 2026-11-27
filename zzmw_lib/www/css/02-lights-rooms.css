@@ -1,23 +1,42 @@
 /* Lights as a grid of room tiles (MqttLights, class .zl). 02-lights.css is the old <details> layout, which other
  * services (Sonos, speaker announce) still reuse through #zmw_lights / .light_details, so it stays as is.
  *
- * Colors come from --zl-* tokens. By default they follow the classless theme; a page can set them to its own palette
- * (the dashboard does, see zmw_dashboard/www/dashboard.css). --zl-lit means "a light is on", --zl-on is for controls. */
+ * Colors come from --zl-* tokens: the palette of zz-config.css, plus the amber for "a light is on" (the M3 custom
+ * color, muted: hue 72, chroma 24-36). --zl-lit means "a light is on", --zl-on is for controls. */
 :root {
-  --zl-tile: var(--clight);
-  --zl-ink: var(--cfg);
-  --zl-sub: var(--cdark);
-  --zl-line: var(--cmed);
-  --zl-well: var(--cbg);
-  --zl-off: var(--cmed);
-  --zl-on: var(--cemph);
-  --zl-knob: #fff;
-  --zl-knoboff: var(--zl-knob);
-  --zl-tonal: var(--cbg);
-  --zl-ontonal: var(--clink);
-  --zl-lit: var(--cemph);
-  --zl-litbg: var(--cemphbg, var(--clight));
-  --zl-litsub: var(--cdark);
+  --zl-tile: #e5e8f0;
+  --zl-ink: #2e333a;
+  --zl-sub: #5b5f67;
+  --zl-line: #aeb2bb;
+  --zl-well: #ffffff;
+  --zl-off: #dfe2ec;
+  --zl-on: #416189;
+  --zl-knob: #f8f8ff;
+  --zl-knoboff: #767b83;
+  --zl-tonal: #d7e3f8;
+  --zl-ontonal: #475263;
+  --zl-lit: #d8a158;
+  --zl-litbg: #f1e3d6;
+  --zl-litsub: #785930;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --zl-tile: #1c2026;
+    --zl-ink: #e2e5ef;
+    --zl-sub: #a7abb4;
+    --zl-line: #444850;
+    --zl-well: #161a1f;
+    --zl-off: #444850;
+    --zl-on: #b0c8ec;
+    --zl-knob: #2a415f;
+    --zl-knoboff: #a7abb4;
+    --zl-tonal: #313c4c;
+    --zl-ontonal: #b4c0d4;
+    --zl-lit: #f6bc70;
+    --zl-litbg: #382e22;
+    --zl-litsub: #e8c08e;
+  }
 }
 
 .zl {

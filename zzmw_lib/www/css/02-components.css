@@ -1,0 +1,92 @@
+/* Shared building blocks. Services use these (and the classless ones: .card, .hint, .warn, .text-primary,
+ * .text-secondary...) instead of their own css or inline styles. Colors come from zz-config.css. */
+
+/* Small caps section heading */
+.dash-heading {
+  margin: 20px 4px 8px;
+  font: 700 .7rem/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--cdark);
+}
+.dash-heading a[href] { color: inherit; text-decoration: none; }
+
+/* Alerts: a red-tinted card with a "!" badge. Several in a row go in a .dash-alerts. */
+.dash-alerts { display: grid; gap: 6px; margin-bottom: 12px; }
+.dash-alert {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: start;
+  margin: 8px 0;
+  padding: .6rem .8rem;
+  border: 1px solid var(--dash-err);
+  border-radius: 12px;
+  background: var(--dash-errbg);
+  color: var(--dash-errink);
+  font-size: .82rem;
+}
+.dash-alerts > .dash-alert { margin: 0; }
+.dash-alert::before {
+  content: "!";
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--dash-err);
+  color: var(--cbg);
+  font-weight: 800;
+  font-size: .8rem;
+}
+.dash-alert b { font-weight: 650; }
+.dash-alert ul { margin: 0; padding-left: 1rem; }
+
+/* An entry in a history / log list: a head line (title, then meta bits), and an indented body */
+.entry-head { margin-bottom: 5px; }
+.entry-head > * + * { margin-left: 10px; }
+.entry-title { color: var(--cemph); font-weight: bold; }
+.entry-meta { color: var(--cdark); font-size: .9em; }
+.entry-body { margin-left: 20px; font-size: .95em; }
+
+/* Grid of small cards. A .card-corner link sits in the card's bottom right. */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.card-grid > .card { position: relative; padding: 10px; }
+.card-grid > .card:has(> .card-corner) { padding-bottom: 35px; }
+.card-grid h4 { margin: 0 0 5px; }
+.card-corner { position: absolute; bottom: 8px; right: 8px; font-size: .8em; }
+
+/* Favicon-sized image next to a name */
+.icon-inline { width: 16px; height: 16px; margin-right: 5px; vertical-align: middle; }
+
+/* A wrapping row of small things */
+.row-wrap { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+/* Key / value tables that shouldn't stretch across a wide page */
+.narrow-table { max-width: 500px; }
+
+/* A real table, eg a log: the classless css lays tables out as flex rows */
+.plain-table, .plain-table thead, .plain-table tbody, .plain-table tr { display: revert; }
+.plain-table td, .plain-table th { display: revert; flex: revert; vertical-align: top; text-align: left; }
+.plain-table { width: 100%; table-layout: auto; font-size: .85rem; }
+.plain-table td:first-child { white-space: nowrap; }
+.plain-table a { word-break: break-all; }
+.plain-table pre { margin: 0; white-space: pre-wrap; font-size: 85%; }
+
+/* On / off cells, eg a schedule */
+td[data-state="on"] button { background-color: var(--cemph); color: var(--cbg); }
+td[data-state="off"] button { background-color: var(--clight); color: var(--cdark); }
+
+/* Text that does something when clicked, without looking like a button */
+.clickable { cursor: pointer; text-decoration: underline dotted; }
+
+/* Text: .text-primary and .text-secondary come from the classless css */
+.text-error { color: var(--cerror); }
+.text-ok { color: var(--cok); }
+.text-small { font-size: .9em; }

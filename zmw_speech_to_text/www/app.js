@@ -44,18 +44,18 @@ class SpeechToText extends React.Component {
           <ul>
             {this.state.history.map((entry, idx) => (
               <li key={idx}>
-                <div style={{ marginBottom: '5px' }}>
-                  <span style={{ color: '#4a90e2', fontWeight: 'bold' }}>
+                <div className="entry-head">
+                  <span className="entry-title">
                     {entry.source}
                   </span>
                   {entry.file && (
-                    <span style={{ color: '#888', fontSize: '0.9em', marginLeft: '10px' }}>
+                    <span className="entry-meta">
                       {entry.file}
                     </span>
                   )}
                 </div>
-                <div style={{ marginLeft: '20px', fontSize: '0.95em' }}>
-                  {entry.text || <em style={{ color: '#888' }}>(empty)</em>}
+                <div className="entry-body">
+                  {entry.text || <em className="text-secondary">(empty)</em>}
                 </div>
               </li>
             ))}

@@ -30,17 +30,17 @@ class MeteoRelay extends React.Component {
   renderCurrent(weather) {
     const cur = weather && weather.current;
     if (!cur) {
-      return <em style={{ color: '#888' }}>(no current conditions)</em>;
+      return <em className="text-secondary">(no current conditions)</em>;
     }
     const units = weather.current_units || {};
     return (
-      <span>
+      <span className="row-wrap">
         {Object.keys(cur).filter((k) => k !== 'time' && k !== 'interval').map((k) => (
-          <span key={k} style={{ marginRight: '12px' }}>
+          <span key={k}>
             {k}: <b>{cur[k]}{units[k] ? ` ${units[k]}` : ''}</b>
           </span>
         ))}
-        <span style={{ color: '#888' }}>(at {cur.time})</span>
+        <span className="text-secondary">(at {cur.time})</span>
       </span>
     );
   }
@@ -48,19 +48,19 @@ class MeteoRelay extends React.Component {
   renderLocation(loc) {
     return (
       <li key={loc.id}>
-        <div style={{ marginBottom: '5px' }}>
-          <span style={{ color: '#4a90e2', fontWeight: 'bold' }}>
+        <div className="entry-head">
+          <span className="entry-title">
             #{loc.id} {loc.lat.toFixed(4)}, {loc.lon.toFixed(4)}
           </span>
-          {loc.is_default && <span style={{ marginLeft: '10px' }}>(default)</span>}
-          <span style={{ color: '#888', fontSize: '0.9em', marginLeft: '10px' }}>
+          {loc.is_default && <span>(default)</span>}
+          <span className="entry-meta">
             {loc.request_count} requests, last {loc.last_requested_at || 'never'}
           </span>
         </div>
-        <div style={{ marginLeft: '20px', fontSize: '0.95em' }}>
+        <div className="entry-body">
           <div>Fetched: {loc.fetched_at || 'never'}</div>
           {loc.last_error && (
-            <div style={{ color: '#e24a4a' }}>
+            <div className="text-error">
               Last error: {loc.last_error}
               {loc.next_retry_at ? ` (retry #${loc.retry_count} at ${loc.next_retry_at})` : ' (waiting for next periodic update)'}
             </div>
@@ -69,7 +69,7 @@ class MeteoRelay extends React.Component {
           {loc.weather && (
             <details>
               <summary>Full report</summary>
-              <pre style={{ fontSize: '0.8em', overflowX: 'auto' }}>{JSON.stringify(loc.weather, null, 2)}</pre>
+              <pre>{JSON.stringify(loc.weather, null, 2)}</pre>
             </details>
           )}
         </div>
@@ -84,10 +84,10 @@ class MeteoRelay extends React.Component {
     return (
       <ul>
         {clients.map((c) => (
-          <li key={`${c.transport}/${c.client}`}>
-            <span style={{ color: '#4a90e2', fontWeight: 'bold' }}>{c.client}</span>
-            <span style={{ marginLeft: '10px' }}>[{c.transport}]</span>
-            <span style={{ color: '#888', fontSize: '0.9em', marginLeft: '10px' }}>
+          <li key={`${c.transport}/${c.client}`} className="entry-head">
+            <span className="entry-title">{c.client}</span>
+            <span>[{c.transport}]</span>
+            <span className="entry-meta">
               {c.request_count} requests, last {c.last_seen_at}, location #{c.last_location_id}
               {c.user_agent ? ` - ${c.user_agent}` : ''}
             </span>
@@ -109,7 +109,7 @@ class MeteoRelay extends React.Component {
           <img src="/favicon.ico" alt="Meteo relay service" />
           Known locations
         </h3>
-        <p style={{ color: '#888' }}>Refreshed every {st.update_interval_minutes} minutes</p>
+        <p className="text-secondary">Refreshed every {st.update_interval_minutes} minutes</p>
         <ul>
           {st.known_locations.map((loc) => this.renderLocation(loc))}
         </ul>

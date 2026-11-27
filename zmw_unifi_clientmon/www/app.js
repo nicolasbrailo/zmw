@@ -62,7 +62,7 @@ class UnifiClientmon extends React.Component {
 
   renderForgetCell(d) {
     if (!d.known) {
-      return <td style={{ color: '#888' }} title="Will be reported as new next time it's seen online">forgotten</td>;
+      return <td className="text-secondary" title="Will be reported as new next time it's seen online">forgotten</td>;
     }
     return (
       <td>
@@ -97,7 +97,7 @@ class UnifiClientmon extends React.Component {
 
   renderDeviceName(d) {
     if (d.alias && d.alias !== d.hostname) {
-      return <span>{d.alias} <span style={{ color: '#888', fontSize: '0.85em' }}>({d.hostname})</span></span>;
+      return <span>{d.alias} <span className="text-small text-secondary">({d.hostname})</span></span>;
     }
     return d.hostname;
   }
@@ -126,7 +126,7 @@ class UnifiClientmon extends React.Component {
       <td>
         <span
           onClick={() => this.startEditAlias(d.mac, d.alias)}
-          style={{ cursor: 'pointer', textDecoration: 'underline dotted', color: '#aaa' }}
+          className="clickable text-secondary"
           title="Click to edit alias"
         >
           {d.alias || '-'}
@@ -140,11 +140,7 @@ class UnifiClientmon extends React.Component {
       <td>
         <span
           onClick={() => this.setTrusted(d.mac, !d.trusted)}
-          style={{
-            cursor: 'pointer',
-            color: d.trusted ? '#4caf50' : '#ff6b6b',
-            fontWeight: 'bold',
-          }}
+          className={d.trusted ? 'clickable text-ok' : 'clickable text-error'}
           title={d.trusted
             ? (d.trust_reason ? `Trusted: ${d.trust_reason}. ` : '') + 'Click to mark untrusted'
             : 'Click to mark trusted'}
@@ -173,9 +169,9 @@ class UnifiClientmon extends React.Component {
           <ul>
             {presenceEntries.map(([user, isHome]) => (
               <li key={user}>
-                <span style={{ color: isHome ? '#4caf50' : '#ff6b6b', fontWeight: 'bold' }}>
+                <strong className={isHome ? 'text-ok' : 'text-error'}>
                   {isHome ? 'HOME' : 'AWAY'}
-                </span>
+                </strong>
                 {' '}{user}
               </li>
             ))}
@@ -184,7 +180,7 @@ class UnifiClientmon extends React.Component {
 
         {untrustedDevices.length > 0 && (
           <div>
-            <h3 style={{ color: '#ff6b6b' }}>Untrusted Devices</h3>
+            <h3 className="text-error">Untrusted Devices</h3>
             <table>
               <thead>
                 <tr><th>Name</th><th>MAC</th><th>IP</th><th>Status</th><th>Trust</th><th>Alias</th><th></th></tr>
@@ -196,9 +192,9 @@ class UnifiClientmon extends React.Component {
                     <td>{d.mac}</td>
                     <td>{d.ip || '-'}</td>
                     <td>
-                      <span style={{ color: d.online ? '#4caf50' : '#888', fontWeight: 'bold' }}>
+                      <strong className={d.online ? 'text-ok' : 'text-secondary'}>
                         {d.online ? 'ONLINE' : 'OFFLINE'}
-                      </span>
+                      </strong>
                     </td>
                     {this.renderTrustCell(d)}
                     {this.renderAliasCell(d)}
@@ -222,9 +218,9 @@ class UnifiClientmon extends React.Component {
                 <td>{d.mac}</td>
                 <td>{d.ip || '-'}</td>
                 <td>
-                  <span style={{ color: d.online ? '#4caf50' : '#888', fontWeight: 'bold' }}>
+                  <strong className={d.online ? 'text-ok' : 'text-secondary'}>
                     {d.online ? 'ONLINE' : 'OFFLINE'}
-                  </span>
+                  </strong>
                 </td>
                 {this.renderTrustCell(d)}
                 {this.renderAliasCell(d)}
@@ -241,13 +237,13 @@ class UnifiClientmon extends React.Component {
           <ul>
             {[...this.state.events].reverse().map((ev, idx) => (
               <li key={idx}>
-                <span style={{ color: ev.event === 'joined' ? '#4caf50' : '#ff6b6b', fontWeight: 'bold' }}>
+                <strong className={ev.event === 'joined' ? 'text-ok' : 'text-error'}>
                   {ev.event.toUpperCase()}
-                </span>
+                </strong>
                 {' '}
                 <span>{ev.hostname} ({ev.mac}) {ev.ip}</span>
                 {' '}
-                <span style={{ color: '#888', fontSize: '0.9em' }}>
+                <span className="text-small text-secondary">
                   {this.formatTimestamp(ev.time)}
                 </span>
               </li>

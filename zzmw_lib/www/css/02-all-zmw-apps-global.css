@@ -1,9 +1,13 @@
+body {
+  padding: 12px max(12px, env(safe-area-inset-right)) 24px max(12px, env(safe-area-inset-left));
+}
 #app_root {
   margin-top: 5px;
 }
 .app-loading {
   width: 100%;
   background-color: var(--cemph);
+  color: var(--cbg);
   padding: 1em;
   border-radius: 1em;
 }
@@ -22,5 +26,5 @@
   transform: translate(-50%, -50%);
   padding: 20px;
   max-height: 80vh;
-  background-color: #fee;
+  background-color: var(--cbg);
 }

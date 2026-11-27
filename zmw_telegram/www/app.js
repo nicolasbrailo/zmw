@@ -55,9 +55,7 @@ class TelegramMonitor extends React.Component {
   }
 
   renderMessage(msg, idx) {
-    const directionStyle = msg.direction === 'sent'
-      ? { color: '#4a90e2', fontWeight: 'bold' }
-      : { color: '#50c878', fontWeight: 'bold' };
+    const directionClass = msg.direction === 'sent' ? 'entry-title' : 'entry-title text-ok';
 
     let messageContent = '';
     let chatId = '';
@@ -105,18 +103,18 @@ class TelegramMonitor extends React.Component {
 
     return (
       <li key={idx}>
-        <div style={{ marginBottom: '5px' }}>
-          <span style={directionStyle}>
+        <div className="entry-head">
+          <span className={directionClass}>
             {msg.direction === 'sent' ? '→ Sent' : '← Received'}
           </span>
-          <span style={{ color: '#888', fontSize: '0.9em', marginLeft: '10px' }}>
+          <span className="entry-meta">
             {this.formatTimestamp(msg.timestamp)}
           </span>
-          <span style={{ fontSize: '0.9em' }}>
+          <span className="text-small">
             {fromInfo}
           </span>
         </div>
-        <div style={{ marginLeft: '20px', fontSize: '0.95em' }}>
+        <div className="entry-body">
           {messageContent}
         </div>
       </li>

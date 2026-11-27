@@ -103,7 +103,7 @@ class ZmwSucks extends React.Component {
     return (
       <details>
         <summary>Lifetime stats</summary>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Runtime</td><td>{runtime}</td></tr>
             <tr><td>Area cleaned</td><td>{this.formatArea(l.sqft)}</td></tr>
@@ -133,7 +133,7 @@ class ZmwSucks extends React.Component {
     return (
       <details>
         <summary>Settings</summary>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Passes</td><td>
               <select value={s.passes} onChange={(e) => this.setSetting(r.alias, 'passes', e.target.value)}>
@@ -178,7 +178,7 @@ class ZmwSucks extends React.Component {
           <p className="warn"><small>The schedule in the service config is ignored, because the robot has its
             own. Remove one of them.</small></p>
         )}
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <thead><tr><th>Days</th><th>Time</th><th>Active</th></tr></thead>
           <tbody>
             {sch.entries.map((e, i) => (
@@ -218,7 +218,7 @@ class ZmwSucks extends React.Component {
     return (
       <details>
         <summary>History</summary>
-        <table style={{width: '100%', maxWidth: '500px'}}>
+        <table className="narrow-table">
           <thead><tr><th>Started</th><th>By</th><th>Result</th><th>Duration</th><th>Cleaned</th></tr></thead>
           <tbody>
             {runs.map((run, i) => (<React.Fragment key={i}>
@@ -259,7 +259,7 @@ class ZmwSucks extends React.Component {
     return (
       <div key={r.alias} className="card hint">
         <p><b>{r.alias}</b>: {r.state || '?'}</p>
-        <table style={{width: '100%', maxWidth: '500px', tableLayout: 'fixed'}}>
+        <table className="narrow-table">
           <tbody>
             <tr><td>Battery</td><td>{r.battery_pct ?? '?'}%</td></tr>
             <tr><td>Phase</td><td>{r.phase || '?'}</td></tr>

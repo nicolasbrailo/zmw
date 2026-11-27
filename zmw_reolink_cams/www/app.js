@@ -340,7 +340,7 @@ function NVRViewer(props) {
                       </figcaption>
                     </a>
                     {rec.faces && rec.faces.length > 0 && (
-                      <div style={{display: 'flex', flexWrap: 'wrap', gap: '.4rem'}}>
+                      <div className="row-wrap">
                         {rec.faces.map((face, fidx) => (
                           <a key={fidx} href={face.url} target="_blank" title={face.label}
                              style={{textAlign: 'center', fontSize: '75%', textDecoration: 'none'}}>
